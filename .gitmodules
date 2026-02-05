@@ -1,0 +1,9 @@
+[submodule "DTC.Core"]
+	path = DTC.Core
+	url = https://github.com/deanthecoder/DTC.Core.git
+[submodule "DTC.Emulation"]
+	path = DTC.Emulation
+	url = https://github.com/deanthecoder/DTC.Emulation.git
+[submodule "external/m68000"]
+	path = external/m68000
+	url = https://github.com/SingleStepTests/m68000
