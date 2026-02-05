@@ -22,6 +22,7 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\DTC.68000\DTC.68000.csproj" />
         <ProjectReference Include="..\DTC.Emulation\DTC.Emulation.csproj" />
     </ItemGroup>
 

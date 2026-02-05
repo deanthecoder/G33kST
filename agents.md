@@ -58,6 +58,7 @@ Follow the repository’s established style. When in doubt, align with these pre
   - All source files include the standard header comment.
   - `//` comments end with a full stop if they’re sentences.
 - Classes and interfaces (except unit tests) include a brief XML summary comment.
+- Commit messages are prefixed with `Fix:`, `Feature:`, or `Other:`.
 - Keep public APIs small and intention-revealing.
 
 ## Tests

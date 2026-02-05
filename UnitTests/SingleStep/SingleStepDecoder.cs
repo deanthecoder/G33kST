@@ -69,6 +69,12 @@ public static class SingleStepDecoder
         return tests;
     }
 
+    public static IReadOnlyList<SingleStepTestCase> LoadDecodedTests(FileInfo decodedFile)
+    {
+        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        return ReadJson(decodedFile, options);
+    }
+
     private static SingleStepTestFile DecodeFileIfNeeded(FileInfo sourceFile, FileInfo outputFile)
     {
         if (!outputFile.Exists() || outputFile.LastWriteTimeUtc < sourceFile.LastWriteTimeUtc)

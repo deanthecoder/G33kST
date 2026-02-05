@@ -20,5 +20,12 @@ public sealed class IllegalLineaTests : CpuTestBase
     public static IEnumerable<TestCaseData> TestFiles => CreateCases("ILLEGAL_LINEA");
 
     [TestCaseSource(nameof(TestFiles))]
-    public void FileDecodesAndProducesOutput(FileInfo sourceFile) => AssertFileDecoded(sourceFile);
+    public void FileDecodesAndSeedsRam(FileInfo sourceFile)
+    {
+        AssertFileDecoded(sourceFile);
+
+        var testCases = LoadTests(sourceFile);
+        foreach (var testCase in testCases)
+            ApplyInitialRamState(testCase);
+    }
 }

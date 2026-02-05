@@ -20,5 +20,12 @@ public sealed class SccTests : CpuTestBase
     public static IEnumerable<TestCaseData> TestFiles => CreateCases("Scc");
 
     [TestCaseSource(nameof(TestFiles))]
-    public void FileDecodesAndProducesOutput(FileInfo sourceFile) => AssertFileDecoded(sourceFile);
+    public void FileDecodesAndSeedsRam(FileInfo sourceFile)
+    {
+        AssertFileDecoded(sourceFile);
+
+        var testCases = LoadTests(sourceFile);
+        foreach (var testCase in testCases)
+            ApplyInitialRamState(testCase);
+    }
 }
