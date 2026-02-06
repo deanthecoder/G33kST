@@ -29,7 +29,6 @@ https://github.com/SingleStepTests/m68000
 ## Useful links
 - [Motorola 68000 Programmer's Reference Manual](https://www.nxp.com/docs/en/reference-manual/M68000PRM.pdf)
 - [Atari ST Wiki (Hardware Overview)](https://en.wikipedia.org/wiki/Atari_ST)
-- [Atari ST Memory Map (FAQ)](http://www.atari-forum.com/wiki/index.php/Memory_Map)
 - [M68k opcode maps (PDF)](http://goldencrystal.free.fr/M68kOpcodes-v2.3.pdf)
 
 ## License

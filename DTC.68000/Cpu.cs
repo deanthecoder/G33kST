@@ -17,13 +17,28 @@ namespace DTC.M68000;
 /// </summary>
 public sealed class Cpu : CpuBase
 {
+    private const uint ResetStackPointerVectorAddress = 0x000000;
+    private const uint ResetProgramCounterVectorAddress = 0x000004;
+    
+    // 0x2700 = supervisor mode with IPL 7, trace off, and XNZVC clear.
+    private const ushort InitialStatusRegister = 0x2700;
+
+    public Registers Registers { get; } = new();
+
     public Cpu(Bus bus)
         : base(bus)
     {
     }
 
-    public override void Reset() => throw new NotImplementedException();
-    public override void Step() => throw new NotImplementedException();
+    public override void Reset()
+    {
+        Registers.Reset();
+        Registers.SupervisorStackPointer = Bus.Read32BigEndian(ResetStackPointerVectorAddress);
+        Registers.ProgramCounter = Bus.Read32BigEndian(ResetProgramCounterVectorAddress);
+        Registers.StatusRegister = InitialStatusRegister;
+    }
+
     public override byte Read8(uint address) => throw new NotImplementedException();
     public override void Write8(uint address, byte value) => throw new NotImplementedException();
+    public override void Step() => throw new NotImplementedException();
 }
