@@ -20,7 +20,7 @@ public sealed class LeaTests : CpuTestBase
     public static IEnumerable<TestCaseData> TestFiles => CreateCases("LEA");
 
     [TestCaseSource(nameof(TestFiles))]
-    public void FileDecodesAndSeedsRam(FileInfo sourceFile)
+    public void Run(FileInfo sourceFile)
     {
         RunJsonTests(sourceFile);
     }

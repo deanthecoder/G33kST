@@ -20,7 +20,7 @@ public sealed class ORItoSRTests : CpuTestBase
     public static IEnumerable<TestCaseData> TestFiles => CreateCases("ORItoSR");
 
     [TestCaseSource(nameof(TestFiles))]
-    public void FileDecodesAndSeedsRam(FileInfo sourceFile)
+    public void Run(FileInfo sourceFile)
     {
         RunJsonTests(sourceFile);
     }

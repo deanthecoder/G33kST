@@ -20,7 +20,7 @@ public sealed class IllegalLineaTests : CpuTestBase
     public static IEnumerable<TestCaseData> TestFiles => CreateCases("ILLEGAL_LINEA");
 
     [TestCaseSource(nameof(TestFiles))]
-    public void FileDecodesAndSeedsRam(FileInfo sourceFile)
+    public void Run(FileInfo sourceFile)
     {
         RunJsonTests(sourceFile);
     }

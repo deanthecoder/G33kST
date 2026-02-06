@@ -22,7 +22,7 @@ public sealed class NopTests : CpuTestBase
     protected override bool ExecuteStep => true;
 
     [TestCaseSource(nameof(TestFiles))]
-    public void FileDecodesAndSeedsRam(FileInfo sourceFile)
+    public void Run(FileInfo sourceFile)
     {
         RunJsonTests(sourceFile);
     }

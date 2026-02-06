@@ -20,7 +20,7 @@ public sealed class BchgTests : CpuTestBase
     public static IEnumerable<TestCaseData> TestFiles => CreateCases("BCHG");
 
     [TestCaseSource(nameof(TestFiles))]
-    public void FileDecodesAndSeedsRam(FileInfo sourceFile)
+    public void Run(FileInfo sourceFile)
     {
         RunJsonTests(sourceFile);
     }

@@ -20,7 +20,7 @@ public sealed class MoveTests : CpuTestBase
     public static IEnumerable<TestCaseData> TestFiles => CreateCases("MOVE");
 
     [TestCaseSource(nameof(TestFiles))]
-    public void FileDecodesAndSeedsRam(FileInfo sourceFile)
+    public void Run(FileInfo sourceFile)
     {
         RunJsonTests(sourceFile);
     }

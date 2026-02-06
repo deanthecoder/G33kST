@@ -20,7 +20,7 @@ public sealed class SccTests : CpuTestBase
     public static IEnumerable<TestCaseData> TestFiles => CreateCases("Scc");
 
     [TestCaseSource(nameof(TestFiles))]
-    public void FileDecodesAndSeedsRam(FileInfo sourceFile)
+    public void Run(FileInfo sourceFile)
     {
         RunJsonTests(sourceFile);
     }

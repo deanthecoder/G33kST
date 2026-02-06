@@ -20,7 +20,7 @@ public sealed class EorTests : CpuTestBase
     public static IEnumerable<TestCaseData> TestFiles => CreateCases("EOR");
 
     [TestCaseSource(nameof(TestFiles))]
-    public void FileDecodesAndSeedsRam(FileInfo sourceFile)
+    public void Run(FileInfo sourceFile)
     {
         RunJsonTests(sourceFile);
     }

@@ -20,7 +20,7 @@ public sealed class RteTests : CpuTestBase
     public static IEnumerable<TestCaseData> TestFiles => CreateCases("RTE");
 
     [TestCaseSource(nameof(TestFiles))]
-    public void FileDecodesAndSeedsRam(FileInfo sourceFile)
+    public void Run(FileInfo sourceFile)
     {
         RunJsonTests(sourceFile);
     }

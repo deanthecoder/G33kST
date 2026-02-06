@@ -20,7 +20,7 @@ public sealed class LsrTests : CpuTestBase
     public static IEnumerable<TestCaseData> TestFiles => CreateCases("LSR");
 
     [TestCaseSource(nameof(TestFiles))]
-    public void FileDecodesAndSeedsRam(FileInfo sourceFile)
+    public void Run(FileInfo sourceFile)
     {
         RunJsonTests(sourceFile);
     }

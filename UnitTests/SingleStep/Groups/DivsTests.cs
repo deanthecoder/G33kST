@@ -20,7 +20,7 @@ public sealed class DivsTests : CpuTestBase
     public static IEnumerable<TestCaseData> TestFiles => CreateCases("DIVS");
 
     [TestCaseSource(nameof(TestFiles))]
-    public void FileDecodesAndSeedsRam(FileInfo sourceFile)
+    public void Run(FileInfo sourceFile)
     {
         RunJsonTests(sourceFile);
     }
