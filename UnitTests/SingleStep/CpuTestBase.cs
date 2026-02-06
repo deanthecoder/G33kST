@@ -21,9 +21,8 @@ public abstract class CpuTestBase
 {
     private static readonly Lazy<IReadOnlyDictionary<string, FileInfo[]>> m_filesByBase = new(BuildFilesByBase);
     private IReadOnlyDictionary<string, SingleStepTestFile> m_decodedLookup;
-
-    protected Bus Bus { get; private set; }
-    protected Cpu Cpu { get; private set; }
+    private Bus m_bus;
+    private Cpu m_cpu;
 
     protected abstract string GroupName { get; }
     protected abstract IReadOnlyList<FileInfo> SourceFiles { get; }
@@ -40,57 +39,61 @@ public abstract class CpuTestBase
     [SetUp]
     public void SetupCpu()
     {
-        Bus = CreateBus();
-        Cpu = new Cpu(Bus);
+        m_bus = new Bus(0x1000000);
+        m_cpu = new Cpu(m_bus);
     }
 
-    protected void AssertFileDecoded(FileInfo sourceFile)
+    private void AssertFileDecoded(FileInfo sourceFile)
     {
         var decoded = GetDecodedFile(sourceFile);
         Assert.That(decoded.DecodedFile.Exists(), Is.True);
         Assert.That(decoded.TestCount, Is.GreaterThan(0));
     }
 
-    protected IReadOnlyList<SingleStepTestCase> LoadTests(FileInfo sourceFile)
+    private IReadOnlyList<SingleStepTestCase> LoadTests(FileInfo sourceFile)
     {
         var decoded = GetDecodedFile(sourceFile);
         return SingleStepDecoder.LoadDecodedTests(decoded.DecodedFile);
     }
 
-    protected void ApplyInitialRamState(SingleStepTestCase testCase)
+    private void ApplyInitialRamState(SingleStepTestCase testCase)
     {
-        if (Bus == null)
+        if (m_bus == null)
             throw new InvalidOperationException("Bus has not been created for this test.");
 
-        var data = Bus.MainMemory.Data;
+        var data = m_bus.MainMemory.Data;
         Array.Clear(data, 0, data.Length);
 
         foreach (var entry in testCase.Initial.Ram)
         {
             if (entry.Address >= (uint)data.Length)
-                throw new ArgumentOutOfRangeException(
-                    nameof(testCase),
-                    $"RAM address 0x{entry.Address:X} is outside bus space (0x{data.Length:X}).");
-
+                throw new ArgumentOutOfRangeException(nameof(testCase), $"RAM address 0x{entry.Address:X} is outside bus space (0x{data.Length:X}).");
             data[(int)entry.Address] = entry.Value;
         }
     }
 
-    protected static IReadOnlyList<FileInfo> GetFiles(string baseName)
+    protected void RunJsonTests(FileInfo sourceFile)
     {
-        if (m_filesByBase.Value.TryGetValue(baseName, out var files))
-            return files;
+        AssertFileDecoded(sourceFile);
 
-        return Array.Empty<FileInfo>();
+        var testCases = LoadTests(sourceFile);
+        Assert.Multiple(() =>
+        {
+            foreach (var testCase in testCases)
+                RunJsonTestCase(testCase);
+        });
     }
+
+    private void RunJsonTestCase(SingleStepTestCase testCase) => ApplyInitialRamState(testCase);
+
+    protected static IReadOnlyList<FileInfo> GetFiles(string baseName) =>
+        m_filesByBase.Value.TryGetValue(baseName, out var files) ? files : [];
 
     protected static IEnumerable<TestCaseData> CreateCases(string baseName)
     {
         foreach (var file in GetFiles(baseName))
-            yield return new TestCaseData(file).SetName(file.LeafName());
+            yield return new TestCaseData(file).SetName(file.LeafName().Replace(".json", string.Empty));
     }
-
-    protected virtual Bus CreateBus() => new(0x1000000);
 
     private SingleStepTestFile GetDecodedFile(FileInfo sourceFile)
     {

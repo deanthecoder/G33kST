@@ -18,7 +18,7 @@ public sealed class SingleStepTestCase
     public string Name { get; init; } = string.Empty;
     public SingleStepCpuState Initial { get; init; } = new();
     public SingleStepCpuState Final { get; init; } = new();
-    public List<SingleStepTransaction> Transactions { get; init; } = new();
+    public List<SingleStepTransaction> Transactions { get; init; } = [];
     public uint Length { get; init; }
 }
 
@@ -34,7 +34,7 @@ public sealed class SingleStepCpuState
     public uint Sr { get; init; }
     public uint Pc { get; init; }
     public uint[] Prefetch { get; init; } = new uint[2];
-    public List<SingleStepRamByte> Ram { get; init; } = new();
+    public List<SingleStepRamByte> Ram { get; init; } = [];
 }
 
 /// <summary>

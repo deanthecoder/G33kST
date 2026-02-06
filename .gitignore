@@ -419,3 +419,4 @@ FodyWeavers.xsd
 
 # External test data (decoded)
 external/m68000/decoded/
+.idea/**

@@ -22,10 +22,6 @@ public sealed class RorTests : CpuTestBase
     [TestCaseSource(nameof(TestFiles))]
     public void FileDecodesAndSeedsRam(FileInfo sourceFile)
     {
-        AssertFileDecoded(sourceFile);
-
-        var testCases = LoadTests(sourceFile);
-        foreach (var testCase in testCases)
-            ApplyInitialRamState(testCase);
+        RunJsonTests(sourceFile);
     }
 }
