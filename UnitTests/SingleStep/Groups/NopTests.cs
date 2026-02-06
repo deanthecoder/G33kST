@@ -19,6 +19,8 @@ public sealed class NopTests : CpuTestBase
 
     public static IEnumerable<TestCaseData> TestFiles => CreateCases("NOP");
 
+    protected override bool ExecuteStep => true;
+
     [TestCaseSource(nameof(TestFiles))]
     public void FileDecodesAndSeedsRam(FileInfo sourceFile)
     {

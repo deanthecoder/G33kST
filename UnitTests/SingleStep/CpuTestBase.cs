@@ -26,6 +26,7 @@ public abstract class CpuTestBase
 
     protected abstract string GroupName { get; }
     protected abstract IReadOnlyList<FileInfo> SourceFiles { get; }
+    protected virtual bool ExecuteStep => false;
 
     [OneTimeSetUp]
     public void OneTimeSetup()
@@ -46,7 +47,7 @@ public abstract class CpuTestBase
     private void AssertFileDecoded(FileInfo sourceFile)
     {
         var decoded = GetDecodedFile(sourceFile);
-        Assert.That(decoded.DecodedFile.Exists(), Is.True);
+        Assert.That(decoded.DecodedFile, Does.Exist);
         Assert.That(decoded.TestCount, Is.GreaterThan(0));
     }
 
@@ -72,6 +73,66 @@ public abstract class CpuTestBase
         }
     }
 
+    private void ApplyInitialRegisterState(SingleStepTestCase testCase)
+    {
+        if (m_cpu == null)
+            throw new InvalidOperationException("CPU has not been created for this test.");
+
+        var state = testCase.Initial;
+        ValidateStateShape(state, nameof(testCase.Initial));
+
+        for (var i = 0; i < state.D.Length; i++)
+            m_cpu.Registers.SetDataRegister(i, state.D[i]);
+
+        for (var i = 0; i < state.A.Length; i++)
+            m_cpu.Registers.SetAddressRegister(i, state.A[i]);
+
+        m_cpu.Registers.StatusRegister = (ushort)state.Sr;
+        m_cpu.Registers.ProgramCounter = state.Pc;
+        m_cpu.Registers.UserStackPointer = state.Usp;
+        m_cpu.Registers.SupervisorStackPointer = state.Ssp;
+        m_cpu.Registers.StackPointer = m_cpu.Registers.IsSupervisor ? state.Ssp : state.Usp;
+        m_cpu.SeedPrefetch((ushort)state.Prefetch[0], (ushort)state.Prefetch[1]);
+    }
+
+    private void AssertFinalCpuState(SingleStepTestCase testCase)
+    {
+        if (m_cpu == null)
+            throw new InvalidOperationException("CPU has not been created for this test.");
+        if (m_bus == null)
+            throw new InvalidOperationException("Bus has not been created for this test.");
+
+        var state = testCase.Final;
+        ValidateStateShape(state, nameof(testCase.Final));
+
+        var expectedStatus = (ushort)state.Sr;
+        var expectedStackPointer = (expectedStatus & 0x2000) != 0 ? state.Ssp : state.Usp;
+        var ram = m_bus.MainMemory.Data;
+
+        Assert.Multiple(() =>
+        {
+            for (var i = 0; i < state.D.Length; i++)
+                Assert.That(m_cpu.Registers.GetDataRegister(i), Is.EqualTo(state.D[i]), $"D{i} mismatch.");
+
+            for (var i = 0; i < state.A.Length; i++)
+                Assert.That(m_cpu.Registers.GetAddressRegister(i), Is.EqualTo(state.A[i]), $"A{i} mismatch.");
+
+            Assert.That(m_cpu.Registers.StatusRegister, Is.EqualTo(expectedStatus), "SR mismatch.");
+            Assert.That(m_cpu.Registers.ProgramCounter, Is.EqualTo(state.Pc), "PC mismatch.");
+            Assert.That(m_cpu.Registers.UserStackPointer, Is.EqualTo(state.Usp), "USP mismatch.");
+            Assert.That(m_cpu.Registers.SupervisorStackPointer, Is.EqualTo(state.Ssp), "SSP mismatch.");
+            Assert.That(m_cpu.Registers.StackPointer, Is.EqualTo(expectedStackPointer), "A7/active stack pointer mismatch.");
+
+            foreach (var entry in state.Ram)
+            {
+                if (entry.Address >= (uint)ram.Length)
+                    throw new ArgumentOutOfRangeException(nameof(testCase), $"Final RAM address 0x{entry.Address:X} is outside bus space (0x{ram.Length:X}).");
+
+                Assert.That(ram[(int)entry.Address], Is.EqualTo(entry.Value), $"RAM mismatch at 0x{entry.Address:X6}.");
+            }
+        });
+    }
+
     protected void RunJsonTests(FileInfo sourceFile)
     {
         AssertFileDecoded(sourceFile);
@@ -84,7 +145,30 @@ public abstract class CpuTestBase
         });
     }
 
-    private void RunJsonTestCase(SingleStepTestCase testCase) => ApplyInitialRamState(testCase);
+    private void RunJsonTestCase(SingleStepTestCase testCase)
+    {
+        ApplyInitialRamState(testCase);
+        ApplyInitialRegisterState(testCase);
+        if (!ExecuteStep)
+            return;
+
+        m_cpu.Step();
+        AssertFinalCpuState(testCase);
+    }
+
+    private static void ValidateStateShape(SingleStepCpuState state, string stateName)
+    {
+        if (state.D.Length != 8)
+            throw new InvalidOperationException($"{stateName}: expected 8 data registers, got {state.D.Length}.");
+        if (state.A.Length != 7)
+            throw new InvalidOperationException($"{stateName}: expected 7 address registers, got {state.A.Length}.");
+        if (state.Sr > ushort.MaxValue)
+            throw new InvalidOperationException($"{stateName}: status register value 0x{state.Sr:X} exceeds 16 bits.");
+        if (state.Prefetch.Length != 2)
+            throw new InvalidOperationException($"{stateName}: expected 2 prefetch words, got {state.Prefetch.Length}.");
+        if (state.Prefetch.Any(o => o > ushort.MaxValue))
+            throw new InvalidOperationException($"{stateName}: prefetch values must fit in 16 bits.");
+    }
 
     protected static IReadOnlyList<FileInfo> GetFiles(string baseName) =>
         m_filesByBase.Value.TryGetValue(baseName, out var files) ? files : [];
