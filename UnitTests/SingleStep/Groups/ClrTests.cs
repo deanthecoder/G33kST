@@ -11,7 +11,7 @@
 namespace UnitTests.SingleStep.Groups;
 
 [TestFixture]
-[Parallelizable(ParallelScope.All)]
+[Parallelizable(ParallelScope.Self)]
 public sealed class ClrTests : CpuTestBase
 {
     protected override string GroupName => "CLR";

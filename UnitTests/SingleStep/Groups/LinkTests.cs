@@ -11,7 +11,7 @@
 namespace UnitTests.SingleStep.Groups;
 
 [TestFixture]
-[Parallelizable(ParallelScope.All)]
+[Parallelizable(ParallelScope.Self)]
 public sealed class LinkTests : CpuTestBase
 {
     protected override string GroupName => "LINK";

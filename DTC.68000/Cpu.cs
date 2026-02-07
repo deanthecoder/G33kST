@@ -10,6 +10,7 @@
 
 using DTC.Emulation;
 using DTC.Emulation.Devices;
+using DTC.M68000.Decoding;
 
 namespace DTC.M68000;
 

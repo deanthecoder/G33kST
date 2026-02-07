@@ -11,6 +11,7 @@
 using DTC.Core.Extensions;
 using DTC.Emulation;
 using DTC.M68000;
+using System.Text;
 
 namespace UnitTests.SingleStep;
 
@@ -19,14 +20,13 @@ namespace UnitTests.SingleStep;
 /// </summary>
 public abstract class CpuTestBase
 {
-    private static readonly Lazy<IReadOnlyDictionary<string, FileInfo[]>> m_filesByBase = new(BuildFilesByBase);
+    private static readonly Lazy<IReadOnlyDictionary<string, FileInfo[]>> FilesByBase = new(BuildFilesByBase);
     private IReadOnlyDictionary<string, SingleStepTestFile> m_decodedLookup;
     private Bus m_bus;
     private Cpu m_cpu;
 
     protected abstract string GroupName { get; }
     protected abstract IReadOnlyList<FileInfo> SourceFiles { get; }
-    protected virtual bool ExecuteStep => false;
 
     [OneTimeSetUp]
     public void OneTimeSetup()
@@ -108,29 +108,58 @@ public abstract class CpuTestBase
         var expectedStatus = (ushort)state.Sr;
         var expectedStackPointer = (expectedStatus & 0x2000) != 0 ? state.Ssp : state.Usp;
         var ram = m_bus.MainMemory.Data;
+        var failures = new List<string>();
+        const int maxFailures = 20;
 
-        Assert.Multiple(() =>
+        void RecordFailure(string message)
         {
-            for (var i = 0; i < state.D.Length; i++)
-                Assert.That(m_cpu.Registers.GetDataRegister(i), Is.EqualTo(state.D[i]), $"D{i} mismatch.");
+            if (failures.Count >= maxFailures)
+                return;
 
-            for (var i = 0; i < state.A.Length; i++)
-                Assert.That(m_cpu.Registers.GetAddressRegister(i), Is.EqualTo(state.A[i]), $"A{i} mismatch.");
+            failures.Add(message);
+            if (failures.Count == maxFailures)
+                failures.Add("Additional mismatches omitted.");
+        }
 
-            Assert.That(m_cpu.Registers.StatusRegister, Is.EqualTo(expectedStatus), "SR mismatch.");
-            Assert.That(m_cpu.Registers.ProgramCounter, Is.EqualTo(state.Pc), "PC mismatch.");
-            Assert.That(m_cpu.Registers.UserStackPointer, Is.EqualTo(state.Usp), "USP mismatch.");
-            Assert.That(m_cpu.Registers.SupervisorStackPointer, Is.EqualTo(state.Ssp), "SSP mismatch.");
-            Assert.That(m_cpu.Registers.StackPointer, Is.EqualTo(expectedStackPointer), "A7/active stack pointer mismatch.");
+        for (var i = 0; i < state.D.Length; i++)
+        {
+            var actual = m_cpu.Registers.GetDataRegister(i);
+            var expected = state.D[i];
+            if (actual != expected)
+                RecordFailure($"D{i} mismatch. Expected 0x{expected:X8}, got 0x{actual:X8}.");
+        }
 
-            foreach (var entry in state.Ram)
-            {
-                if (entry.Address >= (uint)ram.Length)
-                    throw new ArgumentOutOfRangeException(nameof(testCase), $"Final RAM address 0x{entry.Address:X} is outside bus space (0x{ram.Length:X}).");
+        for (var i = 0; i < state.A.Length; i++)
+        {
+            var actual = m_cpu.Registers.GetAddressRegister(i);
+            var expected = state.A[i];
+            if (actual != expected)
+                RecordFailure($"A{i} mismatch. Expected 0x{expected:X8}, got 0x{actual:X8}.");
+        }
 
-                Assert.That(ram[(int)entry.Address], Is.EqualTo(entry.Value), $"RAM mismatch at 0x{entry.Address:X6}.");
-            }
-        });
+        if (m_cpu.Registers.StatusRegister != expectedStatus)
+            RecordFailure($"SR mismatch. Expected 0x{expectedStatus:X4}, got 0x{m_cpu.Registers.StatusRegister:X4}.");
+        if (m_cpu.Registers.ProgramCounter != state.Pc)
+            RecordFailure($"PC mismatch. Expected 0x{state.Pc:X6}, got 0x{m_cpu.Registers.ProgramCounter:X6}.");
+        if (m_cpu.Registers.UserStackPointer != state.Usp)
+            RecordFailure($"USP mismatch. Expected 0x{state.Usp:X6}, got 0x{m_cpu.Registers.UserStackPointer:X6}.");
+        if (m_cpu.Registers.SupervisorStackPointer != state.Ssp)
+            RecordFailure($"SSP mismatch. Expected 0x{state.Ssp:X6}, got 0x{m_cpu.Registers.SupervisorStackPointer:X6}.");
+        if (m_cpu.Registers.StackPointer != expectedStackPointer)
+            RecordFailure($"A7/active stack pointer mismatch. Expected 0x{expectedStackPointer:X6}, got 0x{m_cpu.Registers.StackPointer:X6}.");
+
+        foreach (var entry in state.Ram)
+        {
+            if (entry.Address >= (uint)ram.Length)
+                throw new ArgumentOutOfRangeException(nameof(testCase), $"Final RAM address 0x{entry.Address:X} is outside bus space (0x{ram.Length:X}).");
+
+            var actual = ram[(int)entry.Address];
+            if (actual != entry.Value)
+                RecordFailure($"RAM mismatch at 0x{entry.Address:X6}. Expected 0x{entry.Value:X2}, got 0x{actual:X2}.");
+        }
+
+        if (failures.Count > 0)
+            throw new AssertionException(string.Join(" | ", failures));
     }
 
     protected void RunJsonTests(FileInfo sourceFile)
@@ -138,20 +167,40 @@ public abstract class CpuTestBase
         AssertFileDecoded(sourceFile);
 
         var testCases = LoadTests(sourceFile);
-        Assert.Multiple(() =>
+        var passed = 0;
+        var failures = new List<string>();
+        var opcodeFailures = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var testCase in testCases)
         {
-            foreach (var testCase in testCases)
+            try
+            {
                 RunJsonTestCase(testCase);
-        });
+                passed++;
+            }
+            catch (Exception ex)
+            {
+                failures.Add(FormatFailure(testCase, ex));
+                var opcode = TryExtractOpcode(ex);
+                if (opcode != null)
+                    opcodeFailures[opcode] = opcodeFailures.TryGetValue(opcode, out var count) ? count + 1 : 1;
+            }
+        }
+
+        var failed = testCases.Count - passed;
+        if (failed == 0)
+        {
+            TestContext.Progress.WriteLine($"Single-step cases passed: {passed}.");
+            return;
+        }
+
+        Assert.Fail(BuildFailureSummary(testCases.Count, passed, failures, opcodeFailures));
     }
 
     private void RunJsonTestCase(SingleStepTestCase testCase)
     {
         ApplyInitialRamState(testCase);
         ApplyInitialRegisterState(testCase);
-        if (!ExecuteStep)
-            return;
-
         m_cpu.Step();
         AssertFinalCpuState(testCase);
     }
@@ -170,8 +219,74 @@ public abstract class CpuTestBase
             throw new InvalidOperationException($"{stateName}: prefetch values must fit in 16 bits.");
     }
 
+    private static string FormatFailure(SingleStepTestCase testCase, Exception exception)
+    {
+        var name = string.IsNullOrWhiteSpace(testCase.Name) ? string.Empty : $"{testCase.Name}: ";
+        var message = NormalizeFailureMessage(exception.Message);
+        return $"{name}{exception.GetType().Name} - {message}";
+    }
+
+    private static string TryExtractOpcode(Exception exception)
+    {
+        var message = exception.Message;
+        const string token = "Opcode ";
+        var index = message.IndexOf(token, StringComparison.Ordinal);
+        if (index < 0)
+            return null;
+
+        var start = index + token.Length;
+        var end = message.IndexOf(' ', start);
+        var opcode = end > start ? message[start..end] : message[start..];
+        return string.IsNullOrWhiteSpace(opcode) ? null : opcode.Trim();
+    }
+
+    private static string BuildFailureSummary(
+        int total,
+        int passed,
+        IReadOnlyList<string> failures,
+        IReadOnlyDictionary<string, int> opcodeFailures)
+    {
+        const int maxLines = 10;
+        var failed = total - passed;
+        var builder = new StringBuilder();
+        builder.AppendLine($"Failed {failed} of {total} cases. Passed {passed}.");
+
+        if (opcodeFailures.Count > 0)
+        {
+            builder.AppendLine("Missing opcode counts:");
+            foreach (var entry in opcodeFailures
+                .OrderByDescending(o => o.Value)
+                .ThenBy(o => o.Key, StringComparer.OrdinalIgnoreCase)
+                .Take(maxLines))
+            {
+                builder.AppendLine($"  {entry.Key}: {entry.Value}");
+            }
+        }
+
+        builder.AppendLine("Sample failures:");
+        foreach (var line in failures.Take(maxLines))
+            builder.AppendLine($"  {line}");
+
+        return builder.ToString();
+    }
+
+    private static string NormalizeFailureMessage(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return string.Empty;
+
+        const string marker = "Multiple failures or warnings in test:";
+        var lines = message
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Replace(marker, string.Empty, StringComparison.Ordinal).Trim())
+            .Where(line => line.Length > 0)
+            .ToList();
+
+        return lines.Count == 0 ? string.Empty : string.Join(" | ", lines);
+    }
+
     protected static IReadOnlyList<FileInfo> GetFiles(string baseName) =>
-        m_filesByBase.Value.TryGetValue(baseName, out var files) ? files : [];
+        FilesByBase.Value.TryGetValue(baseName, out var files) ? files : [];
 
     protected static IEnumerable<TestCaseData> CreateCases(string baseName)
     {

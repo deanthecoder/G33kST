@@ -11,7 +11,7 @@
 namespace UnitTests.SingleStep.Groups;
 
 [TestFixture]
-[Parallelizable(ParallelScope.All)]
+[Parallelizable(ParallelScope.Self)]
 public sealed class DBccTests : CpuTestBase
 {
     protected override string GroupName => "DBcc";

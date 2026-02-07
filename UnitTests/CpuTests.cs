@@ -68,4 +68,32 @@ public sealed class CpuTests
             Assert.That(cpu.Registers.SupervisorStackPointer, Is.Zero);
         });
     }
+
+    [Test]
+    public void MoveByteDataToDataCopiesLowByteAndSetsFlags()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x1200); // MOVE.B D0,D1
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0x000000A5);
+        cpu.Registers.SetDataRegister(1, 0x12345678);
+        cpu.Registers.ExtendFlag = true;
+        cpu.Registers.CarryFlag = true;
+        cpu.Registers.OverflowFlag = true;
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000102));
+            Assert.That(cpu.Registers.GetDataRegister(1), Is.EqualTo(0x123456A5));
+            Assert.That(cpu.Registers.ExtendFlag, Is.True);
+            Assert.That(cpu.Registers.NegativeFlag, Is.True);
+            Assert.That(cpu.Registers.ZeroFlag, Is.False);
+            Assert.That(cpu.Registers.OverflowFlag, Is.False);
+            Assert.That(cpu.Registers.CarryFlag, Is.False);
+        });
+    }
 }

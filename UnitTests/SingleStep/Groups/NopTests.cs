@@ -11,15 +11,13 @@
 namespace UnitTests.SingleStep.Groups;
 
 [TestFixture]
-[Parallelizable(ParallelScope.All)]
+[Parallelizable(ParallelScope.Self)]
 public sealed class NopTests : CpuTestBase
 {
     protected override string GroupName => "NOP";
     protected override IReadOnlyList<FileInfo> SourceFiles => GetFiles("NOP");
 
     public static IEnumerable<TestCaseData> TestFiles => CreateCases("NOP");
-
-    protected override bool ExecuteStep => true;
 
     [TestCaseSource(nameof(TestFiles))]
     public void Run(FileInfo sourceFile)

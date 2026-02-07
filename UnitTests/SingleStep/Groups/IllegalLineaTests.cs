@@ -11,7 +11,7 @@
 namespace UnitTests.SingleStep.Groups;
 
 [TestFixture]
-[Parallelizable(ParallelScope.All)]
+[Parallelizable(ParallelScope.Self)]
 public sealed class IllegalLineaTests : CpuTestBase
 {
     protected override string GroupName => "ILLEGAL_LINEA";
