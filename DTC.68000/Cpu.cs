@@ -40,6 +40,11 @@ public sealed class Cpu : CpuBase
     public Memory MainMemory { get; }
 
     /// <summary>
+    /// Gets the total number of cycles accumulated since the last reset.
+    /// </summary>
+    public long CyclesSinceCpuStart { get; private set; }
+
+    /// <summary>
     /// Creates a 68000 CPU bound to the supplied bus.
     /// </summary>
     public Cpu(Bus bus)
@@ -55,6 +60,7 @@ public sealed class Cpu : CpuBase
     public override void Reset()
     {
         Registers.Reset();
+        CyclesSinceCpuStart = 0;
         
         // Vector 0 = initial SSP, vector 1 = initial PC.
         Registers.SupervisorStackPointer = Bus.Read32BigEndian(ResetStackPointerVectorAddress);
@@ -62,6 +68,12 @@ public sealed class Cpu : CpuBase
         Registers.StatusRegister = InitialStatusRegister;
         m_hasPrefetch = false;
     }
+
+    /// <summary>
+    /// Adds internal CPU wait cycles.
+    /// </summary>
+    public void InternalWait(uint cycles) =>
+        CyclesSinceCpuStart += cycles;
 
     /// <summary>
     /// Seeds the two-word prefetch queue used by single-step test vectors.

@@ -66,7 +66,30 @@ public sealed class CpuTests
             Assert.That(cpu.Registers.ProgramCounter, Is.Zero);
             Assert.That(cpu.Registers.UserStackPointer, Is.Zero);
             Assert.That(cpu.Registers.SupervisorStackPointer, Is.Zero);
+            Assert.That(cpu.CyclesSinceCpuStart, Is.Zero);
         });
+    }
+
+    [Test]
+    public void InternalWaitAddsCycles()
+    {
+        var cpu = new Cpu(new Bus(0x1000000));
+
+        cpu.InternalWait(4);
+        cpu.InternalWait(12);
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(16));
+    }
+
+    [Test]
+    public void InternalWaitWithZeroDoesNotChangeCycles()
+    {
+        var cpu = new Cpu(new Bus(0x1000000));
+        cpu.InternalWait(7);
+
+        cpu.InternalWait(0);
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(7));
     }
 
     [Test]
