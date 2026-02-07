@@ -17,7 +17,7 @@ namespace DTC.M68000.Decoding;
 /// </summary>
 public static class InstructionDecoder
 {
-    private static readonly Func<ushort, Instruction>[] m_decoders =
+    private static readonly Func<ushort, Instruction>[] Decoders =
     [
         Group0Decoder.Decode,
         Group1Decoder.Decode,
@@ -36,13 +36,24 @@ public static class InstructionDecoder
         GroupEDecoder.Decode,
         GroupFDecoder.Decode
     ];
+    private static readonly Instruction[] OpcodeTable = BuildOpcodeTable();
 
     /// <summary>
     /// Resolves an opcode to an instruction handler, or null if unsupported.
     /// </summary>
-    public static Instruction Decode(ushort opcode)
+    public static Instruction Decode(ushort opcode) =>
+        OpcodeTable[opcode];
+
+    private static Instruction[] BuildOpcodeTable()
     {
-        var group = opcode >> 12;
-        return m_decoders[group](opcode);
+        var table = new Instruction[ushort.MaxValue + 1];
+        for (var opcode = 0; opcode <= ushort.MaxValue; opcode++)
+        {
+            var op = (ushort)opcode;
+            var group = op >> 12;
+            table[opcode] = Decoders[group](op);
+        }
+
+        return table;
     }
 }

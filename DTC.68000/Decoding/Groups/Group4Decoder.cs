@@ -14,12 +14,12 @@ namespace DTC.M68000.Decoding.Groups;
 /// Decoder for major opcode group 0x4.
 /// </summary>
 public static class Group4Decoder
-{
-    private static readonly Instruction m_nop = new("NOP", static (_, _) => { });
+{   
+    private static readonly Instruction InstrNop = new("NOP", static (_, _) => { });
 
     /// <summary>
     /// Decodes an opcode in this major group.
     /// </summary>
     public static Instruction Decode(ushort opcode) =>
-        opcode == 0x4E71 ? m_nop : null;
+        opcode == 0x4E71 ? InstrNop : null;
 }

@@ -8,6 +8,7 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
+// ReSharper disable InconsistentNaming
 namespace UnitTests.SingleStep.Groups;
 
 [TestFixture]
