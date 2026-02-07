@@ -18,6 +18,8 @@ namespace DTC.M68000.Decoding.Groups;
 /// </summary>
 public static class Group1Decoder
 {
+    private static readonly Instruction m_moveByteAddressToData = new("MOVE.B (An),Dn", MoveInstructions.ExecuteMoveByteAddressToData);
+    private static readonly Instruction m_moveByteDataToAddress = new("MOVE.B Dn,(An)", MoveInstructions.ExecuteMoveByteDataToAddress);
     private static readonly Instruction m_moveByteDataToData = new("MOVE.B Dn,Dn", MoveInstructions.ExecuteMoveByteDataToData);
 
     /// <summary>
@@ -25,8 +27,19 @@ public static class Group1Decoder
     /// </summary>
     public static Instruction Decode(ushort opcode)
     {
-        var source = EffectiveAddressDecoder.DecodeSource(opcode);
-        var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
-        return source.Mode == 0 && destination.Mode == 0 ? m_moveByteDataToData : null;
+        var src = EffectiveAddressDecoder.DecodeSource(opcode);
+        var dst = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
+        
+        if (src.Mode == EffectiveAddressMode.DataRegisterDirect &&
+            dst.Mode == EffectiveAddressMode.DataRegisterDirect)
+            return m_moveByteDataToData;
+        if (src.Mode == EffectiveAddressMode.DataRegisterDirect &&
+            dst.Mode == EffectiveAddressMode.AddressRegisterIndirect)
+            return m_moveByteDataToAddress;
+        if (src.Mode == EffectiveAddressMode.AddressRegisterIndirect &&
+            dst.Mode == EffectiveAddressMode.DataRegisterDirect)
+            return m_moveByteAddressToData;
+
+        return null;
     }
 }

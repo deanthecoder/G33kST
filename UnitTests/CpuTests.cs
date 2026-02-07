@@ -96,4 +96,65 @@ public sealed class CpuTests
             Assert.That(cpu.Registers.CarryFlag, Is.False);
         });
     }
+
+    [Test]
+    public void MoveByteDataToAddressWritesByteToMemoryAndSetsFlags()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x1280); // MOVE.B D0,(A1)
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0x123456A5);
+        cpu.Registers.SetAddressRegister(1, 0x000200);
+        cpu.Registers.ExtendFlag = true;
+        cpu.Registers.CarryFlag = true;
+        cpu.Registers.OverflowFlag = true;
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000102));
+            Assert.That(bus.Read8(0x000200), Is.EqualTo(0xA5));
+            Assert.That(cpu.Registers.GetDataRegister(0), Is.EqualTo(0x123456A5));
+            Assert.That(cpu.Registers.GetAddressRegister(1), Is.EqualTo(0x000200));
+            Assert.That(cpu.Registers.ExtendFlag, Is.True);
+            Assert.That(cpu.Registers.NegativeFlag, Is.True);
+            Assert.That(cpu.Registers.ZeroFlag, Is.False);
+            Assert.That(cpu.Registers.OverflowFlag, Is.False);
+            Assert.That(cpu.Registers.CarryFlag, Is.False);
+        });
+    }
+
+    [Test]
+    public void MoveByteAddressToDataCopiesByteAndSetsFlags()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x1011); // MOVE.B (A1),D0
+        bus.Write8(0x000220, 0x00);
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetAddressRegister(1, 0x000220);
+        cpu.Registers.SetDataRegister(0, 0x12345678);
+        cpu.Registers.ExtendFlag = true;
+        cpu.Registers.NegativeFlag = true;
+        cpu.Registers.CarryFlag = true;
+        cpu.Registers.OverflowFlag = true;
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000102));
+            Assert.That(cpu.Registers.GetDataRegister(0), Is.EqualTo(0x12345600));
+            Assert.That(cpu.Registers.GetAddressRegister(1), Is.EqualTo(0x000220));
+            Assert.That(cpu.Registers.ExtendFlag, Is.True);
+            Assert.That(cpu.Registers.NegativeFlag, Is.False);
+            Assert.That(cpu.Registers.ZeroFlag, Is.True);
+            Assert.That(cpu.Registers.OverflowFlag, Is.False);
+            Assert.That(cpu.Registers.CarryFlag, Is.False);
+        });
+    }
 }

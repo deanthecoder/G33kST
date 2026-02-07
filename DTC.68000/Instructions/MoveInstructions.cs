@@ -18,6 +18,20 @@ namespace DTC.M68000.Instructions;
 public static class MoveInstructions
 {
     /// <summary>
+    /// Executes <c>MOVE.B (An),Dn</c> for address-register indirect source and data-register destination.
+    /// </summary>
+    public static void ExecuteMoveByteAddressToData(Cpu cpu, ushort opcode)
+    {
+        var source = EffectiveAddressDecoder.DecodeSource(opcode);
+        var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
+        var sourceAddress = cpu.Registers.GetAddressRegister(source.Register);
+        var sourceValue = cpu.Read8(sourceAddress);
+
+        WriteByteToDataRegister(cpu.Registers, destination.Register, sourceValue);
+        SetMoveByteFlags(cpu.Registers, sourceValue);
+    }
+
+    /// <summary>
     /// Executes <c>MOVE.B Dn,Dn</c> for data-register direct source and destination.
     /// </summary>
     public static void ExecuteMoveByteDataToData(Cpu cpu, ushort opcode)
@@ -26,13 +40,36 @@ public static class MoveInstructions
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
         var sourceValue = (byte)cpu.Registers.GetDataRegister(source.Register);
 
-        // Byte-sized move only replaces the low byte of the destination data register.
-        var destinationValue = cpu.Registers.GetDataRegister(destination.Register);
-        cpu.Registers.SetDataRegister(destination.Register, (destinationValue & 0xFFFFFF00u) | sourceValue);
+        WriteByteToDataRegister(cpu.Registers, destination.Register, sourceValue);
+        SetMoveByteFlags(cpu.Registers, sourceValue);
+    }
 
-        cpu.Registers.NegativeFlag = (sourceValue & 0x80) != 0;
-        cpu.Registers.ZeroFlag = sourceValue == 0;
-        cpu.Registers.OverflowFlag = false;
-        cpu.Registers.CarryFlag = false;
+    /// <summary>
+    /// Executes <c>MOVE.B Dn,(An)</c> for data-register source and address-register indirect destination.
+    /// </summary>
+    public static void ExecuteMoveByteDataToAddress(Cpu cpu, ushort opcode)
+    {
+        var source = EffectiveAddressDecoder.DecodeSource(opcode);
+        var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
+        var sourceValue = (byte)cpu.Registers.GetDataRegister(source.Register);
+        var destinationAddress = cpu.Registers.GetAddressRegister(destination.Register);
+
+        cpu.Write8(destinationAddress, sourceValue);
+        SetMoveByteFlags(cpu.Registers, sourceValue);
+    }
+
+    private static void WriteByteToDataRegister(Registers registers, int destinationRegister, byte value)
+    {
+        // Byte-sized move only replaces the low byte of the destination data register.
+        var destinationValue = registers.GetDataRegister(destinationRegister);
+        registers.SetDataRegister(destinationRegister, (destinationValue & 0xFFFFFF00u) | value);
+    }
+
+    private static void SetMoveByteFlags(Registers registers, byte value)
+    {
+        registers.NegativeFlag = (value & 0x80) != 0;
+        registers.ZeroFlag = value == 0;
+        registers.OverflowFlag = false;
+        registers.CarryFlag = false;
     }
 }
