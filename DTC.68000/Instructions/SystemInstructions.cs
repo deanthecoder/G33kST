@@ -130,7 +130,7 @@ public static class SystemInstructions
         var bound = (short)EffectiveAddressWordAccess.ReadWord(cpu, source);
         var registerIndex = (opcode >> 9) & 0x07;
         var value = (short)cpu.Registers.GetDataRegister(registerIndex);
-        ApplyChkFlags(cpu.Registers, value < 0);
+        FlagMath.ApplyCheck(cpu.Registers, value < 0);
         if (value < 0)
         {
             EnterExceptionVector(cpu, CheckInstructionVectorAddress);
@@ -167,17 +167,6 @@ public static class SystemInstructions
         var trapNumber = (uint)(opcode & TrapInstructionVectorMask);
         var vectorAddress = TrapInstructionVectorBaseAddress + (trapNumber << 2);
         EnterExceptionVector(cpu, vectorAddress);
-    }
-
-    /// <summary>
-    /// Applies CHK flags: X preserved, N from signed Dn, ZVC cleared.
-    /// </summary>
-    private static void ApplyChkFlags(Registers registers, bool negative)
-    {
-        registers.NegativeFlag = negative;
-        registers.ZeroFlag = false;
-        registers.OverflowFlag = false;
-        registers.CarryFlag = false;
     }
 
     /// <summary>

@@ -61,7 +61,7 @@ public static class LogicalInstructions
     {
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var value = EffectiveAddressByteAccess.ReadByte(cpu, ea);
-        SetLogicalByteFlags(cpu.Registers, value);
+        FlagMath.ApplyLogicalByte(cpu.Registers, value);
     }
 
     /// <summary>
@@ -71,7 +71,7 @@ public static class LogicalInstructions
     {
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var value = EffectiveAddressWordAccess.ReadWord(cpu, ea);
-        SetLogicalWordFlags(cpu.Registers, value);
+        FlagMath.ApplyLogicalWord(cpu.Registers, value);
     }
 
     /// <summary>
@@ -81,7 +81,7 @@ public static class LogicalInstructions
     {
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var value = EffectiveAddressLongAccess.ReadLong(cpu, ea);
-        SetLogicalLongFlags(cpu.Registers, value);
+        FlagMath.ApplyLogicalLong(cpu.Registers, value);
     }
 
     /// <summary>
@@ -91,7 +91,7 @@ public static class LogicalInstructions
     {
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         EffectiveAddressByteAccess.WriteByte(cpu, ea, 0);
-        SetClearFlags(cpu.Registers);
+        FlagMath.ApplyClear(cpu.Registers);
     }
 
     /// <summary>
@@ -101,7 +101,7 @@ public static class LogicalInstructions
     {
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         EffectiveAddressWordAccess.WriteWord(cpu, ea, 0);
-        SetClearFlags(cpu.Registers);
+        FlagMath.ApplyClear(cpu.Registers);
     }
 
     /// <summary>
@@ -111,7 +111,7 @@ public static class LogicalInstructions
     {
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         EffectiveAddressLongAccess.WriteLong(cpu, ea, 0);
-        SetClearFlags(cpu.Registers);
+        FlagMath.ApplyClear(cpu.Registers);
     }
 
     /// <summary>
@@ -125,7 +125,7 @@ public static class LogicalInstructions
         var result = (byte)~value;
         WriteByte(cpu, destination, result);
         ApplyPostIncrement(cpu, destination);
-        SetLogicalByteFlags(cpu.Registers, result);
+        FlagMath.ApplyLogicalByte(cpu.Registers, result);
     }
 
     /// <summary>
@@ -139,7 +139,7 @@ public static class LogicalInstructions
         var result = (ushort)~value;
         WriteWord(cpu, destination, result);
         ApplyPostIncrement(cpu, destination);
-        SetLogicalWordFlags(cpu.Registers, result);
+        FlagMath.ApplyLogicalWord(cpu.Registers, result);
     }
 
     /// <summary>
@@ -153,7 +153,7 @@ public static class LogicalInstructions
         var result = ~value;
         WriteLong(cpu, destination, result);
         ApplyPostIncrement(cpu, destination);
-        SetLogicalLongFlags(cpu.Registers, result);
+        FlagMath.ApplyLogicalLong(cpu.Registers, result);
     }
 
     /// <summary>
@@ -270,38 +270,6 @@ public static class LogicalInstructions
             2 => EffectiveAddressLongAccess.SupportsLongWrite(ea),
             _ => false
         };
-
-    private static void SetClearFlags(Registers registers)
-    {
-        registers.NegativeFlag = false;
-        registers.ZeroFlag = true;
-        registers.OverflowFlag = false;
-        registers.CarryFlag = false;
-    }
-
-    private static void SetLogicalByteFlags(Registers registers, byte value)
-    {
-        registers.NegativeFlag = (value & 0x80) != 0;
-        registers.ZeroFlag = value == 0;
-        registers.OverflowFlag = false;
-        registers.CarryFlag = false;
-    }
-
-    private static void SetLogicalWordFlags(Registers registers, ushort value)
-    {
-        registers.NegativeFlag = (value & 0x8000) != 0;
-        registers.ZeroFlag = value == 0;
-        registers.OverflowFlag = false;
-        registers.CarryFlag = false;
-    }
-
-    private static void SetLogicalLongFlags(Registers registers, uint value)
-    {
-        registers.NegativeFlag = (value & 0x8000_0000) != 0;
-        registers.ZeroFlag = value == 0;
-        registers.OverflowFlag = false;
-        registers.CarryFlag = false;
-    }
 
     private static void ExecuteNeg(Cpu cpu, ushort opcode, OperandSize size, bool useExtend)
     {

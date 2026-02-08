@@ -82,7 +82,7 @@ public static class MoveInstructions
         var value = (uint)immediate;
 
         cpu.Registers.SetDataRegister(registerIndex, value);
-        SetMoveLongFlags(cpu.Registers, value);
+        FlagMath.ApplyLogicalLong(cpu.Registers, value);
     }
 
     /// <summary>
@@ -95,7 +95,7 @@ public static class MoveInstructions
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
         var sourceValue = EffectiveAddressByteAccess.ReadByte(cpu, source);
         EffectiveAddressByteAccess.WriteByte(cpu, destination, sourceValue);
-        SetMoveByteFlags(cpu.Registers, sourceValue);
+        FlagMath.ApplyLogicalByte(cpu.Registers, sourceValue);
     }
 
     /// <summary>
@@ -108,7 +108,7 @@ public static class MoveInstructions
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
         var sourceValue = EffectiveAddressWordAccess.ReadWord(cpu, source);
         EffectiveAddressWordAccess.WriteWord(cpu, destination, sourceValue);
-        SetMoveWordFlags(cpu.Registers, sourceValue);
+        FlagMath.ApplyLogicalWord(cpu.Registers, sourceValue);
     }
 
     /// <summary>
@@ -121,7 +121,7 @@ public static class MoveInstructions
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
         var sourceValue = EffectiveAddressLongAccess.ReadLong(cpu, source);
         EffectiveAddressLongAccess.WriteLong(cpu, destination, sourceValue);
-        SetMoveLongFlags(cpu.Registers, sourceValue);
+        FlagMath.ApplyLogicalLong(cpu.Registers, sourceValue);
     }
 
     /// <summary>
@@ -148,27 +148,4 @@ public static class MoveInstructions
         cpu.Registers.SetAddressRegister(destinationRegisterIndex, sourceValue);
     }
 
-    private static void SetMoveByteFlags(Registers registers, byte value)
-    {
-        registers.NegativeFlag = (value & 0x80) != 0;
-        registers.ZeroFlag = value == 0;
-        registers.OverflowFlag = false;
-        registers.CarryFlag = false;
-    }
-
-    private static void SetMoveWordFlags(Registers registers, ushort value)
-    {
-        registers.NegativeFlag = (value & 0x8000) != 0;
-        registers.ZeroFlag = value == 0;
-        registers.OverflowFlag = false;
-        registers.CarryFlag = false;
-    }
-
-    private static void SetMoveLongFlags(Registers registers, uint value)
-    {
-        registers.NegativeFlag = (value & 0x80000000) != 0;
-        registers.ZeroFlag = value == 0;
-        registers.OverflowFlag = false;
-        registers.CarryFlag = false;
-    }
 }
