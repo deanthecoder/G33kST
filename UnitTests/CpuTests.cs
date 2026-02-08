@@ -93,6 +93,94 @@ public sealed class CpuTests
     }
 
     [Test]
+    public void Read16UsesBigEndianOrder()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write8(0x000200, 0x12);
+        bus.Write8(0x000201, 0x34);
+        var cpu = new Cpu(bus);
+
+        var value = cpu.Read16(0x000200);
+
+        Assert.That(value, Is.EqualTo(0x1234));
+    }
+
+    [Test]
+    public void Write16UsesBigEndianOrder()
+    {
+        var bus = new Bus(0x1000000);
+        var cpu = new Cpu(bus);
+
+        cpu.Write16(0x000200, 0xABCD);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bus.Read8(0x000200), Is.EqualTo(0xAB));
+            Assert.That(bus.Read8(0x000201), Is.EqualTo(0xCD));
+        });
+    }
+
+    [Test]
+    public void Read32WrapsAcross24BitBusBoundary()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write8(0xFFFFFE, 0x11);
+        bus.Write8(0xFFFFFF, 0x22);
+        bus.Write8(0x000000, 0x33);
+        bus.Write8(0x000001, 0x44);
+        var cpu = new Cpu(bus);
+
+        var value = cpu.Read32(0xFFFFFE);
+
+        Assert.That(value, Is.EqualTo(0x11223344));
+    }
+
+    [Test]
+    public void Write32WrapsAcross24BitBusBoundary()
+    {
+        var bus = new Bus(0x1000000);
+        var cpu = new Cpu(bus);
+
+        cpu.Write32(0xFFFFFE, 0x55667788);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bus.Read8(0xFFFFFE), Is.EqualTo(0x55));
+            Assert.That(bus.Read8(0xFFFFFF), Is.EqualTo(0x66));
+            Assert.That(bus.Read8(0x000000), Is.EqualTo(0x77));
+            Assert.That(bus.Read8(0x000001), Is.EqualTo(0x88));
+        });
+    }
+
+    [Test]
+    public void Read16WithOddAddressThrowsAddressError()
+    {
+        var cpu = new Cpu(new Bus(0x1000000));
+
+        var ex = Assert.Throws<AddressErrorException>(() => cpu.Read16(0x000201));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ex.Address, Is.EqualTo(0x000201));
+            Assert.That(ex.Size, Is.EqualTo(".w"));
+        });
+    }
+
+    [Test]
+    public void Write32WithOddAddressThrowsAddressError()
+    {
+        var cpu = new Cpu(new Bus(0x1000000));
+
+        var ex = Assert.Throws<AddressErrorException>(() => cpu.Write32(0x000003, 0x12345678));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ex.Address, Is.EqualTo(0x000003));
+            Assert.That(ex.Size, Is.EqualTo(".l"));
+        });
+    }
+
+    [Test]
     public void MoveByteDataToDataCopiesLowByteAndSetsFlags()
     {
         var bus = new Bus(0x1000000);

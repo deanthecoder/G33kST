@@ -9,7 +9,6 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using DTC.Emulation;
-using DTC.Emulation.Devices;
 using DTC.M68000.Decoding;
 
 namespace DTC.M68000;
@@ -35,11 +34,6 @@ public sealed class Cpu : CpuBase
     public Registers Registers { get; }
 
     /// <summary>
-    /// Gets the main addressable memory attached to the bus.
-    /// </summary>
-    public Memory MainMemory { get; }
-
-    /// <summary>
     /// Gets the total number of cycles accumulated since the last reset.
     /// </summary>
     public long CyclesSinceCpuStart { get; private set; }
@@ -50,7 +44,6 @@ public sealed class Cpu : CpuBase
     public Cpu(Bus bus)
         : base(bus)
     {
-        MainMemory = bus?.MainMemory ?? throw new ArgumentNullException(nameof(bus));
         Registers = new Registers();
     }
 
@@ -128,6 +121,52 @@ public sealed class Cpu : CpuBase
     }
 
     /// <summary>
+    /// Reads a 16-bit value from memory in big-endian order.
+    /// </summary>
+    public ushort Read16(uint address)
+    {
+        address = EnsureEvenBusAddress(address, ".w");
+        var hi = Read8(address);
+        var lo = Read8(NormalizeAddress24(address + 1));
+        return (ushort)((hi << 8) | lo);
+    }
+
+    /// <summary>
+    /// Writes a 16-bit value to memory in big-endian order.
+    /// </summary>
+    public void Write16(uint address, ushort value)
+    {
+        address = EnsureEvenBusAddress(address, ".w");
+        Write8(address, (byte)(value >> 8));
+        Write8(NormalizeAddress24(address + 1), (byte)(value & 0xFF));
+    }
+
+    /// <summary>
+    /// Reads a 32-bit value from memory in big-endian order.
+    /// </summary>
+    public uint Read32(uint address)
+    {
+        address = EnsureEvenBusAddress(address, ".l");
+        var b0 = Read8(address);
+        var b1 = Read8(NormalizeAddress24(address + 1));
+        var b2 = Read8(NormalizeAddress24(address + 2));
+        var b3 = Read8(NormalizeAddress24(address + 3));
+        return ((uint)b0 << 24) | ((uint)b1 << 16) | ((uint)b2 << 8) | b3;
+    }
+
+    /// <summary>
+    /// Writes a 32-bit value to memory in big-endian order.
+    /// </summary>
+    public void Write32(uint address, uint value)
+    {
+        address = EnsureEvenBusAddress(address, ".l");
+        Write8(address, (byte)(value >> 24));
+        Write8(NormalizeAddress24(address + 1), (byte)((value >> 16) & 0xFF));
+        Write8(NormalizeAddress24(address + 2), (byte)((value >> 8) & 0xFF));
+        Write8(NormalizeAddress24(address + 3), (byte)(value & 0xFF));
+    }
+
+    /// <summary>
     /// Executes a single instruction at the current program counter.
     /// </summary>
     public override void Step()
@@ -144,6 +183,18 @@ public sealed class Cpu : CpuBase
 
     private static uint ValidateEvenAddress(uint address) =>
         (address & 1) == 0 ? address : throw new InvalidOperationException($"Odd address fetch at 0x{address:X6}.");
+
+    private static uint NormalizeAddress24(uint address) =>
+        address & 0x00FF_FFFF;
+
+    private static uint EnsureEvenBusAddress(uint address, string size)
+    {
+        var normalized = NormalizeAddress24(address);
+        if ((normalized & 1) == 0)
+            return normalized;
+
+        throw new AddressErrorException(normalized, size);
+    }
 
     private ushort FetchPrefetchedWord()
     {
