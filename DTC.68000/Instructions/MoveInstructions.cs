@@ -30,9 +30,51 @@ public static class MoveInstructions
         SetMoveByteFlags(cpu.Registers, sourceValue);
     }
 
+    /// <summary>
+    /// Executes <c>MOVE.W &lt;ea&gt;,&lt;ea&gt;</c> for supported word-sized EA combinations.
+    /// ea = effective address.
+    /// </summary>
+    public static void ExecuteMoveWord(Cpu cpu, ushort opcode)
+    {
+        var source = EffectiveAddressDecoder.DecodeSource(opcode);
+        var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
+        var sourceValue = EffectiveAddressWordAccess.ReadWord(cpu, source);
+        EffectiveAddressWordAccess.WriteWord(cpu, destination, sourceValue);
+        SetMoveWordFlags(cpu.Registers, sourceValue);
+    }
+
+    /// <summary>
+    /// Executes <c>MOVE.L &lt;ea&gt;,&lt;ea&gt;</c> for supported long-sized EA combinations.
+    /// ea = effective address.
+    /// </summary>
+    public static void ExecuteMoveLong(Cpu cpu, ushort opcode)
+    {
+        var source = EffectiveAddressDecoder.DecodeSource(opcode);
+        var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
+        var sourceValue = EffectiveAddressLongAccess.ReadLong(cpu, source);
+        EffectiveAddressLongAccess.WriteLong(cpu, destination, sourceValue);
+        SetMoveLongFlags(cpu.Registers, sourceValue);
+    }
+
     private static void SetMoveByteFlags(Registers registers, byte value)
     {
         registers.NegativeFlag = (value & 0x80) != 0;
+        registers.ZeroFlag = value == 0;
+        registers.OverflowFlag = false;
+        registers.CarryFlag = false;
+    }
+
+    private static void SetMoveWordFlags(Registers registers, ushort value)
+    {
+        registers.NegativeFlag = (value & 0x8000) != 0;
+        registers.ZeroFlag = value == 0;
+        registers.OverflowFlag = false;
+        registers.CarryFlag = false;
+    }
+
+    private static void SetMoveLongFlags(Registers registers, uint value)
+    {
+        registers.NegativeFlag = (value & 0x80000000) != 0;
         registers.ZeroFlag = value == 0;
         registers.OverflowFlag = false;
         registers.CarryFlag = false;

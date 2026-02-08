@@ -427,4 +427,166 @@ public sealed class CpuTests
 
         Assert.That(cpu.Registers.GetDataRegister(0), Is.EqualTo(0x1122335D));
     }
+
+    [Test]
+    public void MoveWordDataToDataCopiesLowWordAndSetsFlags()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x3200); // MOVE.W D0,D1
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0x00008001);
+        cpu.Registers.SetDataRegister(1, 0xAABBCCDD);
+        cpu.Registers.ExtendFlag = true;
+        cpu.Registers.CarryFlag = true;
+        cpu.Registers.OverflowFlag = true;
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.GetDataRegister(1), Is.EqualTo(0xAABB8001));
+            Assert.That(cpu.Registers.ExtendFlag, Is.True);
+            Assert.That(cpu.Registers.NegativeFlag, Is.True);
+            Assert.That(cpu.Registers.ZeroFlag, Is.False);
+            Assert.That(cpu.Registers.OverflowFlag, Is.False);
+            Assert.That(cpu.Registers.CarryFlag, Is.False);
+        });
+    }
+
+    [Test]
+    public void MoveWordAddressRegisterToAddressPostIncrementWritesWordAndIncrementsDestination()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x34C9); // MOVE.W A1,(A2)+
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetAddressRegister(1, 0x12345678);
+        cpu.Registers.SetAddressRegister(2, 0x000220);
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bus.Read16BigEndian(0x000220), Is.EqualTo(0x5678));
+            Assert.That(cpu.Registers.GetAddressRegister(2), Is.EqualTo(0x000222));
+        });
+    }
+
+    [Test]
+    public void MoveWordImmediateToDataUsesFullImmediateWord()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x303C); // MOVE.W #<imm16>,D0
+        bus.Write16BigEndian(0x000102, 0xE7A5);
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0x11223344);
+
+        cpu.Step();
+
+        Assert.That(cpu.Registers.GetDataRegister(0), Is.EqualTo(0x1122E7A5));
+    }
+
+    [Test]
+    public void MoveWordPcDisplacementToDataUsesPcRelativeBase()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x303A); // MOVE.W (d16,PC),D0
+        bus.Write16BigEndian(0x000102, 0x0006);
+        bus.Write16BigEndian(0x000108, 0x4ACE);
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0x12340000);
+
+        cpu.Step();
+
+        Assert.That(cpu.Registers.GetDataRegister(0), Is.EqualTo(0x12344ACE));
+    }
+
+    [Test]
+    public void MoveLongDataToDataCopiesFullLongAndSetsFlags()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x2200); // MOVE.L D0,D1
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0x8000A5A5);
+        cpu.Registers.SetDataRegister(1, 0x11223344);
+        cpu.Registers.ExtendFlag = true;
+        cpu.Registers.CarryFlag = true;
+        cpu.Registers.OverflowFlag = true;
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.GetDataRegister(1), Is.EqualTo(0x8000A5A5));
+            Assert.That(cpu.Registers.ExtendFlag, Is.True);
+            Assert.That(cpu.Registers.NegativeFlag, Is.True);
+            Assert.That(cpu.Registers.ZeroFlag, Is.False);
+            Assert.That(cpu.Registers.OverflowFlag, Is.False);
+            Assert.That(cpu.Registers.CarryFlag, Is.False);
+        });
+    }
+
+    [Test]
+    public void MoveLongAddressRegisterToAddressPostIncrementWritesLongAndIncrementsDestination()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x24C9); // MOVE.L A1,(A2)+
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetAddressRegister(1, 0x12345678);
+        cpu.Registers.SetAddressRegister(2, 0x000220);
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bus.Read32BigEndian(0x000220), Is.EqualTo(0x12345678));
+            Assert.That(cpu.Registers.GetAddressRegister(2), Is.EqualTo(0x000224));
+        });
+    }
+
+    [Test]
+    public void MoveLongImmediateToDataUsesFullImmediateLong()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x203C); // MOVE.L #<imm32>,D0
+        bus.Write16BigEndian(0x000102, 0xE7A5);
+        bus.Write16BigEndian(0x000104, 0x1234);
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0x00000000);
+
+        cpu.Step();
+
+        Assert.That(cpu.Registers.GetDataRegister(0), Is.EqualTo(0xE7A51234));
+    }
+
+    [Test]
+    public void MoveLongPcDisplacementToDataUsesPcRelativeBase()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x203A); // MOVE.L (d16,PC),D0
+        bus.Write16BigEndian(0x000102, 0x0006);
+        bus.Write16BigEndian(0x000108, 0xA1B2);
+        bus.Write16BigEndian(0x00010A, 0xC3D4);
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0x12340000);
+
+        cpu.Step();
+
+        Assert.That(cpu.Registers.GetDataRegister(0), Is.EqualTo(0xA1B2C3D4));
+    }
 }

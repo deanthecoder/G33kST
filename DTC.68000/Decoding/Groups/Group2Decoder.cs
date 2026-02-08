@@ -8,6 +8,9 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
+using DTC.M68000.Addressing;
+using DTC.M68000.Instructions;
+
 namespace DTC.M68000.Decoding.Groups;
 
 /// <summary>
@@ -15,8 +18,24 @@ namespace DTC.M68000.Decoding.Groups;
 /// </summary>
 public static class Group2Decoder
 {
+    private static readonly Instruction InstrMoveLong = new("MOVE.L <ea>,<ea>", MoveInstructions.ExecuteMoveLong);
+
     /// <summary>
     /// Decodes an opcode in this major group.
     /// </summary>
-    public static Instruction Decode(ushort opcode) => null;
+    public static Instruction Decode(ushort opcode)
+    {
+        var src = EffectiveAddressDecoder.DecodeSource(opcode);
+        var dst = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
+
+        // Destination mode=001 belongs to MOVEA.L, not MOVE.L.
+        if (dst.Mode == EffectiveAddressMode.AddressRegisterDirect)
+            return null;
+        if (!EffectiveAddressLongAccess.SupportsLongRead(src))
+            return null;
+        if (!EffectiveAddressLongAccess.SupportsLongWrite(dst))
+            return null;
+
+        return InstrMoveLong;
+    }
 }
