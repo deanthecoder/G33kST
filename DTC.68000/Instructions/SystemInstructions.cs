@@ -18,10 +18,16 @@ public static class SystemInstructions
     private const ushort ConditionCodeRegisterMask = 0x001F;
     private const ushort TraceFlagMask = 0x8000;
     private const ushort SupervisorFlagMask = 0x2000;
+    private const uint IllegalInstructionVectorAddress = 0x000010;
     private const uint TrapOnOverflowVectorAddress = 0x00001C;
+    private const uint LineAEmulatorVectorAddress = 0x000028;
+    private const uint LineFEmulatorVectorAddress = 0x00002C;
     private const uint TrapInstructionVectorBaseAddress = 0x000080;
     private const ushort TrapInstructionVectorMask = 0x000F;
 
+    private static readonly Instruction InstrIllegal = new("ILLEGAL", ExecuteIllegalInstruction);
+    private static readonly Instruction InstrLineA = new("LINEA", ExecuteLineAEmulator);
+    private static readonly Instruction InstrLineF = new("LINEF", ExecuteLineFEmulator);
     private static readonly Instruction InstrNop = new("NOP", static (_, _) => { });
     private static readonly Instruction InstrTrap = new("TRAP #<vector>", ExecuteTrap);
     private static readonly Instruction InstrTrapv = new("TRAPV", ExecuteTrapOnOverflow);
@@ -34,6 +40,9 @@ public static class SystemInstructions
     /// </summary>
     public static Instruction TryDecode(ushort opcode)
     {
+        if (opcode == 0x4AFC)
+            return InstrIllegal;
+
         // 0100 1110 0100 vvvv = TRAP #n.
         if ((opcode & 0xFFF0) == 0x4E40)
             return InstrTrap;
@@ -48,6 +57,18 @@ public static class SystemInstructions
             _ => null
         };
     }
+
+    /// <summary>
+    /// Decodes the LINEA emulator-trap opcode family.
+    /// </summary>
+    public static Instruction TryDecodeLineA(ushort opcode) =>
+        (opcode & 0xF000) == 0xA000 ? InstrLineA : null;
+
+    /// <summary>
+    /// Decodes the LINEF emulator-trap opcode family.
+    /// </summary>
+    public static Instruction TryDecodeLineF(ushort opcode) =>
+        (opcode & 0xF000) == 0xF000 ? InstrLineF : null;
 
     /// <summary>
     /// Executes <c>RTS</c> by popping the return address from the active stack into PC.
@@ -90,6 +111,24 @@ public static class SystemInstructions
     }
 
     /// <summary>
+    /// Executes <c>ILLEGAL</c>, entering illegal-instruction vector 4.
+    /// </summary>
+    private static void ExecuteIllegalInstruction(Cpu cpu, ushort opcode) =>
+        EnterExceptionVector(cpu, IllegalInstructionVectorAddress, useCurrentInstructionAddress: true);
+
+    /// <summary>
+    /// Executes a line-A emulator trap by entering vector 10.
+    /// </summary>
+    private static void ExecuteLineAEmulator(Cpu cpu, ushort opcode) =>
+        EnterExceptionVector(cpu, LineAEmulatorVectorAddress, useCurrentInstructionAddress: true);
+
+    /// <summary>
+    /// Executes a line-F emulator trap by entering vector 11.
+    /// </summary>
+    private static void ExecuteLineFEmulator(Cpu cpu, ushort opcode) =>
+        EnterExceptionVector(cpu, LineFEmulatorVectorAddress, useCurrentInstructionAddress: true);
+
+    /// <summary>
     /// Executes <c>TRAP #n</c>, entering trap vector <c>32 + n</c>.
     /// </summary>
     private static void ExecuteTrap(Cpu cpu, ushort opcode)
@@ -102,10 +141,13 @@ public static class SystemInstructions
     /// <summary>
     /// Enters an exception vector by stacking old PC/SR, forcing supervisor mode, then loading vector PC.
     /// </summary>
-    private static void EnterExceptionVector(Cpu cpu, uint vectorAddress)
+    private static void EnterExceptionVector(Cpu cpu, uint vectorAddress, bool useCurrentInstructionAddress = false)
     {
         var oldStatus = cpu.Registers.StatusRegister;
         var oldPc = cpu.GetPcRelativeBaseAddress();
+        if (useCurrentInstructionAddress)
+            oldPc = unchecked(oldPc - 2);
+
         cpu.Registers.IsSupervisor = true;
         cpu.Push32(oldPc);
         cpu.Push16(oldStatus);
