@@ -8,6 +8,8 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
+using DTC.M68000.Addressing;
+
 namespace DTC.M68000.Instructions;
 
 /// <summary>
@@ -18,6 +20,7 @@ public static class SystemInstructions
     private const ushort ConditionCodeRegisterMask = 0x001F;
     private const ushort TraceFlagMask = 0x8000;
     private const ushort SupervisorFlagMask = 0x2000;
+    private const uint CheckInstructionVectorAddress = 0x000018;
     private const uint IllegalInstructionVectorAddress = 0x000010;
     private const uint TrapOnOverflowVectorAddress = 0x00001C;
     private const uint LineAEmulatorVectorAddress = 0x000028;
@@ -26,6 +29,7 @@ public static class SystemInstructions
     private const ushort TrapInstructionVectorMask = 0x000F;
 
     private static readonly Instruction InstrIllegal = new("ILLEGAL", ExecuteIllegalInstruction);
+    private static readonly Instruction InstrChkWord = new("CHK.W <ea>,Dn", ExecuteCheckWord);
     private static readonly Instruction InstrLineA = new("LINEA", ExecuteLineAEmulator);
     private static readonly Instruction InstrLineF = new("LINEF", ExecuteLineFEmulator);
     private static readonly Instruction InstrNop = new("NOP", static (_, _) => { });
@@ -40,6 +44,13 @@ public static class SystemInstructions
     /// </summary>
     public static Instruction TryDecode(ushort opcode)
     {
+        // 0100 ddd 110 mmm rrr = CHK.W <ea>,Dn.
+        if ((opcode & 0xF1C0) == 0x4180)
+        {
+            var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+            return EffectiveAddressWordAccess.SupportsWordRead(source) ? InstrChkWord : null;
+        }
+
         if (opcode == 0x4AFC)
             return InstrIllegal;
 
@@ -111,6 +122,26 @@ public static class SystemInstructions
     }
 
     /// <summary>
+    /// Executes <c>CHK.W &lt;ea&gt;,Dn</c> and enters vector 6 when Dn is outside <c>0..bound</c>.
+    /// </summary>
+    private static void ExecuteCheckWord(Cpu cpu, ushort opcode)
+    {
+        var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+        var bound = (short)EffectiveAddressWordAccess.ReadWord(cpu, source);
+        var registerIndex = (opcode >> 9) & 0x07;
+        var value = (short)cpu.Registers.GetDataRegister(registerIndex);
+        ApplyChkFlags(cpu.Registers, value < 0);
+        if (value < 0)
+        {
+            EnterExceptionVector(cpu, CheckInstructionVectorAddress);
+            return;
+        }
+
+        if (value > bound)
+            EnterExceptionVector(cpu, CheckInstructionVectorAddress);
+    }
+
+    /// <summary>
     /// Executes <c>ILLEGAL</c>, entering illegal-instruction vector 4.
     /// </summary>
     private static void ExecuteIllegalInstruction(Cpu cpu, ushort opcode) =>
@@ -136,6 +167,17 @@ public static class SystemInstructions
         var trapNumber = (uint)(opcode & TrapInstructionVectorMask);
         var vectorAddress = TrapInstructionVectorBaseAddress + (trapNumber << 2);
         EnterExceptionVector(cpu, vectorAddress);
+    }
+
+    /// <summary>
+    /// Applies CHK flags: X preserved, N from signed Dn, ZVC cleared.
+    /// </summary>
+    private static void ApplyChkFlags(Registers registers, bool negative)
+    {
+        registers.NegativeFlag = negative;
+        registers.ZeroFlag = false;
+        registers.OverflowFlag = false;
+        registers.CarryFlag = false;
     }
 
     /// <summary>

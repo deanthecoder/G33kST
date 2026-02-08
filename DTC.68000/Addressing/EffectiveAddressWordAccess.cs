@@ -58,7 +58,7 @@ public static class EffectiveAddressWordAccess
         {
             EffectiveAddressMode.DataRegisterDirect => (ushort)cpu.Registers.GetDataRegister(ea.Register),
             EffectiveAddressMode.AddressRegisterDirect => (ushort)cpu.Registers.GetAddressRegister(ea.Register),
-            EffectiveAddressMode.AddressRegisterIndirect => ReadWordFromBus(cpu, NormalizeAddress24(cpu.Registers.GetAddressRegister(ea.Register))),
+            EffectiveAddressMode.AddressRegisterIndirect => ReadWordFromBus(cpu, cpu.Registers.GetAddressRegister(ea.Register)),
             EffectiveAddressMode.AddressRegisterIndirectPostIncrement => ReadWordPostIncrement(cpu, ea.Register),
             EffectiveAddressMode.AddressRegisterIndirectPreDecrement => ReadWordPreDecrement(cpu, ea.Register),
             EffectiveAddressMode.AddressRegisterIndirectDisplacement => ReadWordDisplacement(cpu, ea.Register),
@@ -82,7 +82,7 @@ public static class EffectiveAddressWordAccess
                 WriteWordToDataRegister(cpu, ea.Register, value);
                 return;
             case EffectiveAddressMode.AddressRegisterIndirect:
-                WriteWordToBus(cpu, NormalizeAddress24(cpu.Registers.GetAddressRegister(ea.Register)), value);
+                WriteWordToBus(cpu, cpu.Registers.GetAddressRegister(ea.Register), value);
                 return;
             case EffectiveAddressMode.AddressRegisterIndirectPostIncrement:
                 WriteWordPostIncrement(cpu, ea.Register, value);
@@ -113,9 +113,8 @@ public static class EffectiveAddressWordAccess
     private static ushort ReadWordPostIncrement(Cpu cpu, byte registerIndex)
     {
         var address = cpu.Registers.GetAddressRegister(registerIndex);
-        var value = ReadWordFromBus(cpu, NormalizeAddress24(address));
         cpu.Registers.SetAddressRegister(registerIndex, address + 2);
-        return value;
+        return ReadWordFromBus(cpu, address);
     }
 
     /// <summary>
@@ -125,7 +124,7 @@ public static class EffectiveAddressWordAccess
     {
         var address = cpu.Registers.GetAddressRegister(registerIndex) - 2;
         cpu.Registers.SetAddressRegister(registerIndex, address);
-        return ReadWordFromBus(cpu, NormalizeAddress24(address));
+        return ReadWordFromBus(cpu, address);
     }
 
     /// <summary>
@@ -135,7 +134,7 @@ public static class EffectiveAddressWordAccess
     {
         var displacement = (short)cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        return ReadWordFromBus(cpu, NormalizeAddress24(AddDisplacement(baseAddress, displacement)));
+        return ReadWordFromBus(cpu, AddDisplacement(baseAddress, displacement));
     }
 
     /// <summary>
@@ -146,7 +145,7 @@ public static class EffectiveAddressWordAccess
         var extension = cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
         var address = AddIndex(cpu, baseAddress, extension);
-        return ReadWordFromBus(cpu, NormalizeAddress24(address));
+        return ReadWordFromBus(cpu, address);
     }
 
     /// <summary>
@@ -155,7 +154,7 @@ public static class EffectiveAddressWordAccess
     private static ushort ReadWordAbsoluteShort(Cpu cpu)
     {
         var address = (uint)(short)cpu.FetchPcWord();
-        return ReadWordFromBus(cpu, NormalizeAddress24(address));
+        return ReadWordFromBus(cpu, address);
     }
 
     /// <summary>
@@ -166,7 +165,7 @@ public static class EffectiveAddressWordAccess
         var hi = cpu.FetchPcWord();
         var lo = cpu.FetchPcWord();
         var address = ((uint)hi << 16) | lo;
-        return ReadWordFromBus(cpu, NormalizeAddress24(address));
+        return ReadWordFromBus(cpu, address);
     }
 
     /// <summary>
@@ -176,7 +175,7 @@ public static class EffectiveAddressWordAccess
     {
         var baseAddress = cpu.GetPcRelativeBaseAddress();
         var displacement = (short)cpu.FetchPcWord();
-        return ReadWordFromBus(cpu, NormalizeAddress24(AddDisplacement(baseAddress, displacement)));
+        return ReadWordFromBus(cpu, AddDisplacement(baseAddress, displacement));
     }
 
     /// <summary>
@@ -187,7 +186,7 @@ public static class EffectiveAddressWordAccess
         var baseAddress = cpu.GetPcRelativeBaseAddress();
         var extension = cpu.FetchPcWord();
         var address = AddIndex(cpu, baseAddress, extension);
-        return ReadWordFromBus(cpu, NormalizeAddress24(address));
+        return ReadWordFromBus(cpu, address);
     }
 
     /// <summary>
@@ -202,7 +201,7 @@ public static class EffectiveAddressWordAccess
     private static void WriteWordPostIncrement(Cpu cpu, byte registerIndex, ushort value)
     {
         var address = cpu.Registers.GetAddressRegister(registerIndex);
-        WriteWordToBus(cpu, NormalizeAddress24(address), value);
+        WriteWordToBus(cpu, address, value);
         cpu.Registers.SetAddressRegister(registerIndex, address + 2);
     }
 
@@ -213,7 +212,7 @@ public static class EffectiveAddressWordAccess
     {
         var address = cpu.Registers.GetAddressRegister(registerIndex) - 2;
         cpu.Registers.SetAddressRegister(registerIndex, address);
-        WriteWordToBus(cpu, NormalizeAddress24(address), value);
+        WriteWordToBus(cpu, address, value);
     }
 
     /// <summary>
@@ -223,7 +222,7 @@ public static class EffectiveAddressWordAccess
     {
         var displacement = (short)cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        WriteWordToBus(cpu, NormalizeAddress24(AddDisplacement(baseAddress, displacement)), value);
+        WriteWordToBus(cpu, AddDisplacement(baseAddress, displacement), value);
     }
 
     /// <summary>
@@ -234,7 +233,7 @@ public static class EffectiveAddressWordAccess
         var extension = cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
         var address = AddIndex(cpu, baseAddress, extension);
-        WriteWordToBus(cpu, NormalizeAddress24(address), value);
+        WriteWordToBus(cpu, address, value);
     }
 
     /// <summary>
@@ -243,7 +242,7 @@ public static class EffectiveAddressWordAccess
     private static void WriteWordAbsoluteShort(Cpu cpu, ushort value)
     {
         var address = (uint)(short)cpu.FetchPcWord();
-        WriteWordToBus(cpu, NormalizeAddress24(address), value);
+        WriteWordToBus(cpu, address, value);
     }
 
     /// <summary>
@@ -254,7 +253,7 @@ public static class EffectiveAddressWordAccess
         var hi = cpu.FetchPcWord();
         var lo = cpu.FetchPcWord();
         var address = ((uint)hi << 16) | lo;
-        WriteWordToBus(cpu, NormalizeAddress24(address), value);
+        WriteWordToBus(cpu, address, value);
     }
 
     /// <summary>
@@ -333,6 +332,6 @@ public static class EffectiveAddressWordAccess
         if ((normalized & 1) == 0)
             return normalized;
 
-        throw new AddressErrorException(normalized, ".w");
+        throw new AddressErrorException(address, ".w");
     }
 }
