@@ -325,7 +325,7 @@ public static class EffectiveAddressWordAccess
     }
 
     /// <summary>
-    /// Validates word alignment; odd-address word access currently requires address-error exception handling.
+    /// Validates word alignment and raises a CPU address error on odd addresses.
     /// </summary>
     private static uint EnsureEvenAddress(uint address)
     {
@@ -333,6 +333,6 @@ public static class EffectiveAddressWordAccess
         if ((normalized & 1) == 0)
             return normalized;
 
-        throw new NotImplementedException($"Address error for odd word access at 0x{normalized:X6} is not implemented.");
+        throw new AddressErrorException(normalized, ".w");
     }
 }

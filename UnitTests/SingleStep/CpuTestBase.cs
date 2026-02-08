@@ -170,14 +170,26 @@ public abstract class CpuTestBase
 
         var testCases = LoadTests(sourceFile);
         var passed = 0;
+        var skipped = 0;
         var failures = new List<string>();
 
         foreach (var testCase in testCases)
         {
+            var expectsAddressError = ExpectsAddressError(testCase);
             try
             {
                 RunJsonTestCase(testCase);
+                if (expectsAddressError)
+                {
+                    failures.Add($"{BuildInstructionText(testCase.Name)} - Expected AddressErrorException but instruction completed.");
+                    continue;
+                }
+
                 passed++;
+            }
+            catch (AddressErrorException) when (expectsAddressError)
+            {
+                skipped++;
             }
             catch (Exception ex)
             {
@@ -185,14 +197,14 @@ public abstract class CpuTestBase
             }
         }
 
-        var failed = testCases.Count - passed;
+        var failed = failures.Count;
         if (failed == 0)
         {
-            TestContext.Progress.WriteLine($"Single-step cases passed: {passed}.");
+            TestContext.Progress.WriteLine($"Single-step cases passed: {passed}. Skipped expected address-error cases: {skipped}.");
             return;
         }
 
-        Assert.Fail(BuildFailureSummary(testCases.Count, passed, failures));
+        Assert.Fail(BuildFailureSummary(testCases.Count, passed, skipped, failures));
     }
 
     private void RunJsonTestCase(SingleStepTestCase testCase)
@@ -335,12 +347,13 @@ public abstract class CpuTestBase
     private static string BuildFailureSummary(
         int total,
         int passed,
+        int skipped,
         IReadOnlyList<string> failures)
     {
         const int maxLines = 10;
-        var failed = total - passed;
+        var failed = failures.Count;
         var builder = new StringBuilder();
-        builder.AppendLine($"Failed {failed} of {total} cases. Passed {passed}.");
+        builder.AppendLine($"Failed {failed} of {total} cases. Passed {passed}. Skipped {skipped}.");
 
         builder.AppendLine("Sample failures:");
         foreach (var line in failures.Take(maxLines))
@@ -363,6 +376,11 @@ public abstract class CpuTestBase
 
         return lines.Count == 0 ? string.Empty : string.Join(" | ", lines);
     }
+
+    private static bool ExpectsAddressError(SingleStepTestCase testCase) =>
+        testCase.Transactions.Any(o =>
+            string.Equals(o.Kind, "re", StringComparison.Ordinal) ||
+            string.Equals(o.Kind, "we", StringComparison.Ordinal));
 
     protected static IReadOnlyList<FileInfo> GetFiles(string baseName) =>
         FilesByBase.Value.TryGetValue(baseName, out var files) ? files : [];

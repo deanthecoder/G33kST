@@ -324,7 +324,7 @@ public static class EffectiveAddressLongAccess
     }
 
     /// <summary>
-    /// Validates long alignment; odd-address long access currently requires address-error exception handling.
+    /// Validates long alignment and raises a CPU address error on odd addresses.
     /// </summary>
     private static uint EnsureEvenAddress(uint address)
     {
@@ -332,6 +332,6 @@ public static class EffectiveAddressLongAccess
         if ((normalized & 1) == 0)
             return normalized;
 
-        throw new NotImplementedException($"Address error for odd long access at 0x{normalized:X6} is not implemented.");
+        throw new AddressErrorException(normalized, ".l");
     }
 }
