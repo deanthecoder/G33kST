@@ -589,4 +589,58 @@ public sealed class CpuTests
 
         Assert.That(cpu.Registers.GetDataRegister(0), Is.EqualTo(0xA1B2C3D4));
     }
+
+    [Test]
+    public void MoveQuickSignExtendsImmediateAndSetsFlags()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x78A3); // MOVEQ #-93,D4
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(4, 0x12345678);
+        cpu.Registers.ExtendFlag = true;
+        cpu.Registers.ZeroFlag = true;
+        cpu.Registers.CarryFlag = true;
+        cpu.Registers.OverflowFlag = true;
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.GetDataRegister(4), Is.EqualTo(0xFFFFFFA3));
+            Assert.That(cpu.Registers.ExtendFlag, Is.True);
+            Assert.That(cpu.Registers.NegativeFlag, Is.True);
+            Assert.That(cpu.Registers.ZeroFlag, Is.False);
+            Assert.That(cpu.Registers.OverflowFlag, Is.False);
+            Assert.That(cpu.Registers.CarryFlag, Is.False);
+        });
+    }
+
+    [Test]
+    public void MoveQuickZeroImmediateSetsZeroFlag()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x7000); // MOVEQ #0,D0
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0xFFFFFFFF);
+        cpu.Registers.ExtendFlag = true;
+        cpu.Registers.NegativeFlag = true;
+        cpu.Registers.CarryFlag = true;
+        cpu.Registers.OverflowFlag = true;
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.GetDataRegister(0), Is.Zero);
+            Assert.That(cpu.Registers.ExtendFlag, Is.True);
+            Assert.That(cpu.Registers.NegativeFlag, Is.False);
+            Assert.That(cpu.Registers.ZeroFlag, Is.True);
+            Assert.That(cpu.Registers.OverflowFlag, Is.False);
+            Assert.That(cpu.Registers.CarryFlag, Is.False);
+        });
+    }
 }

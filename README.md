@@ -15,6 +15,11 @@ G33kST is my way of learning its hardware properly, starting from a pragmatic an
 - Early bring-up.
 - Focus is on CPU correctness, basic memory mapping, and a minimal boot path.
 
+## Pragmatic compatibility notes
+- Goal is to run Atari ST software first, then improve edge-case accuracy where needed.
+- Some exception-heavy CPU behavior (for example, full 68000 address-error frame handling) may be deferred unless real software depends on it.
+- Current single-step tests temporarily treat expected address-error cases as skipped until full exception flow is implemented.
+
 ## Highlights
 - **68000 core** - A clean, reusable Motorola 68000 implementation (work in progress).
 - **Shared core utilities** - `DTC.Core` provides commands, extensions, converters, and Avalonia helpers shared across projects.

@@ -18,6 +18,19 @@ namespace DTC.M68000.Instructions;
 public static class MoveInstructions
 {
     /// <summary>
+    /// Executes <c>MOVEQ #&lt;imm8&gt;,Dn</c>, sign-extending the 8-bit literal to 32-bit.
+    /// </summary>
+    public static void ExecuteMoveQuick(Cpu cpu, ushort opcode)
+    {
+        var registerIndex = (opcode >> 9) & 0x7;
+        var immediate = (sbyte)(opcode & 0xFF);
+        var value = (uint)immediate;
+
+        cpu.Registers.SetDataRegister(registerIndex, value);
+        SetMoveLongFlags(cpu.Registers, value);
+    }
+
+    /// <summary>
     /// Executes <c>MOVE.B &lt;ea&gt;,&lt;ea&gt;</c> for supported byte-sized EA combinations.
     /// ea = effective address.
     /// </summary>
