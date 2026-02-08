@@ -8,6 +8,8 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
+using DTC.M68000.Instructions;
+
 namespace DTC.M68000.Decoding.Groups;
 
 /// <summary>
@@ -18,5 +20,6 @@ public static class Group5Decoder
     /// <summary>
     /// Decodes an opcode in this major group.
     /// </summary>
-    public static Instruction Decode(ushort opcode) => null;
+    public static Instruction Decode(ushort opcode) =>
+        ConditionInstructions.TryDecodeScc(opcode);
 }
