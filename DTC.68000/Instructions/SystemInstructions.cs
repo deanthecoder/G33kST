@@ -16,8 +16,12 @@ namespace DTC.M68000.Instructions;
 public static class SystemInstructions
 {
     private const ushort ConditionCodeRegisterMask = 0x001F;
+    private const ushort TraceFlagMask = 0x8000;
+    private const ushort SupervisorFlagMask = 0x2000;
+    private const uint TrapOnOverflowVectorAddress = 0x00001C;
 
     private static readonly Instruction InstrNop = new("NOP", static (_, _) => { });
+    private static readonly Instruction InstrTrapv = new("TRAPV", ExecuteTrapOnOverflow);
     private static readonly Instruction InstrRtr = new("RTR", ExecuteReturnAndRestore);
     private static readonly Instruction InstrRts = new("RTS", ExecuteReturnFromSubroutine);
     private static readonly Instruction InstrRte = new("RTE", static (cpu, _) => cpu.ExecuteReturnFromException());
@@ -31,6 +35,7 @@ public static class SystemInstructions
             0x4E71 => InstrNop,
             0x4E73 => InstrRte,
             0x4E75 => InstrRts,
+            0x4E76 => InstrTrapv,
             0x4E77 => InstrRtr,
             _ => null
         };
@@ -63,6 +68,24 @@ public static class SystemInstructions
         var highStatusByte = (ushort)(cpu.Registers.StatusRegister & 0xFF00);
         cpu.Registers.StatusRegister = (ushort)(highStatusByte | restoredCcr);
         cpu.Registers.ProgramCounter = returnAddress;
+        cpu.RefreshPrefetchQueue();
+    }
+
+    /// <summary>
+    /// Executes <c>TRAPV</c>, entering trap vector 7 when overflow is set.
+    /// </summary>
+    private static void ExecuteTrapOnOverflow(Cpu cpu, ushort opcode)
+    {
+        if (!cpu.Registers.OverflowFlag)
+            return;
+
+        var oldStatus = cpu.Registers.StatusRegister;
+        var oldPc = cpu.GetPcRelativeBaseAddress();
+        cpu.Registers.IsSupervisor = true;
+        cpu.Push32(oldPc);
+        cpu.Push16(oldStatus);
+        cpu.Registers.StatusRegister = (ushort)((oldStatus & ~TraceFlagMask) | SupervisorFlagMask);
+        cpu.Registers.ProgramCounter = cpu.Read32(TrapOnOverflowVectorAddress);
         cpu.RefreshPrefetchQueue();
     }
 }
