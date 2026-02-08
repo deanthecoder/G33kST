@@ -20,6 +20,8 @@ public static class MoveInstructions
     private static readonly Instruction InstrMoveByte = new("MOVE.B <ea>,<ea>", ExecuteMoveByte);
     private static readonly Instruction InstrMoveWord = new("MOVE.W <ea>,<ea>", ExecuteMoveWord);
     private static readonly Instruction InstrMoveLong = new("MOVE.L <ea>,<ea>", ExecuteMoveLong);
+    private static readonly Instruction InstrMoveAddressWord = new("MOVEA.W <ea>,An", ExecuteMoveAddressWord);
+    private static readonly Instruction InstrMoveAddressLong = new("MOVEA.L <ea>,An", ExecuteMoveAddressLong);
 
     /// <summary>
     /// Decodes byte-sized MOVE opcodes handled by this module.
@@ -44,7 +46,7 @@ public static class MoveInstructions
         var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
         if (destination.Mode == EffectiveAddressMode.AddressRegisterDirect)
-            return null;
+            return EffectiveAddressWordAccess.SupportsWordRead(source) ? InstrMoveAddressWord : null;
         if (!EffectiveAddressWordAccess.SupportsWordRead(source))
             return null;
         if (!EffectiveAddressWordAccess.SupportsWordWrite(destination))
@@ -61,7 +63,7 @@ public static class MoveInstructions
         var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
         if (destination.Mode == EffectiveAddressMode.AddressRegisterDirect)
-            return null;
+            return EffectiveAddressLongAccess.SupportsLongRead(source) ? InstrMoveAddressLong : null;
         if (!EffectiveAddressLongAccess.SupportsLongRead(source))
             return null;
         if (!EffectiveAddressLongAccess.SupportsLongWrite(destination))
@@ -87,7 +89,7 @@ public static class MoveInstructions
     /// Executes <c>MOVE.B &lt;ea&gt;,&lt;ea&gt;</c> for supported byte-sized EA combinations.
     /// ea = effective address.
     /// </summary>
-    public static void ExecuteMoveByte(Cpu cpu, ushort opcode)
+    private static void ExecuteMoveByte(Cpu cpu, ushort opcode)
     {
         var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
@@ -100,7 +102,7 @@ public static class MoveInstructions
     /// Executes <c>MOVE.W &lt;ea&gt;,&lt;ea&gt;</c> for supported word-sized EA combinations.
     /// ea = effective address.
     /// </summary>
-    public static void ExecuteMoveWord(Cpu cpu, ushort opcode)
+    private static void ExecuteMoveWord(Cpu cpu, ushort opcode)
     {
         var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
@@ -113,13 +115,37 @@ public static class MoveInstructions
     /// Executes <c>MOVE.L &lt;ea&gt;,&lt;ea&gt;</c> for supported long-sized EA combinations.
     /// ea = effective address.
     /// </summary>
-    public static void ExecuteMoveLong(Cpu cpu, ushort opcode)
+    private static void ExecuteMoveLong(Cpu cpu, ushort opcode)
     {
         var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
         var sourceValue = EffectiveAddressLongAccess.ReadLong(cpu, source);
         EffectiveAddressLongAccess.WriteLong(cpu, destination, sourceValue);
         SetMoveLongFlags(cpu.Registers, sourceValue);
+    }
+
+    /// <summary>
+    /// Executes <c>MOVEA.W &lt;ea&gt;,An</c> using sign-extension from 16-bit source to 32-bit address register.
+    /// ea = effective address.
+    /// </summary>
+    private static void ExecuteMoveAddressWord(Cpu cpu, ushort opcode)
+    {
+        var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+        var destinationRegisterIndex = (opcode >> 9) & 0x07;
+        var sourceValue = (short)EffectiveAddressWordAccess.ReadWord(cpu, source);
+        cpu.Registers.SetAddressRegister(destinationRegisterIndex, unchecked((uint)sourceValue));
+    }
+
+    /// <summary>
+    /// Executes <c>MOVEA.L &lt;ea&gt;,An</c> by loading a 32-bit source into address register An.
+    /// ea = effective address.
+    /// </summary>
+    private static void ExecuteMoveAddressLong(Cpu cpu, ushort opcode)
+    {
+        var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+        var destinationRegisterIndex = (opcode >> 9) & 0x07;
+        var sourceValue = EffectiveAddressLongAccess.ReadLong(cpu, source);
+        cpu.Registers.SetAddressRegister(destinationRegisterIndex, sourceValue);
     }
 
     private static void SetMoveByteFlags(Registers registers, byte value)
