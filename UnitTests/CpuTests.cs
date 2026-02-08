@@ -332,6 +332,69 @@ public sealed class CpuTests
     }
 
     [Test]
+    public void MoveBytePcDisplacementToDataUsesPcRelativeBase()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x103A); // MOVE.B (d16,PC),D0
+        bus.Write16BigEndian(0x000102, 0x0006);
+        bus.Write8(0x000108, 0x4C);
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0x12345600);
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000104));
+            Assert.That(cpu.Registers.GetDataRegister(0), Is.EqualTo(0x1234564C));
+        });
+    }
+
+    [Test]
+    public void MoveBytePcIndexedToDataUsesPcRelativeBaseAndIndex()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x103B); // MOVE.B (d8,PC,Xn),D0
+        bus.Write16BigEndian(0x000102, 0x2004); // D2.w +4
+        bus.Write8(0x000116, 0x92);
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(2, 0x00000010);
+        cpu.Registers.SetDataRegister(0, 0x89ABC000);
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000104));
+            Assert.That(cpu.Registers.GetDataRegister(0), Is.EqualTo(0x89ABC092));
+        });
+    }
+
+    [Test]
+    public void MoveByteImmediateToDataUsesLowByteOfImmediateWord()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x103C); // MOVE.B #<imm8>,D0
+        bus.Write16BigEndian(0x000102, 0x00E7);
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0xA1B2C300);
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000104));
+            Assert.That(cpu.Registers.GetDataRegister(0), Is.EqualTo(0xA1B2C3E7));
+        });
+    }
+
+    [Test]
     public void MoveByteAbsoluteShortMasksTo24BitBusAddress()
     {
         var bus = new Bus(0x1000000);

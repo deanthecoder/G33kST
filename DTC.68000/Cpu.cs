@@ -103,6 +103,12 @@ public sealed class Cpu : CpuBase
     }
 
     /// <summary>
+    /// Returns the base PC used by PC-relative EA decoding before consuming an extension word.
+    /// </summary>
+    public uint GetPcRelativeBaseAddress() =>
+        m_hasPrefetch ? unchecked(Registers.ProgramCounter - 4) : Registers.ProgramCounter;
+
+    /// <summary>
     /// Reads one byte from bus memory.
     /// </summary>
     public override byte Read8(uint address)
