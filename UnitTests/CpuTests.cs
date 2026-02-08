@@ -180,4 +180,188 @@ public sealed class CpuTests
             Assert.That(cpu.Registers.CarryFlag, Is.False);
         });
     }
+
+    [Test]
+    public void MoveByteAddressPostIncrementToDataIncrementsSourceRegister()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x1019); // MOVE.B (A1)+,D0
+        bus.Write8(0x000220, 0x7E);
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetAddressRegister(1, 0x000220);
+        cpu.Registers.SetDataRegister(0, 0x12345600);
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.GetDataRegister(0), Is.EqualTo(0x1234567E));
+            Assert.That(cpu.Registers.GetAddressRegister(1), Is.EqualTo(0x000221));
+        });
+    }
+
+    [Test]
+    public void MoveByteDataToAddressPostIncrementWithA7IncrementsByTwo()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x1EC0); // MOVE.B D0,(A7)+
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0x00000055);
+        cpu.Registers.SetAddressRegister(7, 0x000300);
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bus.Read8(0x000300), Is.EqualTo(0x55));
+            Assert.That(cpu.Registers.GetAddressRegister(7), Is.EqualTo(0x000302));
+        });
+    }
+
+    [Test]
+    public void MoveByteAddressPreDecrementToDataDecrementsBeforeRead()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x1021); // MOVE.B -(A1),D0
+        bus.Write8(0x00021F, 0xC3);
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetAddressRegister(1, 0x000220);
+        cpu.Registers.SetDataRegister(0, 0x11223344);
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.GetAddressRegister(1), Is.EqualTo(0x00021F));
+            Assert.That(cpu.Registers.GetDataRegister(0), Is.EqualTo(0x112233C3));
+        });
+    }
+
+    [Test]
+    public void MoveByteDataToAddressDisplacementWritesUsingSignedOffset()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x1340); // MOVE.B D0,(d16,A1)
+        bus.Write16BigEndian(0x000102, 0xFFFE); // -2
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0x0000005A);
+        cpu.Registers.SetAddressRegister(1, 0x000220);
+
+        cpu.Step();
+
+        Assert.That(bus.Read8(0x00021E), Is.EqualTo(0x5A));
+    }
+
+    [Test]
+    public void MoveByteAbsoluteShortToDataReadsFromAbsoluteAddress()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x1038); // MOVE.B (xxx).w,D0
+        bus.Write16BigEndian(0x000102, 0x0200);
+        bus.Write8(0x000200, 0x9F);
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0xAABBCC00);
+
+        cpu.Step();
+
+        Assert.That(cpu.Registers.GetDataRegister(0), Is.EqualTo(0xAABBCC9F));
+    }
+
+    [Test]
+    public void MoveByteDataToAbsoluteLongWritesToAbsoluteAddress()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x13C0); // MOVE.B D0,(xxx).l
+        bus.Write16BigEndian(0x000102, 0x0004);
+        bus.Write16BigEndian(0x000104, 0x1234);
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0x123456E1);
+
+        cpu.Step();
+
+        Assert.That(bus.Read8(0x00041234), Is.EqualTo(0xE1));
+    }
+
+    [Test]
+    public void MoveByteAddressIndexedToDataUsesIndexAndDisplacement()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x1031); // MOVE.B (d8,A1,Xn),D0
+        bus.Write16BigEndian(0x000102, 0x2004); // D2.w +4
+        bus.Write8(0x000214, 0x6B);
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetAddressRegister(1, 0x000200);
+        cpu.Registers.SetDataRegister(2, 0x00000010);
+        cpu.Registers.SetDataRegister(0, 0xABCD1200);
+
+        cpu.Step();
+
+        Assert.That(cpu.Registers.GetDataRegister(0), Is.EqualTo(0xABCD126B));
+    }
+
+    [Test]
+    public void MoveByteDataToAddressIndexedUsesIndexAndDisplacement()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x1380); // MOVE.B D0,(d8,A1,Xn)
+        bus.Write16BigEndian(0x000102, 0x2004); // D2.w +4
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetAddressRegister(1, 0x000200);
+        cpu.Registers.SetDataRegister(2, 0x00000010);
+        cpu.Registers.SetDataRegister(0, 0x556677A2);
+
+        cpu.Step();
+
+        Assert.That(bus.Read8(0x000214), Is.EqualTo(0xA2));
+    }
+
+    [Test]
+    public void MoveByteAbsoluteShortMasksTo24BitBusAddress()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x1038); // MOVE.B (xxx).w,D0
+        bus.Write16BigEndian(0x000102, 0xFFFC); // Sign-extends to 0xFFFFFFFC.
+        bus.Write8(0xFFFFFC, 0x66);
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0x01020300);
+
+        cpu.Step();
+
+        Assert.That(cpu.Registers.GetDataRegister(0), Is.EqualTo(0x01020366));
+    }
+
+    [Test]
+    public void MoveByteAddressIndirectMasksRegisterAddressTo24BitBusAddress()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x1011); // MOVE.B (A1),D0
+        bus.Write8(0x000220, 0x5D);
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetAddressRegister(1, 0x01000220);
+        cpu.Registers.SetDataRegister(0, 0x11223300);
+
+        cpu.Step();
+
+        Assert.That(cpu.Registers.GetDataRegister(0), Is.EqualTo(0x1122335D));
+    }
 }

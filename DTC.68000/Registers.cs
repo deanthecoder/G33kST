@@ -231,6 +231,14 @@ public sealed class Registers
     {
         ValidateIndex(index, nameof(index));
         m_a[index] = value;
+
+        if (index != 7)
+            return;
+
+        if (IsSupervisor)
+            SupervisorStackPointer = value;
+        else
+            UserStackPointer = value;
     }
 
     /// <summary>

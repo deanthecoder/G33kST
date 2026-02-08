@@ -219,6 +219,24 @@ public sealed class RegistersTests
         });
     }
 
+    [Test]
+    public void SettingA7UpdatesActiveStackPointerMirror()
+    {
+        var registers = new Registers();
+
+        registers.SetAddressRegister(7, 0x11111111);
+        registers.SupervisorStackPointer = 0x22222222;
+        registers.SetSupervisorMode(true);
+        registers.SetAddressRegister(7, 0x33333333);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(registers.UserStackPointer, Is.EqualTo(0x11111111));
+            Assert.That(registers.SupervisorStackPointer, Is.EqualTo(0x33333333));
+            Assert.That(registers.StackPointer, Is.EqualTo(0x33333333));
+        });
+    }
+
     [TestCase(-1)]
     [TestCase(8)]
     public void DataRegisterIndexOutsideRangeThrows(int index)
@@ -268,7 +286,7 @@ public sealed class RegistersTests
             Assert.That(text, Does.Contain("D0:11112222"));
             Assert.That(text, Does.Contain("A7:DEADBEEF"));
             Assert.That(text, Does.Contain("USP:ABCDEF00"));
-            Assert.That(text, Does.Contain("SSP:00112233"));
+            Assert.That(text, Does.Contain("SSP:DEADBEEF"));
             Assert.That(text, Does.Contain("F:-S--------"));
         });
     }

@@ -11,7 +11,9 @@
 using DTC.Core.Extensions;
 using DTC.Emulation;
 using DTC.M68000;
+using DTC.M68000.Addressing;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace UnitTests.SingleStep;
 
@@ -169,7 +171,6 @@ public abstract class CpuTestBase
         var testCases = LoadTests(sourceFile);
         var passed = 0;
         var failures = new List<string>();
-        var opcodeFailures = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var testCase in testCases)
         {
@@ -181,9 +182,6 @@ public abstract class CpuTestBase
             catch (Exception ex)
             {
                 failures.Add(FormatFailure(testCase, ex));
-                var opcode = TryExtractOpcode(ex);
-                if (opcode != null)
-                    opcodeFailures[opcode] = opcodeFailures.TryGetValue(opcode, out var count) ? count + 1 : 1;
             }
         }
 
@@ -194,7 +192,7 @@ public abstract class CpuTestBase
             return;
         }
 
-        Assert.Fail(BuildFailureSummary(testCases.Count, passed, failures, opcodeFailures));
+        Assert.Fail(BuildFailureSummary(testCases.Count, passed, failures));
     }
 
     private void RunJsonTestCase(SingleStepTestCase testCase)
@@ -221,47 +219,128 @@ public abstract class CpuTestBase
 
     private static string FormatFailure(SingleStepTestCase testCase, Exception exception)
     {
-        var name = string.IsNullOrWhiteSpace(testCase.Name) ? string.Empty : $"{testCase.Name}: ";
+        var instruction = BuildInstructionText(testCase.Name);
         var message = NormalizeFailureMessage(exception.Message);
-        return $"{name}{exception.GetType().Name} - {message}";
+        if (!TryExtractOpcode(testCase, exception, out var opcode))
+            return $"{instruction} - {exception.GetType().Name}: {message}";
+
+        var binary = Convert.ToString(opcode, 2).PadLeft(16, '0');
+        var modeSummary = string.Empty;
+        if ((opcode >> 12) is >= 1 and <= 3)
+        {
+            var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
+            var mode = ToModeLabel(destination.Mode);
+            modeSummary = $" (mode={mode}, reg={destination.Register})";
+        }
+
+        var status = exception is NotImplementedException
+            ? "NotImplemented"
+            : $"{exception.GetType().Name}: {message}";
+
+        return $"(0x{opcode:X4}, {binary}) {instruction}{modeSummary} - {status}";
     }
 
-    private static string TryExtractOpcode(Exception exception)
+    private static bool TryExtractOpcode(SingleStepTestCase testCase, Exception exception, out ushort opcode) =>
+        TryExtractOpcodeFromException(exception, out opcode) || TryExtractOpcodeFromName(testCase.Name, out opcode);
+
+    private static bool TryExtractOpcodeFromException(Exception exception, out ushort opcode)
     {
+        opcode = 0;
         var message = exception.Message;
-        const string token = "Opcode ";
+        const string token = "Opcode 0x";
         var index = message.IndexOf(token, StringComparison.Ordinal);
         if (index < 0)
-            return null;
+            return false;
 
         var start = index + token.Length;
-        var end = message.IndexOf(' ', start);
-        var opcode = end > start ? message[start..end] : message[start..];
-        return string.IsNullOrWhiteSpace(opcode) ? null : opcode.Trim();
+        var count = 0;
+        while (start + count < message.Length && count < 4 && Uri.IsHexDigit(message[start + count]))
+            count++;
+
+        if (count == 0)
+            return false;
+
+        return ushort.TryParse(message.Substring(start, count), System.Globalization.NumberStyles.HexNumber, null, out opcode);
     }
+
+    private static bool TryExtractOpcodeFromName(string name, out ushort opcode)
+    {
+        opcode = 0;
+        if (string.IsNullOrWhiteSpace(name))
+            return false;
+
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+            return false;
+
+        var token = parts[^1].Trim();
+        if (token.Length != 4 || !token.All(Uri.IsHexDigit))
+            return false;
+
+        return ushort.TryParse(token, System.Globalization.NumberStyles.HexNumber, null, out opcode);
+    }
+
+    private static string BuildInstructionText(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "<unknown>";
+
+        var value = name.Trim();
+        var firstSpace = value.IndexOf(' ');
+        if (firstSpace > 0 && value[..firstSpace].All(char.IsDigit))
+            value = value[(firstSpace + 1)..].Trim();
+
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length > 1 && parts[^1].Length == 4 && parts[^1].All(Uri.IsHexDigit))
+            value = string.Join(' ', parts[..^1]);
+
+        firstSpace = value.IndexOf(' ');
+        if (firstSpace < 0)
+            return value.ToUpperInvariant();
+
+        var mnemonic = value[..firstSpace].ToUpperInvariant();
+        var operands = NormalizeOperands(value[(firstSpace + 1)..]);
+        return string.IsNullOrWhiteSpace(operands) ? mnemonic : $"{mnemonic} {operands}";
+    }
+
+    private static string NormalizeOperands(string operands)
+    {
+        if (string.IsNullOrWhiteSpace(operands))
+            return string.Empty;
+
+        var normalized = Regex.Replace(operands.Trim(), @"\s*,\s*", ", ");
+        normalized = Regex.Replace(normalized, @"\(\s*([^)]*?)\s*\)", match =>
+        {
+            var inner = Regex.Replace(match.Groups[1].Value, @",\s*", ",");
+            return $"({inner})";
+        });
+        normalized = normalized.Replace("#,", "#<imm8>,", StringComparison.Ordinal);
+        return Regex.Replace(normalized, @"\s+", " ");
+    }
+
+    private static string ToModeLabel(EffectiveAddressMode mode) =>
+        mode switch
+        {
+            EffectiveAddressMode.DataRegisterDirect => "DataReg",
+            EffectiveAddressMode.AddressRegisterDirect => "AddrReg",
+            EffectiveAddressMode.AddressRegisterIndirect => "AddrInd",
+            EffectiveAddressMode.AddressRegisterIndirectPostIncrement => "AddrPostInc",
+            EffectiveAddressMode.AddressRegisterIndirectPreDecrement => "AddrPreDec",
+            EffectiveAddressMode.AddressRegisterIndirectDisplacement => "AddrDisp",
+            EffectiveAddressMode.AddressRegisterIndirectIndex => "AddrIdx",
+            EffectiveAddressMode.Other => "Other",
+            _ => "Unknown"
+        };
 
     private static string BuildFailureSummary(
         int total,
         int passed,
-        IReadOnlyList<string> failures,
-        IReadOnlyDictionary<string, int> opcodeFailures)
+        IReadOnlyList<string> failures)
     {
         const int maxLines = 10;
         var failed = total - passed;
         var builder = new StringBuilder();
         builder.AppendLine($"Failed {failed} of {total} cases. Passed {passed}.");
-
-        if (opcodeFailures.Count > 0)
-        {
-            builder.AppendLine("Missing opcode counts:");
-            foreach (var entry in opcodeFailures
-                .OrderByDescending(o => o.Value)
-                .ThenBy(o => o.Key, StringComparer.OrdinalIgnoreCase)
-                .Take(maxLines))
-            {
-                builder.AppendLine($"  {entry.Key}: {entry.Value}");
-            }
-        }
 
         builder.AppendLine("Sample failures:");
         foreach (var line in failures.Take(maxLines))

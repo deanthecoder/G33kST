@@ -18,9 +18,7 @@ namespace DTC.M68000.Decoding.Groups;
 /// </summary>
 public static class Group1Decoder
 {
-    private static readonly Instruction InstrMoveByteAddrToData = new("MOVE.B (An),Dn", MoveInstructions.ExecuteMoveByteAddressToData);
-    private static readonly Instruction InstrMoveByteDataToAddr = new("MOVE.B Dn,(An)", MoveInstructions.ExecuteMoveByteDataToAddress);
-    private static readonly Instruction InstrMoveByteDataToData = new("MOVE.B Dn,Dn", MoveInstructions.ExecuteMoveByteDataToData);
+    private static readonly Instruction InstrMoveByte = new("MOVE.B <ea>,<ea>", MoveInstructions.ExecuteMoveByte);
 
     /// <summary>
     /// Decodes an opcode in this major group.
@@ -29,17 +27,12 @@ public static class Group1Decoder
     {
         var src = EffectiveAddressDecoder.DecodeSource(opcode);
         var dst = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
-        
-        if (src.Mode == EffectiveAddressMode.DataRegisterDirect &&
-            dst.Mode == EffectiveAddressMode.DataRegisterDirect)
-            return InstrMoveByteDataToData;
-        if (src.Mode == EffectiveAddressMode.DataRegisterDirect &&
-            dst.Mode == EffectiveAddressMode.AddressRegisterIndirect)
-            return InstrMoveByteDataToAddr;
-        if (src.Mode == EffectiveAddressMode.AddressRegisterIndirect &&
-            dst.Mode == EffectiveAddressMode.DataRegisterDirect)
-            return InstrMoveByteAddrToData;
 
-        return null;
+        if (!EffectiveAddressByteAccess.SupportsByteRead(src))
+            return null;
+        if (!EffectiveAddressByteAccess.SupportsByteWrite(dst))
+            return null;
+
+        return InstrMoveByte;
     }
 }
