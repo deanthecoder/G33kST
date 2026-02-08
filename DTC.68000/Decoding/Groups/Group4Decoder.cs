@@ -22,6 +22,7 @@ public static class Group4Decoder
     /// </summary>
     public static Instruction Decode(ushort opcode) =>
         AddressInstructions.TryDecode(opcode)
+        ?? StackInstructions.TryDecode(opcode)
         ?? JumpInstructions.TryDecode(opcode)
         ?? SystemInstructions.TryDecode(opcode);
 }

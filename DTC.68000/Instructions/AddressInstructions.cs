@@ -18,12 +18,20 @@ namespace DTC.M68000.Instructions;
 public static class AddressInstructions
 {
     private static readonly Instruction InstrLea = new("LEA <ea>,An", ExecuteLoadEffectiveAddress);
+    private static readonly Instruction InstrPea = new("PEA <ea>", ExecutePushEffectiveAddress);
 
     /// <summary>
     /// Decodes address-generation opcodes handled by this module.
     /// </summary>
     public static Instruction TryDecode(ushort opcode)
     {
+        // 0100 1000 01 mmm rrr = PEA <ea>.
+        if ((opcode & 0xFFC0) == 0x4840)
+        {
+            var peaSource = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+            return EffectiveAddressControlResolver.SupportsControlTarget(peaSource) ? InstrPea : null;
+        }
+
         // 0100 aaa 111 mmm rrr = LEA <ea>,Aa.
         if ((opcode & 0xF1C0) != 0x41C0)
             return null;
@@ -42,5 +50,29 @@ public static class AddressInstructions
         var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var effectiveAddress = EffectiveAddressControlResolver.ResolveControlTarget(cpu, source);
         cpu.Registers.SetAddressRegister(destinationRegisterIndex, effectiveAddress);
+    }
+
+    /// <summary>
+    /// Executes <c>PEA &lt;ea&gt;</c> by resolving the effective address and pushing it as a longword.
+    /// ea = effective address.
+    /// </summary>
+    private static void ExecutePushEffectiveAddress(Cpu cpu, ushort opcode)
+    {
+        var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+        var effectiveAddress = EffectiveAddressControlResolver.ResolveControlTarget(cpu, source);
+        PushLongToStack(cpu, effectiveAddress);
+    }
+
+    /// <summary>
+    /// Pushes a long value to the active stack using pre-decrement semantics.
+    /// </summary>
+    private static void PushLongToStack(Cpu cpu, uint value)
+    {
+        var newStackPointer = cpu.Registers.StackPointer - 4;
+        if ((newStackPointer & 1) != 0)
+            throw new AddressErrorException(newStackPointer, ".l");
+
+        cpu.Registers.StackPointer = newStackPointer;
+        cpu.Write32(newStackPointer, value);
     }
 }
