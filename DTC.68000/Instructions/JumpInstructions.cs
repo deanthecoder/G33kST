@@ -67,21 +67,8 @@ public static class JumpInstructions
             throw new AddressErrorException(targetAddress, ".w");
 
         // For prefetch-seeded runs, ProgramCounter tracks the next fetch slot; use prefetch-aware base.
-        PushLongToStack(cpu, cpu.GetPcRelativeBaseAddress());
+        cpu.Push32(cpu.GetPcRelativeBaseAddress());
         cpu.Registers.ProgramCounter = targetAddress;
         cpu.RefreshPrefetchQueue();
-    }
-
-    /// <summary>
-    /// Pushes a long value to the active stack using pre-decrement semantics.
-    /// </summary>
-    private static void PushLongToStack(Cpu cpu, uint value)
-    {
-        var newStackPointer = cpu.Registers.StackPointer - 4;
-        if ((newStackPointer & 1) != 0)
-            throw new AddressErrorException(newStackPointer, ".l");
-
-        cpu.Registers.StackPointer = newStackPointer;
-        cpu.Write32(newStackPointer, value);
     }
 }

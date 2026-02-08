@@ -60,19 +60,6 @@ public static class AddressInstructions
     {
         var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var effectiveAddress = EffectiveAddressControlResolver.ResolveControlTarget(cpu, source);
-        PushLongToStack(cpu, effectiveAddress);
-    }
-
-    /// <summary>
-    /// Pushes a long value to the active stack using pre-decrement semantics.
-    /// </summary>
-    private static void PushLongToStack(Cpu cpu, uint value)
-    {
-        var newStackPointer = cpu.Registers.StackPointer - 4;
-        if ((newStackPointer & 1) != 0)
-            throw new AddressErrorException(newStackPointer, ".l");
-
-        cpu.Registers.StackPointer = newStackPointer;
-        cpu.Write32(newStackPointer, value);
+        cpu.Push32(effectiveAddress);
     }
 }

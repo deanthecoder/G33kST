@@ -41,7 +41,7 @@ public static class StackInstructions
         var registerIndex = opcode & 0x07;
         var oldAddressRegisterValue = cpu.Registers.GetAddressRegister(registerIndex);
 
-        PushLongToStack(cpu, oldAddressRegisterValue);
+        cpu.Push32(oldAddressRegisterValue);
         var frameBase = cpu.Registers.StackPointer;
         cpu.Registers.SetAddressRegister(registerIndex, frameBase);
 
@@ -57,21 +57,7 @@ public static class StackInstructions
     {
         var registerIndex = opcode & 0x07;
         cpu.Registers.StackPointer = cpu.Registers.GetAddressRegister(registerIndex);
-        var restoredAddressRegisterValue = cpu.Read32(cpu.Registers.StackPointer);
-        cpu.Registers.StackPointer += 4;
+        var restoredAddressRegisterValue = cpu.Pop32();
         cpu.Registers.SetAddressRegister(registerIndex, restoredAddressRegisterValue);
-    }
-
-    /// <summary>
-    /// Pushes a long value to the active stack using pre-decrement semantics.
-    /// </summary>
-    private static void PushLongToStack(Cpu cpu, uint value)
-    {
-        var newStackPointer = cpu.Registers.StackPointer - 4;
-        if ((newStackPointer & 1) != 0)
-            throw new AddressErrorException(newStackPointer, ".l");
-
-        cpu.Registers.StackPointer = newStackPointer;
-        cpu.Write32(newStackPointer, value);
     }
 }

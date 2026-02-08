@@ -103,7 +103,7 @@ public static class ConditionInstructions
     private static void ExecuteBranchToSubroutine(Cpu cpu, ushort opcode)
     {
         var displacement = ReadBranchDisplacement(cpu, opcode, out var usedExtensionWord);
-        PushLongToStack(cpu, cpu.GetPcRelativeBaseAddress());
+        cpu.Push32(cpu.GetPcRelativeBaseAddress());
         BranchRelative(cpu, displacement, usedExtensionWord);
     }
 
@@ -159,13 +159,4 @@ public static class ConditionInstructions
         cpu.Registers.ProgramCounter = branchTarget;
     }
 
-    private static void PushLongToStack(Cpu cpu, uint value)
-    {
-        var newStackPointer = cpu.Registers.StackPointer - 4;
-        if ((newStackPointer & 1) != 0)
-            throw new AddressErrorException(newStackPointer, ".l");
-
-        cpu.Registers.StackPointer = newStackPointer;
-        cpu.Write32(newStackPointer, value);
-    }
 }

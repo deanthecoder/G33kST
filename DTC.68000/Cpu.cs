@@ -171,6 +171,54 @@ public sealed class Cpu : CpuBase
     }
 
     /// <summary>
+    /// Pushes a 16-bit value onto the active stack using pre-decrement semantics.
+    /// </summary>
+    public void Push16(ushort value)
+    {
+        var newStackPointer = Registers.StackPointer - 2;
+        if ((newStackPointer & 1) != 0)
+            throw new AddressErrorException(newStackPointer, ".w");
+
+        Registers.StackPointer = newStackPointer;
+        Write16(newStackPointer, value);
+    }
+
+    /// <summary>
+    /// Pushes a 32-bit value onto the active stack using pre-decrement semantics.
+    /// </summary>
+    public void Push32(uint value)
+    {
+        var newStackPointer = Registers.StackPointer - 4;
+        if ((newStackPointer & 1) != 0)
+            throw new AddressErrorException(newStackPointer, ".l");
+
+        Registers.StackPointer = newStackPointer;
+        Write32(newStackPointer, value);
+    }
+
+    /// <summary>
+    /// Pops a 16-bit value from the active stack using post-increment semantics.
+    /// </summary>
+    public ushort Pop16()
+    {
+        var stackPointer = Registers.StackPointer;
+        var value = Read16(stackPointer);
+        Registers.StackPointer = stackPointer + 2;
+        return value;
+    }
+
+    /// <summary>
+    /// Pops a 32-bit value from the active stack using post-increment semantics.
+    /// </summary>
+    public uint Pop32()
+    {
+        var stackPointer = Registers.StackPointer;
+        var value = Read32(stackPointer);
+        Registers.StackPointer = stackPointer + 4;
+        return value;
+    }
+
+    /// <summary>
     /// Executes a single instruction at the current program counter.
     /// </summary>
     public override void Step()
@@ -227,10 +275,8 @@ public sealed class Cpu : CpuBase
 
         // Switch to supervisor stack before building the exception frame.
         Registers.IsSupervisor = true;
-        var supervisorSp = Registers.StackPointer - 6;
-        Registers.StackPointer = supervisorSp;
-        Write16(supervisorSp, oldStatus);
-        Write32(supervisorSp + 2, oldPc);
+        Push32(oldPc);
+        Push16(oldStatus);
 
         // Exception entry sets supervisor mode and clears trace.
         Registers.StatusRegister = (ushort)((oldStatus & ~TraceFlagMask) | SupervisorFlagMask);

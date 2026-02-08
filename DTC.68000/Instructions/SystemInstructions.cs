@@ -15,7 +15,10 @@ namespace DTC.M68000.Instructions;
 /// </summary>
 public static class SystemInstructions
 {
+    private const ushort ConditionCodeRegisterMask = 0x001F;
+
     private static readonly Instruction InstrNop = new("NOP", static (_, _) => { });
+    private static readonly Instruction InstrRtr = new("RTR", ExecuteReturnAndRestore);
     private static readonly Instruction InstrRts = new("RTS", ExecuteReturnFromSubroutine);
     private static readonly Instruction InstrRte = new("RTE", static (cpu, _) => cpu.ExecuteReturnFromException());
 
@@ -28,6 +31,7 @@ public static class SystemInstructions
             0x4E71 => InstrNop,
             0x4E73 => InstrRte,
             0x4E75 => InstrRts,
+            0x4E77 => InstrRtr,
             _ => null
         };
 
@@ -42,6 +46,22 @@ public static class SystemInstructions
         if ((returnAddress & 1) != 0)
             throw new AddressErrorException(returnAddress, ".w");
 
+        cpu.Registers.ProgramCounter = returnAddress;
+        cpu.RefreshPrefetchQueue();
+    }
+
+    /// <summary>
+    /// Executes <c>RTR</c> by restoring CCR from stack, then popping return PC.
+    /// </summary>
+    private static void ExecuteReturnAndRestore(Cpu cpu, ushort opcode)
+    {
+        var restoredCcr = (ushort)(cpu.Pop16() & ConditionCodeRegisterMask);
+        var returnAddress = cpu.Pop32();
+        if ((returnAddress & 1) != 0)
+            throw new AddressErrorException(returnAddress, ".w");
+
+        var highStatusByte = (ushort)(cpu.Registers.StatusRegister & 0xFF00);
+        cpu.Registers.StatusRegister = (ushort)(highStatusByte | restoredCcr);
         cpu.Registers.ProgramCounter = returnAddress;
         cpu.RefreshPrefetchQueue();
     }
