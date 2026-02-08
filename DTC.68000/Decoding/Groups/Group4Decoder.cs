@@ -8,18 +8,19 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
+using DTC.M68000.Instructions;
+
 namespace DTC.M68000.Decoding.Groups;
 
 /// <summary>
 /// Decoder for major opcode group 0x4.
 /// </summary>
 public static class Group4Decoder
-{   
-    private static readonly Instruction InstrNop = new("NOP", static (_, _) => { });
-
+{
     /// <summary>
     /// Decodes an opcode in this major group.
     /// </summary>
     public static Instruction Decode(ushort opcode) =>
-        opcode == 0x4E71 ? InstrNop : null;
+        JumpInstructions.TryDecode(opcode)
+        ?? SystemInstructions.TryDecode(opcode);
 }

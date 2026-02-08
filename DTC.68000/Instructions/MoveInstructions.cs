@@ -17,6 +17,59 @@ namespace DTC.M68000.Instructions;
 /// </summary>
 public static class MoveInstructions
 {
+    private static readonly Instruction InstrMoveByte = new("MOVE.B <ea>,<ea>", ExecuteMoveByte);
+    private static readonly Instruction InstrMoveWord = new("MOVE.W <ea>,<ea>", ExecuteMoveWord);
+    private static readonly Instruction InstrMoveLong = new("MOVE.L <ea>,<ea>", ExecuteMoveLong);
+
+    /// <summary>
+    /// Decodes byte-sized MOVE opcodes handled by this module.
+    /// </summary>
+    public static Instruction TryDecodeByte(ushort opcode)
+    {
+        var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+        var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
+        if (!EffectiveAddressByteAccess.SupportsByteRead(source))
+            return null;
+        if (!EffectiveAddressByteAccess.SupportsByteWrite(destination))
+            return null;
+
+        return InstrMoveByte;
+    }
+
+    /// <summary>
+    /// Decodes word-sized MOVE opcodes handled by this module.
+    /// </summary>
+    public static Instruction TryDecodeWord(ushort opcode)
+    {
+        var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+        var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
+        if (destination.Mode == EffectiveAddressMode.AddressRegisterDirect)
+            return null;
+        if (!EffectiveAddressWordAccess.SupportsWordRead(source))
+            return null;
+        if (!EffectiveAddressWordAccess.SupportsWordWrite(destination))
+            return null;
+
+        return InstrMoveWord;
+    }
+
+    /// <summary>
+    /// Decodes long-sized MOVE opcodes handled by this module.
+    /// </summary>
+    public static Instruction TryDecodeLong(ushort opcode)
+    {
+        var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+        var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
+        if (destination.Mode == EffectiveAddressMode.AddressRegisterDirect)
+            return null;
+        if (!EffectiveAddressLongAccess.SupportsLongRead(source))
+            return null;
+        if (!EffectiveAddressLongAccess.SupportsLongWrite(destination))
+            return null;
+
+        return InstrMoveLong;
+    }
+
     /// <summary>
     /// Executes <c>MOVEQ #&lt;imm8&gt;,Dn</c>, sign-extending the 8-bit literal to 32-bit.
     /// </summary>
@@ -36,7 +89,7 @@ public static class MoveInstructions
     /// </summary>
     public static void ExecuteMoveByte(Cpu cpu, ushort opcode)
     {
-        var source = EffectiveAddressDecoder.DecodeSource(opcode);
+        var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
         var sourceValue = EffectiveAddressByteAccess.ReadByte(cpu, source);
         EffectiveAddressByteAccess.WriteByte(cpu, destination, sourceValue);
@@ -49,7 +102,7 @@ public static class MoveInstructions
     /// </summary>
     public static void ExecuteMoveWord(Cpu cpu, ushort opcode)
     {
-        var source = EffectiveAddressDecoder.DecodeSource(opcode);
+        var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
         var sourceValue = EffectiveAddressWordAccess.ReadWord(cpu, source);
         EffectiveAddressWordAccess.WriteWord(cpu, destination, sourceValue);
@@ -62,7 +115,7 @@ public static class MoveInstructions
     /// </summary>
     public static void ExecuteMoveLong(Cpu cpu, ushort opcode)
     {
-        var source = EffectiveAddressDecoder.DecodeSource(opcode);
+        var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
         var sourceValue = EffectiveAddressLongAccess.ReadLong(cpu, source);
         EffectiveAddressLongAccess.WriteLong(cpu, destination, sourceValue);

@@ -8,7 +8,6 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
-using DTC.M68000.Addressing;
 using DTC.M68000.Instructions;
 
 namespace DTC.M68000.Decoding.Groups;
@@ -18,24 +17,9 @@ namespace DTC.M68000.Decoding.Groups;
 /// </summary>
 public static class Group3Decoder
 {
-    private static readonly Instruction InstrMoveWord = new("MOVE.W <ea>,<ea>", MoveInstructions.ExecuteMoveWord);
-
     /// <summary>
     /// Decodes an opcode in this major group.
     /// </summary>
-    public static Instruction Decode(ushort opcode)
-    {
-        var src = EffectiveAddressDecoder.DecodeSource(opcode);
-        var dst = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
-
-        // Destination mode=001 belongs to MOVEA.W, not MOVE.W.
-        if (dst.Mode == EffectiveAddressMode.AddressRegisterDirect)
-            return null;
-        if (!EffectiveAddressWordAccess.SupportsWordRead(src))
-            return null;
-        if (!EffectiveAddressWordAccess.SupportsWordWrite(dst))
-            return null;
-
-        return InstrMoveWord;
-    }
+    public static Instruction Decode(ushort opcode) =>
+        MoveInstructions.TryDecodeWord(opcode);
 }

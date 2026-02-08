@@ -15,4 +15,11 @@ namespace DTC.M68000.Instructions;
 /// </summary>
 public static class SystemInstructions
 {
+    private static readonly Instruction InstrNop = new("NOP", static (_, _) => { });
+
+    /// <summary>
+    /// Decodes system/control opcodes handled by this module.
+    /// </summary>
+    public static Instruction TryDecode(ushort opcode) =>
+        opcode == 0x4E71 ? InstrNop : null;
 }

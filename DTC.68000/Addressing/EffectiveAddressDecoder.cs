@@ -1,12 +1,13 @@
 // Code authored by Dean Edis (DeanTheCoder).
 // Anyone is free to copy, modify, use, compile, or distribute this software,
 // either in source code form or as a compiled binary, for any purpose.
-// 
+//
 // If you modify the code, please retain this copyright header,
 // and consider contributing back to the repository or letting us know
 // about your modifications. Your contributions are valued!
-// 
+//
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
+
 namespace DTC.M68000.Addressing;
 
 /// <summary>
@@ -15,9 +16,9 @@ namespace DTC.M68000.Addressing;
 public static class EffectiveAddressDecoder
 {
     /// <summary>
-    /// Decodes source effective-address bits from a standard opcode layout.
+    /// Decodes an effective-address field from the low six opcode bits (<c>mmm rrr</c>).
     /// </summary>
-    public static EffectiveAddress DecodeSource(ushort opcode) =>
+    public static EffectiveAddress DecodeLowSixBits(ushort opcode) =>
         new((EffectiveAddressMode)((opcode >> 3) & 0x07), (byte)(opcode & 0x07));
 
     /// <summary>

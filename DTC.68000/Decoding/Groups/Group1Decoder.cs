@@ -8,7 +8,6 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
-using DTC.M68000.Addressing;
 using DTC.M68000.Instructions;
 
 namespace DTC.M68000.Decoding.Groups;
@@ -18,21 +17,9 @@ namespace DTC.M68000.Decoding.Groups;
 /// </summary>
 public static class Group1Decoder
 {
-    private static readonly Instruction InstrMoveByte = new("MOVE.B <ea>,<ea>", MoveInstructions.ExecuteMoveByte);
-
     /// <summary>
     /// Decodes an opcode in this major group.
     /// </summary>
-    public static Instruction Decode(ushort opcode)
-    {
-        var src = EffectiveAddressDecoder.DecodeSource(opcode);
-        var dst = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
-
-        if (!EffectiveAddressByteAccess.SupportsByteRead(src))
-            return null;
-        if (!EffectiveAddressByteAccess.SupportsByteWrite(dst))
-            return null;
-
-        return InstrMoveByte;
-    }
+    public static Instruction Decode(ushort opcode) =>
+        MoveInstructions.TryDecodeByte(opcode);
 }
