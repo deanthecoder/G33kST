@@ -20,6 +20,12 @@ public static class LogicalInstructions
     private static readonly Instruction InstrClrByte = new("CLR.B <ea>", ExecuteClearByte);
     private static readonly Instruction InstrClrWord = new("CLR.W <ea>", ExecuteClearWord);
     private static readonly Instruction InstrClrLong = new("CLR.L <ea>", ExecuteClearLong);
+    private static readonly Instruction InstrNegByte = new("NEG.B <ea>", ExecuteNegByte);
+    private static readonly Instruction InstrNegWord = new("NEG.W <ea>", ExecuteNegWord);
+    private static readonly Instruction InstrNegLong = new("NEG.L <ea>", ExecuteNegLong);
+    private static readonly Instruction InstrNegxByte = new("NEGX.B <ea>", ExecuteNegxByte);
+    private static readonly Instruction InstrNegxWord = new("NEGX.W <ea>", ExecuteNegxWord);
+    private static readonly Instruction InstrNegxLong = new("NEGX.L <ea>", ExecuteNegxLong);
     private static readonly Instruction InstrNotByte = new("NOT.B <ea>", ExecuteNotByte);
     private static readonly Instruction InstrNotWord = new("NOT.W <ea>", ExecuteNotWord);
     private static readonly Instruction InstrNotLong = new("NOT.L <ea>", ExecuteNotLong);
@@ -39,7 +45,9 @@ public static class LogicalInstructions
 
         return (opcode & 0xFF00) switch
         {
+            0x4000 => DecodeNegx(size, ea),
             0x4200 => DecodeClear(size, ea),
+            0x4400 => DecodeNeg(size, ea),
             0x4600 => DecodeNot(size, ea),
             0x4A00 => DecodeTest(size, ea),
             _ => null
@@ -148,6 +156,42 @@ public static class LogicalInstructions
         SetLogicalLongFlags(cpu.Registers, result);
     }
 
+    /// <summary>
+    /// Executes <c>NEG.B &lt;ea&gt;</c> by replacing destination with <c>0 - destination</c>.
+    /// </summary>
+    private static void ExecuteNegByte(Cpu cpu, ushort opcode) =>
+        ExecuteNeg(cpu, opcode, OperandSize.Byte, useExtend: false);
+
+    /// <summary>
+    /// Executes <c>NEG.W &lt;ea&gt;</c> by replacing destination with <c>0 - destination</c>.
+    /// </summary>
+    private static void ExecuteNegWord(Cpu cpu, ushort opcode) =>
+        ExecuteNeg(cpu, opcode, OperandSize.Word, useExtend: false);
+
+    /// <summary>
+    /// Executes <c>NEG.L &lt;ea&gt;</c> by replacing destination with <c>0 - destination</c>.
+    /// </summary>
+    private static void ExecuteNegLong(Cpu cpu, ushort opcode) =>
+        ExecuteNeg(cpu, opcode, OperandSize.Long, useExtend: false);
+
+    /// <summary>
+    /// Executes <c>NEGX.B &lt;ea&gt;</c> by replacing destination with <c>0 - destination - X</c>.
+    /// </summary>
+    private static void ExecuteNegxByte(Cpu cpu, ushort opcode) =>
+        ExecuteNeg(cpu, opcode, OperandSize.Byte, useExtend: true);
+
+    /// <summary>
+    /// Executes <c>NEGX.W &lt;ea&gt;</c> by replacing destination with <c>0 - destination - X</c>.
+    /// </summary>
+    private static void ExecuteNegxWord(Cpu cpu, ushort opcode) =>
+        ExecuteNeg(cpu, opcode, OperandSize.Word, useExtend: true);
+
+    /// <summary>
+    /// Executes <c>NEGX.L &lt;ea&gt;</c> by replacing destination with <c>0 - destination - X</c>.
+    /// </summary>
+    private static void ExecuteNegxLong(Cpu cpu, ushort opcode) =>
+        ExecuteNeg(cpu, opcode, OperandSize.Long, useExtend: true);
+
     private static Instruction DecodeClear(byte size, EffectiveAddress ea)
     {
         if (!SupportsDataAlterableDestination(size, ea))
@@ -158,6 +202,34 @@ public static class LogicalInstructions
             0 => InstrClrByte,
             1 => InstrClrWord,
             2 => InstrClrLong,
+            _ => null
+        };
+    }
+
+    private static Instruction DecodeNeg(byte size, EffectiveAddress ea)
+    {
+        if (!SupportsDataAlterableDestination(size, ea))
+            return null;
+
+        return size switch
+        {
+            0 => InstrNegByte,
+            1 => InstrNegWord,
+            2 => InstrNegLong,
+            _ => null
+        };
+    }
+
+    private static Instruction DecodeNegx(byte size, EffectiveAddress ea)
+    {
+        if (!SupportsDataAlterableDestination(size, ea))
+            return null;
+
+        return size switch
+        {
+            0 => InstrNegxByte,
+            1 => InstrNegxWord,
+            2 => InstrNegxLong,
             _ => null
         };
     }
@@ -231,30 +303,57 @@ public static class LogicalInstructions
         registers.CarryFlag = false;
     }
 
-    private static DestinationOperand ResolveDestination(Cpu cpu, EffectiveAddress ea, OperandSize size)
+    private static void ExecuteNeg(Cpu cpu, ushort opcode, OperandSize size, bool useExtend)
     {
-        switch (ea.Mode)
-        {
-            case EffectiveAddressMode.DataRegisterDirect:
-                return DestinationOperand.ForDataRegister(ea.Register);
-            case EffectiveAddressMode.AddressRegisterIndirect:
-                return DestinationOperand.ForMemoryAddress(NormalizeAddress24(cpu.Registers.GetAddressRegister(ea.Register)));
-            case EffectiveAddressMode.AddressRegisterIndirectPostIncrement:
-                return ResolvePostIncrement(cpu, ea.Register, size);
-            case EffectiveAddressMode.AddressRegisterIndirectPreDecrement:
-                return ResolvePreDecrement(cpu, ea.Register, size);
-            case EffectiveAddressMode.AddressRegisterIndirectDisplacement:
-                return ResolveDisplacement(cpu, ea.Register);
-            case EffectiveAddressMode.AddressRegisterIndirectIndex:
-                return ResolveIndex(cpu, ea.Register);
-            case EffectiveAddressMode.Other when ea.Register == 0:
-                return ResolveAbsoluteShort(cpu);
-            case EffectiveAddressMode.Other when ea.Register == 1:
-                return ResolveAbsoluteLong(cpu);
-            default:
-                throw new NotSupportedException($"NOT destination EA not supported: mode {(byte)ea.Mode}, reg {ea.Register}.");
-        }
+        var destinationEa = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+        var destination = ResolveDestination(cpu, destinationEa, size);
+        var source = ReadUnsigned(cpu, destination, size);
+        var extendInput = useExtend && cpu.Registers.ExtendFlag ? 1ul : 0ul;
+        var result = (0ul - source - extendInput) & OperandMask(size);
+
+        WriteUnsigned(cpu, destination, size, result);
+        ApplyPostIncrement(cpu, destination);
+        ApplyNegFlags(cpu.Registers, source, result, size, useExtend, extendInput);
     }
+
+    private static void ApplyNegFlags(Registers registers, ulong source, ulong result, OperandSize size, bool useExtend, ulong extendInput)
+    {
+        var signBit = OperandSignBit(size);
+        var isNegative = (result & signBit) != 0;
+        var isZero = result == 0;
+        var hasBorrow = source + extendInput != 0;
+        var signedMathResult = -SignExtendToLong(source, size) - (long)extendInput;
+        var signedResult = SignExtendToLong(result, size);
+
+        registers.NegativeFlag = isNegative;
+        if (useExtend)
+        {
+            if (!isZero)
+                registers.ZeroFlag = false;
+        }
+        else
+        {
+            registers.ZeroFlag = isZero;
+        }
+
+        registers.OverflowFlag = signedResult != signedMathResult;
+        registers.CarryFlag = hasBorrow;
+        registers.ExtendFlag = hasBorrow;
+    }
+
+    private static DestinationOperand ResolveDestination(Cpu cpu, EffectiveAddress ea, OperandSize size) =>
+        ea.Mode switch
+        {
+            EffectiveAddressMode.DataRegisterDirect => DestinationOperand.ForDataRegister(ea.Register),
+            EffectiveAddressMode.AddressRegisterIndirect => DestinationOperand.ForMemoryAddress(NormalizeAddress24(cpu.Registers.GetAddressRegister(ea.Register))),
+            EffectiveAddressMode.AddressRegisterIndirectPostIncrement => ResolvePostIncrement(cpu, ea.Register, size),
+            EffectiveAddressMode.AddressRegisterIndirectPreDecrement => ResolvePreDecrement(cpu, ea.Register, size),
+            EffectiveAddressMode.AddressRegisterIndirectDisplacement => ResolveDisplacement(cpu, ea.Register),
+            EffectiveAddressMode.AddressRegisterIndirectIndex => ResolveIndex(cpu, ea.Register),
+            EffectiveAddressMode.Other when ea.Register == 0 => ResolveAbsoluteShort(cpu),
+            EffectiveAddressMode.Other when ea.Register == 1 => ResolveAbsoluteLong(cpu),
+            _ => throw new NotSupportedException($"NOT destination EA not supported: mode {(byte)ea.Mode}, reg {ea.Register}.")
+        };
 
     private static DestinationOperand ResolvePostIncrement(Cpu cpu, byte registerIndex, OperandSize size)
     {
@@ -317,6 +416,33 @@ public static class LogicalInstructions
             : cpu.Registers.GetDataRegister(registerIndex);
 
         return isLongIndex ? unchecked((int)registerValue) : (short)registerValue;
+    }
+
+    private static ulong ReadUnsigned(Cpu cpu, DestinationOperand destination, OperandSize size) =>
+        size switch
+        {
+            OperandSize.Byte => ReadByte(cpu, destination),
+            OperandSize.Word => ReadWord(cpu, destination),
+            OperandSize.Long => ReadLong(cpu, destination),
+            _ => 0
+        };
+
+    private static void WriteUnsigned(Cpu cpu, DestinationOperand destination, OperandSize size, ulong value)
+    {
+        switch (size)
+        {
+            case OperandSize.Byte:
+                WriteByte(cpu, destination, (byte)value);
+                return;
+            case OperandSize.Word:
+                WriteWord(cpu, destination, (ushort)value);
+                return;
+            case OperandSize.Long:
+                WriteLong(cpu, destination, (uint)value);
+                return;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(size), size, null);
+        }
     }
 
     private static byte ReadByte(Cpu cpu, DestinationOperand destination)
@@ -400,6 +526,33 @@ public static class LogicalInstructions
     private static uint NormalizeAddress24(uint address) =>
         address & 0x00FF_FFFF;
 
+    private static ulong OperandMask(OperandSize size) =>
+        size switch
+        {
+            OperandSize.Byte => 0x0000_00FF,
+            OperandSize.Word => 0x0000_FFFF,
+            OperandSize.Long => 0xFFFF_FFFF,
+            _ => 0
+        };
+
+    private static ulong OperandSignBit(OperandSize size) =>
+        size switch
+        {
+            OperandSize.Byte => 0x0000_0080,
+            OperandSize.Word => 0x0000_8000,
+            OperandSize.Long => 0x8000_0000,
+            _ => 0
+        };
+
+    private static long SignExtendToLong(ulong value, OperandSize size) =>
+        size switch
+        {
+            OperandSize.Byte => unchecked((sbyte)(byte)value),
+            OperandSize.Word => unchecked((short)(ushort)value),
+            OperandSize.Long => unchecked((int)(uint)value),
+            _ => 0
+        };
+
     private enum OperandSize
     {
         Byte,
@@ -407,13 +560,41 @@ public static class LogicalInstructions
         Long
     }
 
+    /// <summary>
+    /// Represents one resolved unary destination operand.
+    /// Stores either a Dn target or an absolute memory address,
+    /// with optional deferred post-increment metadata for <c>(An)+</c>.
+    /// </summary>
     private readonly struct DestinationOperand
     {
+        /// <summary>
+        /// Gets whether the destination is a data register (Dn) rather than memory.
+        /// </summary>
         public bool IsDataRegister { get; }
+
+        /// <summary>
+        /// Gets the destination data-register index when <see cref="IsDataRegister"/> is true.
+        /// </summary>
         public byte RegisterIndex { get; }
+
+        /// <summary>
+        /// Gets the resolved memory address when <see cref="IsDataRegister"/> is false.
+        /// </summary>
         public uint Address { get; }
+
+        /// <summary>
+        /// Gets whether this destination must apply deferred post-increment after write-back.
+        /// </summary>
         public bool HasPostIncrement { get; }
+
+        /// <summary>
+        /// Gets the address-register index to update for deferred <c>(An)+</c> handling.
+        /// </summary>
         public byte PostIncrementRegisterIndex { get; }
+
+        /// <summary>
+        /// Gets the increment amount to apply for deferred <c>(An)+</c> handling.
+        /// </summary>
         public uint PostIncrement { get; }
 
         private DestinationOperand(bool isDataRegister, byte registerIndex, uint address, bool hasPostIncrement, byte postIncrementRegisterIndex, uint postIncrement)
@@ -426,12 +607,21 @@ public static class LogicalInstructions
             PostIncrement = postIncrement;
         }
 
+        /// <summary>
+        /// Creates a data-register destination wrapper.
+        /// </summary>
         public static DestinationOperand ForDataRegister(byte registerIndex) =>
             new(true, registerIndex, 0, false, 0, 0);
 
+        /// <summary>
+        /// Creates a direct memory destination wrapper.
+        /// </summary>
         public static DestinationOperand ForMemoryAddress(uint address) =>
             new(false, 0, address, false, 0, 0);
 
+        /// <summary>
+        /// Creates a memory destination wrapper with deferred post-increment metadata.
+        /// </summary>
         public static DestinationOperand ForPostIncrement(uint address, byte registerIndex, uint increment) =>
             new(false, 0, address, true, registerIndex, increment);
     }
