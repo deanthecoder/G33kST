@@ -20,6 +20,10 @@ public sealed class Cpu : CpuBase
 {
     private const uint ResetStackPointerVectorAddress = 0x000000;
     private const uint ResetProgramCounterVectorAddress = 0x000004;
+    private const ushort ValidStatusRegisterMask = 0xA71F;
+    private const ushort SupervisorFlagMask = 0x2000;
+    private const ushort TraceFlagMask = 0x8000;
+    private const uint PrivilegeViolationVectorAddress = 0x000020;
 
     // 0x2700 = supervisor mode with IPL 7, trace off, and XNZVC clear.
     private const ushort InitialStatusRegister = 0x2700;
@@ -179,6 +183,59 @@ public sealed class Cpu : CpuBase
         instruction.Execute(this, opcode);
 
         NotifyAfterStep();
+    }
+
+    /// <summary>
+    /// Flushes stale queue entries by consuming two fetch slots from the current PC.
+    /// </summary>
+    public void RefreshPrefetchQueue()
+    {
+        _ = FetchPcWord();
+        _ = FetchPcWord();
+    }
+
+    /// <summary>
+    /// Executes <c>RTE</c> behavior by restoring SR and PC from the current exception frame.
+    /// </summary>
+    public void ExecuteReturnFromException()
+    {
+        if (!Registers.IsSupervisor)
+        {
+            EnterPrivilegeViolation();
+            return;
+        }
+
+        var stackPointer = Registers.StackPointer;
+        var restoredStatus = (ushort)(Read16(stackPointer) & ValidStatusRegisterMask);
+        var returnAddress = Read32(stackPointer + 2);
+        if ((returnAddress & 1) != 0)
+            throw new AddressErrorException(returnAddress, ".w");
+
+        Registers.StackPointer = stackPointer + 6;
+        Registers.StatusRegister = restoredStatus;
+        Registers.ProgramCounter = returnAddress;
+        RefreshPrefetchQueue();
+    }
+
+    /// <summary>
+    /// Enters privilege-violation exception flow for a privileged instruction executed in user mode.
+    /// </summary>
+    public void EnterPrivilegeViolation()
+    {
+        var oldStatus = (ushort)(Registers.StatusRegister & ValidStatusRegisterMask);
+        var oldPc = unchecked(GetPcRelativeBaseAddress() - 2);
+
+        // Switch to supervisor stack before building the exception frame.
+        Registers.IsSupervisor = true;
+        var supervisorSp = Registers.StackPointer - 6;
+        Registers.StackPointer = supervisorSp;
+        Write16(supervisorSp, oldStatus);
+        Write32(supervisorSp + 2, oldPc);
+
+        // Exception entry sets supervisor mode and clears trace.
+        Registers.StatusRegister = (ushort)((oldStatus & ~TraceFlagMask) | SupervisorFlagMask);
+        Registers.ProgramCounter = Read32(PrivilegeViolationVectorAddress);
+        RefreshPrefetchQueue();
     }
 
     private static uint ValidateEvenAddress(uint address) =>

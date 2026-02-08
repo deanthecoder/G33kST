@@ -17,6 +17,7 @@ public static class SystemInstructions
 {
     private static readonly Instruction InstrNop = new("NOP", static (_, _) => { });
     private static readonly Instruction InstrRts = new("RTS", ExecuteReturnFromSubroutine);
+    private static readonly Instruction InstrRte = new("RTE", static (cpu, _) => cpu.ExecuteReturnFromException());
 
     /// <summary>
     /// Decodes system/control opcodes handled by this module.
@@ -25,6 +26,7 @@ public static class SystemInstructions
         opcode switch
         {
             0x4E71 => InstrNop,
+            0x4E73 => InstrRte,
             0x4E75 => InstrRts,
             _ => null
         };
@@ -41,9 +43,6 @@ public static class SystemInstructions
             throw new AddressErrorException(returnAddress, ".w");
 
         cpu.Registers.ProgramCounter = returnAddress;
-
-        // Flush stale queue entries by consuming two fetch slots from the current PC.
-        _ = cpu.FetchPcWord();
-        _ = cpu.FetchPcWord();
+        cpu.RefreshPrefetchQueue();
     }
 }

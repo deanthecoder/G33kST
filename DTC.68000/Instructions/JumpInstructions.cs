@@ -53,7 +53,7 @@ public static class JumpInstructions
             throw new AddressErrorException(targetAddress, ".w");
 
         cpu.Registers.ProgramCounter = targetAddress;
-        RefreshPrefetch(cpu);
+        cpu.RefreshPrefetchQueue();
     }
 
     /// <summary>
@@ -69,16 +69,7 @@ public static class JumpInstructions
         // For prefetch-seeded runs, ProgramCounter tracks the next fetch slot; use prefetch-aware base.
         PushLongToStack(cpu, cpu.GetPcRelativeBaseAddress());
         cpu.Registers.ProgramCounter = targetAddress;
-        RefreshPrefetch(cpu);
-    }
-
-    /// <summary>
-    /// Flushes stale queue entries by consuming two fetch slots from the current PC.
-    /// </summary>
-    private static void RefreshPrefetch(Cpu cpu)
-    {
-        _ = cpu.FetchPcWord();
-        _ = cpu.FetchPcWord();
+        cpu.RefreshPrefetchQueue();
     }
 
     /// <summary>
