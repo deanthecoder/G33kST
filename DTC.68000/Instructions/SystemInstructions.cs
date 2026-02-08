@@ -19,8 +19,11 @@ public static class SystemInstructions
     private const ushort TraceFlagMask = 0x8000;
     private const ushort SupervisorFlagMask = 0x2000;
     private const uint TrapOnOverflowVectorAddress = 0x00001C;
+    private const uint TrapInstructionVectorBaseAddress = 0x000080;
+    private const ushort TrapInstructionVectorMask = 0x000F;
 
     private static readonly Instruction InstrNop = new("NOP", static (_, _) => { });
+    private static readonly Instruction InstrTrap = new("TRAP #<vector>", ExecuteTrap);
     private static readonly Instruction InstrTrapv = new("TRAPV", ExecuteTrapOnOverflow);
     private static readonly Instruction InstrRtr = new("RTR", ExecuteReturnAndRestore);
     private static readonly Instruction InstrRts = new("RTS", ExecuteReturnFromSubroutine);
@@ -29,8 +32,13 @@ public static class SystemInstructions
     /// <summary>
     /// Decodes system/control opcodes handled by this module.
     /// </summary>
-    public static Instruction TryDecode(ushort opcode) =>
-        opcode switch
+    public static Instruction TryDecode(ushort opcode)
+    {
+        // 0100 1110 0100 vvvv = TRAP #n.
+        if ((opcode & 0xFFF0) == 0x4E40)
+            return InstrTrap;
+
+        return opcode switch
         {
             0x4E71 => InstrNop,
             0x4E73 => InstrRte,
@@ -39,6 +47,7 @@ public static class SystemInstructions
             0x4E77 => InstrRtr,
             _ => null
         };
+    }
 
     /// <summary>
     /// Executes <c>RTS</c> by popping the return address from the active stack into PC.
@@ -76,16 +85,32 @@ public static class SystemInstructions
     /// </summary>
     private static void ExecuteTrapOnOverflow(Cpu cpu, ushort opcode)
     {
-        if (!cpu.Registers.OverflowFlag)
-            return;
+        if (cpu.Registers.OverflowFlag)
+            EnterExceptionVector(cpu, TrapOnOverflowVectorAddress);
+    }
 
+    /// <summary>
+    /// Executes <c>TRAP #n</c>, entering trap vector <c>32 + n</c>.
+    /// </summary>
+    private static void ExecuteTrap(Cpu cpu, ushort opcode)
+    {
+        var trapNumber = (uint)(opcode & TrapInstructionVectorMask);
+        var vectorAddress = TrapInstructionVectorBaseAddress + (trapNumber << 2);
+        EnterExceptionVector(cpu, vectorAddress);
+    }
+
+    /// <summary>
+    /// Enters an exception vector by stacking old PC/SR, forcing supervisor mode, then loading vector PC.
+    /// </summary>
+    private static void EnterExceptionVector(Cpu cpu, uint vectorAddress)
+    {
         var oldStatus = cpu.Registers.StatusRegister;
         var oldPc = cpu.GetPcRelativeBaseAddress();
         cpu.Registers.IsSupervisor = true;
         cpu.Push32(oldPc);
         cpu.Push16(oldStatus);
         cpu.Registers.StatusRegister = (ushort)((oldStatus & ~TraceFlagMask) | SupervisorFlagMask);
-        cpu.Registers.ProgramCounter = cpu.Read32(TrapOnOverflowVectorAddress);
+        cpu.Registers.ProgramCounter = cpu.Read32(vectorAddress);
         cpu.RefreshPrefetchQueue();
     }
 }
