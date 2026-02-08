@@ -17,7 +17,20 @@ namespace DTC.M68000.Instructions;
 /// </summary>
 public static class ConditionInstructions
 {
+    private static readonly Instruction InstrDecrementAndBranchOnCondition = new("DBcc Dn,#<disp16>", ExecuteDecrementAndBranchOnCondition);
     private static readonly Instruction InstrSetOnCondition = new("Scc <ea>", ExecuteSetOnCondition);
+
+    /// <summary>
+    /// Decodes DBcc opcodes handled by this module.
+    /// </summary>
+    public static Instruction TryDecodeDbcc(ushort opcode)
+    {
+        // 0101 cccc 1100 1rrr = DBcc Dn,#<disp16>.
+        if ((opcode & 0xF0F8) == 0x50C8)
+            return InstrDecrementAndBranchOnCondition;
+        
+        return null;
+    }
 
     /// <summary>
     /// Decodes Scc opcodes handled by this module.
@@ -41,5 +54,31 @@ public static class ConditionInstructions
         var conditionCode = (byte)((opcode >> 8) & 0x0F);
         var isConditionTrue = ConditionCodeEvaluator.Evaluate(conditionCode, cpu.Registers);
         EffectiveAddressByteAccess.WriteByte(cpu, destination, isConditionTrue ? (byte)0xFF : (byte)0x00);
+    }
+
+    /// <summary>
+    /// Executes <c>DBcc Dn,#&lt;disp16&gt;</c>.
+    /// Branches when the condition is false and the decremented low word of Dn is not <c>0xFFFF</c>.
+    /// </summary>
+    private static void ExecuteDecrementAndBranchOnCondition(Cpu cpu, ushort opcode)
+    {
+        var conditionCode = (byte)((opcode >> 8) & 0x0F);
+        var displacement = (short)cpu.FetchPcWord();
+        if (ConditionCodeEvaluator.Evaluate(conditionCode, cpu.Registers))
+            return;
+
+        var registerIndex = opcode & 0x07;
+        var registerValue = cpu.Registers.GetDataRegister(registerIndex);
+        var decrementedLowWord = (ushort)(registerValue - 1);
+        cpu.Registers.SetDataRegister(registerIndex, (registerValue & 0xFFFF0000) | decrementedLowWord);
+        if (decrementedLowWord == 0xFFFF)
+            return;
+
+        // DBcc displacement is relative to the extension-word base in this prefetch model.
+        var branchTarget = unchecked((uint)(cpu.Registers.ProgramCounter + displacement - 2));
+        if ((branchTarget & 1) != 0)
+            throw new AddressErrorException(branchTarget, ".w");
+
+        cpu.Registers.ProgramCounter = branchTarget;
     }
 }
