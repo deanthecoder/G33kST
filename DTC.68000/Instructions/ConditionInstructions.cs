@@ -17,8 +17,29 @@ namespace DTC.M68000.Instructions;
 /// </summary>
 public static class ConditionInstructions
 {
+    private static readonly Instruction InstrBranchAlways = new("BRA <disp>", ExecuteBranchAlways);
+    private static readonly Instruction InstrBranchOnCondition = new("Bcc <disp>", ExecuteBranchOnCondition);
+    private static readonly Instruction InstrBranchToSubroutine = new("BSR <disp>", ExecuteBranchToSubroutine);
     private static readonly Instruction InstrDecrementAndBranchOnCondition = new("DBcc Dn,#<disp16>", ExecuteDecrementAndBranchOnCondition);
     private static readonly Instruction InstrSetOnCondition = new("Scc <ea>", ExecuteSetOnCondition);
+
+    /// <summary>
+    /// Decodes Bcc/BSR opcodes handled by this module.
+    /// </summary>
+    public static Instruction TryDecodeBccOrBsr(ushort opcode)
+    {
+        // 0110 cccc dddddddd = Bcc/BSR/BRA with 8-bit or extension displacement.
+        if ((opcode & 0xF000) != 0x6000)
+            return null;
+
+        var conditionCode = (byte)((opcode >> 8) & 0x0F);
+        return conditionCode switch
+        {
+            0x00 => InstrBranchAlways,
+            0x01 => InstrBranchToSubroutine,
+            _ => conditionCode is >= 0x02 and <= 0x0F ? InstrBranchOnCondition : null
+        };
+    }
 
     /// <summary>
     /// Decodes DBcc opcodes handled by this module.
@@ -57,6 +78,36 @@ public static class ConditionInstructions
     }
 
     /// <summary>
+    /// Executes <c>Bcc &lt;disp&gt;</c> for condition codes <c>2..15</c>.
+    /// </summary>
+    private static void ExecuteBranchOnCondition(Cpu cpu, ushort opcode)
+    {
+        var conditionCode = (byte)((opcode >> 8) & 0x0F);
+        var displacement = ReadBranchDisplacement(cpu, opcode, out var usedExtensionWord);
+        if (ConditionCodeEvaluator.Evaluate(conditionCode, cpu.Registers))
+            BranchRelative(cpu, displacement, usedExtensionWord);
+    }
+
+    /// <summary>
+    /// Executes <c>BRA &lt;disp&gt;</c>.
+    /// </summary>
+    private static void ExecuteBranchAlways(Cpu cpu, ushort opcode)
+    {
+        var displacement = ReadBranchDisplacement(cpu, opcode, out var usedExtensionWord);
+        BranchRelative(cpu, displacement, usedExtensionWord);
+    }
+
+    /// <summary>
+    /// Executes <c>BSR &lt;disp&gt;</c> by pushing return PC and branching relative.
+    /// </summary>
+    private static void ExecuteBranchToSubroutine(Cpu cpu, ushort opcode)
+    {
+        var displacement = ReadBranchDisplacement(cpu, opcode, out var usedExtensionWord);
+        PushLongToStack(cpu, cpu.GetPcRelativeBaseAddress());
+        BranchRelative(cpu, displacement, usedExtensionWord);
+    }
+
+    /// <summary>
     /// Executes <c>DBcc Dn,#&lt;disp16&gt;</c>.
     /// Branches when the condition is false and the decremented low word of Dn is not <c>0xFFFF</c>.
     /// </summary>
@@ -80,5 +131,41 @@ public static class ConditionInstructions
             throw new AddressErrorException(branchTarget, ".w");
 
         cpu.Registers.ProgramCounter = branchTarget;
+    }
+
+    private static int ReadBranchDisplacement(Cpu cpu, ushort opcode, out bool usedExtensionWord)
+    {
+        var displacement8 = (sbyte)(opcode & 0xFF);
+        if (displacement8 != 0)
+        {
+            usedExtensionWord = false;
+            return displacement8;
+        }
+
+        usedExtensionWord = true;
+        return (short)cpu.FetchPcWord();
+    }
+
+    private static void BranchRelative(Cpu cpu, int displacement, bool usedExtensionWord)
+    {
+        var baseAddress = cpu.Registers.ProgramCounter;
+        if (usedExtensionWord)
+            baseAddress = unchecked(baseAddress - 2);
+
+        var branchTarget = unchecked((uint)(baseAddress + displacement));
+        if ((branchTarget & 1) != 0)
+            throw new AddressErrorException(branchTarget, ".w");
+
+        cpu.Registers.ProgramCounter = branchTarget;
+    }
+
+    private static void PushLongToStack(Cpu cpu, uint value)
+    {
+        var newStackPointer = cpu.Registers.StackPointer - 4;
+        if ((newStackPointer & 1) != 0)
+            throw new AddressErrorException(newStackPointer, ".l");
+
+        cpu.Registers.StackPointer = newStackPointer;
+        cpu.Write32(newStackPointer, value);
     }
 }
