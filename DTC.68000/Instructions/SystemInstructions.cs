@@ -91,7 +91,7 @@ public static class SystemInstructions
     {
         var registerIndex = opcode & 0x07;
         var value = cpu.Registers.GetDataRegister(registerIndex);
-        var resultWord = (ushort)(short)(sbyte)(byte)value;
+        var resultWord = (ushort)(sbyte)(byte)value;
         var result = (value & 0xFFFF_0000) | resultWord;
         cpu.Registers.SetDataRegister(registerIndex, result);
         FlagMath.ApplyLogicalWord(cpu.Registers, resultWord);
@@ -104,7 +104,7 @@ public static class SystemInstructions
     {
         var registerIndex = opcode & 0x07;
         var value = cpu.Registers.GetDataRegister(registerIndex);
-        var result = (uint)(int)(short)(ushort)value;
+        var result = (uint)(short)(ushort)value;
         cpu.Registers.SetDataRegister(registerIndex, result);
         FlagMath.ApplyLogicalLong(cpu.Registers, result);
     }
