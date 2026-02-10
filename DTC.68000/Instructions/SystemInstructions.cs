@@ -38,6 +38,7 @@ public static class SystemInstructions
     private static readonly Instruction InstrRtr = new("RTR", ExecuteReturnAndRestore);
     private static readonly Instruction InstrRts = new("RTS", ExecuteReturnFromSubroutine);
     private static readonly Instruction InstrRte = new("RTE", static (cpu, _) => cpu.ExecuteReturnFromException());
+    private static readonly Instruction InstrSwap = new("SWAP Dn", ExecuteSwap);
 
     /// <summary>
     /// Decodes system/control opcodes handled by this module.
@@ -58,6 +59,10 @@ public static class SystemInstructions
         if ((opcode & 0xFFF0) == 0x4E40)
             return InstrTrap;
 
+        // 0100 1000 0100 0 nnn = SWAP Dn.
+        if ((opcode & 0xFFF8) == 0x4840)
+            return InstrSwap;
+
         return opcode switch
         {
             0x4E71 => InstrNop,
@@ -67,6 +72,18 @@ public static class SystemInstructions
             0x4E77 => InstrRtr,
             _ => null
         };
+    }
+
+    /// <summary>
+    /// Executes <c>SWAP Dn</c> by exchanging high/low words in Dn and updating NZVC as a long logical result.
+    /// </summary>
+    private static void ExecuteSwap(Cpu cpu, ushort opcode)
+    {
+        var registerIndex = opcode & 0x07;
+        var value = cpu.Registers.GetDataRegister(registerIndex);
+        var result = (value << 16) | (value >> 16);
+        cpu.Registers.SetDataRegister(registerIndex, result);
+        FlagMath.ApplyLogicalLong(cpu.Registers, result);
     }
 
     /// <summary>
