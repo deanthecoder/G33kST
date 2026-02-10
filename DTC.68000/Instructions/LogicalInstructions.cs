@@ -121,9 +121,9 @@ public static class LogicalInstructions
     {
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var destination = ResolveDestination(cpu, ea, OperandSize.Byte);
-        var value = ReadByte(cpu, destination);
+        var value = (byte)ReadUnsigned(cpu, destination, OperandSize.Byte);
         var result = (byte)~value;
-        WriteByte(cpu, destination, result);
+        WriteUnsigned(cpu, destination, OperandSize.Byte, result);
         ApplyPostIncrement(cpu, destination);
         FlagMath.ApplyLogicalByte(cpu.Registers, result);
     }
@@ -135,9 +135,9 @@ public static class LogicalInstructions
     {
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var destination = ResolveDestination(cpu, ea, OperandSize.Word);
-        var value = ReadWord(cpu, destination);
+        var value = (ushort)ReadUnsigned(cpu, destination, OperandSize.Word);
         var result = (ushort)~value;
-        WriteWord(cpu, destination, result);
+        WriteUnsigned(cpu, destination, OperandSize.Word, result);
         ApplyPostIncrement(cpu, destination);
         FlagMath.ApplyLogicalWord(cpu.Registers, result);
     }
@@ -149,9 +149,9 @@ public static class LogicalInstructions
     {
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var destination = ResolveDestination(cpu, ea, OperandSize.Long);
-        var value = ReadLong(cpu, destination);
+        var value = (uint)ReadUnsigned(cpu, destination, OperandSize.Long);
         var result = ~value;
-        WriteLong(cpu, destination, result);
+        WriteUnsigned(cpu, destination, OperandSize.Long, result);
         ApplyPostIncrement(cpu, destination);
         FlagMath.ApplyLogicalLong(cpu.Registers, result);
     }
@@ -310,168 +310,24 @@ public static class LogicalInstructions
     }
 
     private static DestinationOperand ResolveDestination(Cpu cpu, EffectiveAddress ea, OperandSize size) =>
-        ea.Mode switch
-        {
-            EffectiveAddressMode.DataRegisterDirect => DestinationOperand.ForDataRegister(ea.Register),
-            EffectiveAddressMode.AddressRegisterIndirect => DestinationOperand.ForMemoryAddress(NormalizeAddress24(cpu.Registers.GetAddressRegister(ea.Register))),
-            EffectiveAddressMode.AddressRegisterIndirectPostIncrement => ResolvePostIncrement(cpu, ea.Register, size),
-            EffectiveAddressMode.AddressRegisterIndirectPreDecrement => ResolvePreDecrement(cpu, ea.Register, size),
-            EffectiveAddressMode.AddressRegisterIndirectDisplacement => ResolveDisplacement(cpu, ea.Register),
-            EffectiveAddressMode.AddressRegisterIndirectIndex => ResolveIndex(cpu, ea.Register),
-            EffectiveAddressMode.Other when ea.Register == 0 => ResolveAbsoluteShort(cpu),
-            EffectiveAddressMode.Other when ea.Register == 1 => ResolveAbsoluteLong(cpu),
-            _ => throw new NotSupportedException($"NOT destination EA not supported: mode {(byte)ea.Mode}, reg {ea.Register}.")
-        };
-
-    private static DestinationOperand ResolvePostIncrement(Cpu cpu, byte registerIndex, OperandSize size)
-    {
-        var address = NormalizeAddress24(cpu.Registers.GetAddressRegister(registerIndex));
-        var step = AddressStep(size, registerIndex);
-        return DestinationOperand.ForPostIncrement(address, registerIndex, step);
-    }
-
-    private static DestinationOperand ResolvePreDecrement(Cpu cpu, byte registerIndex, OperandSize size)
-    {
-        var newAddress = cpu.Registers.GetAddressRegister(registerIndex) - AddressStep(size, registerIndex);
-        cpu.Registers.SetAddressRegister(registerIndex, newAddress);
-        return DestinationOperand.ForMemoryAddress(NormalizeAddress24(newAddress));
-    }
-
-    private static DestinationOperand ResolveDisplacement(Cpu cpu, byte registerIndex)
-    {
-        var displacement = (short)cpu.FetchPcWord();
-        var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        var address = NormalizeAddress24(EffectiveAddressMath.AddDisplacement(baseAddress, displacement));
-        return DestinationOperand.ForMemoryAddress(address);
-    }
-
-    private static DestinationOperand ResolveIndex(Cpu cpu, byte registerIndex)
-    {
-        var extension = cpu.FetchPcWord();
-        var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        var address = NormalizeAddress24(EffectiveAddressMath.AddIndex(cpu, baseAddress, extension));
-        return DestinationOperand.ForMemoryAddress(address);
-    }
-
-    private static DestinationOperand ResolveAbsoluteShort(Cpu cpu)
-    {
-        var address = NormalizeAddress24(EffectiveAddressMath.ReadAbsoluteShortAddress(cpu));
-        return DestinationOperand.ForMemoryAddress(address);
-    }
-
-    private static DestinationOperand ResolveAbsoluteLong(Cpu cpu)
-    {
-        var address = NormalizeAddress24(EffectiveAddressMath.ReadAbsoluteLongAddress(cpu));
-        return DestinationOperand.ForMemoryAddress(address);
-    }
+        DestinationOperandAccess.ResolveDataAlterable(cpu, ea, ToDestinationOperandSize(size), "Logical unary");
 
     private static ulong ReadUnsigned(Cpu cpu, DestinationOperand destination, OperandSize size) =>
+        DestinationOperandAccess.ReadUnsigned(cpu, destination, ToDestinationOperandSize(size));
+
+    private static void WriteUnsigned(Cpu cpu, DestinationOperand destination, OperandSize size, ulong value) =>
+        DestinationOperandAccess.WriteUnsigned(cpu, destination, ToDestinationOperandSize(size), (uint)value);
+
+    private static void ApplyPostIncrement(Cpu cpu, DestinationOperand destination) =>
+        DestinationOperandAccess.ApplyPostIncrement(cpu, destination);
+
+    private static DestinationOperandSize ToDestinationOperandSize(OperandSize size) =>
         size switch
         {
-            OperandSize.Byte => ReadByte(cpu, destination),
-            OperandSize.Word => ReadWord(cpu, destination),
-            OperandSize.Long => ReadLong(cpu, destination),
-            _ => 0
+            OperandSize.Byte => DestinationOperandSize.Byte,
+            OperandSize.Word => DestinationOperandSize.Word,
+            _ => DestinationOperandSize.Long
         };
-
-    private static void WriteUnsigned(Cpu cpu, DestinationOperand destination, OperandSize size, ulong value)
-    {
-        switch (size)
-        {
-            case OperandSize.Byte:
-                WriteByte(cpu, destination, (byte)value);
-                return;
-            case OperandSize.Word:
-                WriteWord(cpu, destination, (ushort)value);
-                return;
-            case OperandSize.Long:
-                WriteLong(cpu, destination, (uint)value);
-                return;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(size), size, null);
-        }
-    }
-
-    private static byte ReadByte(Cpu cpu, DestinationOperand destination)
-    {
-        if (destination.IsDataRegister)
-            return (byte)cpu.Registers.GetDataRegister(destination.RegisterIndex);
-
-        return cpu.Read8(destination.Address);
-    }
-
-    private static ushort ReadWord(Cpu cpu, DestinationOperand destination)
-    {
-        if (destination.IsDataRegister)
-            return (ushort)cpu.Registers.GetDataRegister(destination.RegisterIndex);
-
-        return cpu.Read16(destination.Address);
-    }
-
-    private static uint ReadLong(Cpu cpu, DestinationOperand destination)
-    {
-        if (destination.IsDataRegister)
-            return cpu.Registers.GetDataRegister(destination.RegisterIndex);
-
-        return cpu.Read32(destination.Address);
-    }
-
-    private static void WriteByte(Cpu cpu, DestinationOperand destination, byte value)
-    {
-        if (destination.IsDataRegister)
-        {
-            var registerValue = cpu.Registers.GetDataRegister(destination.RegisterIndex);
-            cpu.Registers.SetDataRegister(destination.RegisterIndex, (registerValue & 0xFFFF_FF00) | value);
-            return;
-        }
-
-        cpu.Write8(destination.Address, value);
-    }
-
-    private static void WriteWord(Cpu cpu, DestinationOperand destination, ushort value)
-    {
-        if (destination.IsDataRegister)
-        {
-            var registerValue = cpu.Registers.GetDataRegister(destination.RegisterIndex);
-            cpu.Registers.SetDataRegister(destination.RegisterIndex, (registerValue & 0xFFFF_0000) | value);
-            return;
-        }
-
-        cpu.Write16(destination.Address, value);
-    }
-
-    private static void WriteLong(Cpu cpu, DestinationOperand destination, uint value)
-    {
-        if (destination.IsDataRegister)
-        {
-            cpu.Registers.SetDataRegister(destination.RegisterIndex, value);
-            return;
-        }
-
-        cpu.Write32(destination.Address, value);
-    }
-
-    private static void ApplyPostIncrement(Cpu cpu, DestinationOperand destination)
-    {
-        if (!destination.HasPostIncrement)
-            return;
-
-        var currentAddress = cpu.Registers.GetAddressRegister(destination.PostIncrementRegisterIndex);
-        cpu.Registers.SetAddressRegister(destination.PostIncrementRegisterIndex, currentAddress + destination.PostIncrement);
-    }
-
-    private static uint AddressStep(OperandSize size, byte registerIndex)
-    {
-        if (size == OperandSize.Byte)
-            return EffectiveAddressMath.ByteAddressStep(registerIndex);
-        if (size == OperandSize.Word)
-            return 2;
-
-        return 4;
-    }
-
-    private static uint NormalizeAddress24(uint address) =>
-        EffectiveAddressMath.NormalizeAddress24(address);
 
     private static ulong OperandMask(OperandSize size) =>
         size switch
@@ -505,71 +361,5 @@ public static class LogicalInstructions
         Byte,
         Word,
         Long
-    }
-
-    /// <summary>
-    /// Represents one resolved unary destination operand.
-    /// Stores either a Dn target or an absolute memory address,
-    /// with optional deferred post-increment metadata for <c>(An)+</c>.
-    /// </summary>
-    private readonly struct DestinationOperand
-    {
-        /// <summary>
-        /// Gets whether the destination is a data register (Dn) rather than memory.
-        /// </summary>
-        public bool IsDataRegister { get; }
-
-        /// <summary>
-        /// Gets the destination data-register index when <see cref="IsDataRegister"/> is true.
-        /// </summary>
-        public byte RegisterIndex { get; }
-
-        /// <summary>
-        /// Gets the resolved memory address when <see cref="IsDataRegister"/> is false.
-        /// </summary>
-        public uint Address { get; }
-
-        /// <summary>
-        /// Gets whether this destination must apply deferred post-increment after write-back.
-        /// </summary>
-        public bool HasPostIncrement { get; }
-
-        /// <summary>
-        /// Gets the address-register index to update for deferred <c>(An)+</c> handling.
-        /// </summary>
-        public byte PostIncrementRegisterIndex { get; }
-
-        /// <summary>
-        /// Gets the increment amount to apply for deferred <c>(An)+</c> handling.
-        /// </summary>
-        public uint PostIncrement { get; }
-
-        private DestinationOperand(bool isDataRegister, byte registerIndex, uint address, bool hasPostIncrement, byte postIncrementRegisterIndex, uint postIncrement)
-        {
-            IsDataRegister = isDataRegister;
-            RegisterIndex = registerIndex;
-            Address = address;
-            HasPostIncrement = hasPostIncrement;
-            PostIncrementRegisterIndex = postIncrementRegisterIndex;
-            PostIncrement = postIncrement;
-        }
-
-        /// <summary>
-        /// Creates a data-register destination wrapper.
-        /// </summary>
-        public static DestinationOperand ForDataRegister(byte registerIndex) =>
-            new(true, registerIndex, 0, false, 0, 0);
-
-        /// <summary>
-        /// Creates a direct memory destination wrapper.
-        /// </summary>
-        public static DestinationOperand ForMemoryAddress(uint address) =>
-            new(false, 0, address, false, 0, 0);
-
-        /// <summary>
-        /// Creates a memory destination wrapper with deferred post-increment metadata.
-        /// </summary>
-        public static DestinationOperand ForPostIncrement(uint address, byte registerIndex, uint increment) =>
-            new(false, 0, address, true, registerIndex, increment);
     }
 }

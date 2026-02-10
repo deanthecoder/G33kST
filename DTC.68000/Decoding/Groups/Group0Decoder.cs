@@ -22,6 +22,7 @@ public static class Group0Decoder
     /// </summary>
     public static Instruction Decode(ushort opcode) =>
         ImmediateInstructions.TryDecode(opcode)
+        ?? OrInstructions.TryDecodeImmediate(opcode)
         ?? MovepInstructions.TryDecode(opcode)
         ?? BitInstructions.TryDecode(opcode);
 }
