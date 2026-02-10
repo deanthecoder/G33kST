@@ -39,6 +39,8 @@ public static class SystemInstructions
     private static readonly Instruction InstrRts = new("RTS", ExecuteReturnFromSubroutine);
     private static readonly Instruction InstrRte = new("RTE", static (cpu, _) => cpu.ExecuteReturnFromException());
     private static readonly Instruction InstrSwap = new("SWAP Dn", ExecuteSwap);
+    private static readonly Instruction InstrExtWord = new("EXT.W Dn", ExecuteExtWord);
+    private static readonly Instruction InstrExtLong = new("EXT.L Dn", ExecuteExtLong);
 
     /// <summary>
     /// Decodes system/control opcodes handled by this module.
@@ -63,6 +65,14 @@ public static class SystemInstructions
         if ((opcode & 0xFFF8) == 0x4840)
             return InstrSwap;
 
+        // 0100 1000 1000 0 nnn = EXT.W Dn.
+        if ((opcode & 0xFFF8) == 0x4880)
+            return InstrExtWord;
+
+        // 0100 1000 1100 0 nnn = EXT.L Dn.
+        if ((opcode & 0xFFF8) == 0x48C0)
+            return InstrExtLong;
+
         return opcode switch
         {
             0x4E71 => InstrNop,
@@ -72,6 +82,31 @@ public static class SystemInstructions
             0x4E77 => InstrRtr,
             _ => null
         };
+    }
+
+    /// <summary>
+    /// Executes <c>EXT.W Dn</c> by sign-extending low byte into low word of Dn.
+    /// </summary>
+    private static void ExecuteExtWord(Cpu cpu, ushort opcode)
+    {
+        var registerIndex = opcode & 0x07;
+        var value = cpu.Registers.GetDataRegister(registerIndex);
+        var resultWord = (ushort)(short)(sbyte)(byte)value;
+        var result = (value & 0xFFFF_0000) | resultWord;
+        cpu.Registers.SetDataRegister(registerIndex, result);
+        FlagMath.ApplyLogicalWord(cpu.Registers, resultWord);
+    }
+
+    /// <summary>
+    /// Executes <c>EXT.L Dn</c> by sign-extending low word into full 32-bit Dn.
+    /// </summary>
+    private static void ExecuteExtLong(Cpu cpu, ushort opcode)
+    {
+        var registerIndex = opcode & 0x07;
+        var value = cpu.Registers.GetDataRegister(registerIndex);
+        var result = (uint)(int)(short)(ushort)value;
+        cpu.Registers.SetDataRegister(registerIndex, result);
+        FlagMath.ApplyLogicalLong(cpu.Registers, result);
     }
 
     /// <summary>
