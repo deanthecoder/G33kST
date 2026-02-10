@@ -21,5 +21,6 @@ public static class Group8Decoder
     /// Decodes an opcode in this major group.
     /// </summary>
     public static Instruction Decode(ushort opcode) =>
-        OrInstructions.TryDecode(opcode);
+        DecimalInstructions.TryDecodeSbcd(opcode)
+        ?? OrInstructions.TryDecode(opcode);
 }
