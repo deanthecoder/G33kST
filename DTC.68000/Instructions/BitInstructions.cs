@@ -222,13 +222,13 @@ public static class BitInstructions
     private static uint ResolvePostIncrement(Cpu cpu, byte registerIndex)
     {
         var address = cpu.Registers.GetAddressRegister(registerIndex);
-        cpu.Registers.SetAddressRegister(registerIndex, address + (registerIndex == 7 ? 2u : 1u));
+        cpu.Registers.SetAddressRegister(registerIndex, address + EffectiveAddressMath.ByteAddressStep(registerIndex));
         return NormalizeAddress24(address);
     }
 
     private static uint ResolvePreDecrement(Cpu cpu, byte registerIndex)
     {
-        var newAddress = cpu.Registers.GetAddressRegister(registerIndex) - (registerIndex == 7 ? 2u : 1u);
+        var newAddress = cpu.Registers.GetAddressRegister(registerIndex) - EffectiveAddressMath.ByteAddressStep(registerIndex);
         cpu.Registers.SetAddressRegister(registerIndex, newAddress);
         return NormalizeAddress24(newAddress);
     }
@@ -237,45 +237,30 @@ public static class BitInstructions
     {
         var displacement = (short)cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        return NormalizeAddress24(unchecked((uint)(baseAddress + displacement)));
+        return NormalizeAddress24(EffectiveAddressMath.AddDisplacement(baseAddress, displacement));
     }
 
     private static uint ResolveIndex(Cpu cpu, byte registerIndex)
     {
         var extension = cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        var displacement = (sbyte)(extension & 0x00FF);
-        var index = ResolveIndexValue(cpu, extension);
-        return NormalizeAddress24(unchecked((uint)(baseAddress + displacement + index)));
-    }
-
-    private static int ResolveIndexValue(Cpu cpu, ushort extensionWord)
-    {
-        var usesAddressRegister = (extensionWord & 0x8000) != 0;
-        var registerIndex = (extensionWord >> 12) & 0x07;
-        var isLongIndex = (extensionWord & 0x0800) != 0;
-        var value = usesAddressRegister
-            ? cpu.Registers.GetAddressRegister(registerIndex)
-            : cpu.Registers.GetDataRegister(registerIndex);
-        return isLongIndex ? unchecked((int)value) : (short)value;
+        return NormalizeAddress24(EffectiveAddressMath.AddIndex(cpu, baseAddress, extension));
     }
 
     private static uint ResolveAbsoluteShort(Cpu cpu)
     {
-        var address = (uint)(short)cpu.FetchPcWord();
+        var address = EffectiveAddressMath.ReadAbsoluteShortAddress(cpu);
         return NormalizeAddress24(address);
     }
 
     private static uint ResolveAbsoluteLong(Cpu cpu)
     {
-        var hi = cpu.FetchPcWord();
-        var lo = cpu.FetchPcWord();
-        var address = ((uint)hi << 16) | lo;
+        var address = EffectiveAddressMath.ReadAbsoluteLongAddress(cpu);
         return NormalizeAddress24(address);
     }
 
     private static uint NormalizeAddress24(uint address) =>
-        address & 0x00FF_FFFF;
+        EffectiveAddressMath.NormalizeAddress24(address);
 
     private enum BitOperation : byte
     {

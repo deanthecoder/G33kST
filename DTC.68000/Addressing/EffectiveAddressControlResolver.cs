@@ -51,7 +51,7 @@ public static class EffectiveAddressControlResolver
     {
         var displacement = (short)cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        return AddDisplacement(baseAddress, displacement);
+        return EffectiveAddressMath.AddDisplacement(baseAddress, displacement);
     }
 
     /// <summary>
@@ -61,24 +61,20 @@ public static class EffectiveAddressControlResolver
     {
         var extension = cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        return AddIndex(cpu, baseAddress, extension);
+        return EffectiveAddressMath.AddIndex(cpu, baseAddress, extension);
     }
 
     /// <summary>
     /// Resolves absolute short <c>(xxx).w</c> control targets.
     /// </summary>
     private static uint ResolveAbsoluteShort(Cpu cpu) =>
-        (uint)(short)cpu.FetchPcWord();
+        EffectiveAddressMath.ReadAbsoluteShortAddress(cpu);
 
     /// <summary>
     /// Resolves absolute long <c>(xxx).l</c> control targets.
     /// </summary>
     private static uint ResolveAbsoluteLong(Cpu cpu)
-    {
-        var hi = cpu.FetchPcWord();
-        var lo = cpu.FetchPcWord();
-        return ((uint)hi << 16) | lo;
-    }
+        => EffectiveAddressMath.ReadAbsoluteLongAddress(cpu);
 
     /// <summary>
     /// Resolves PC-relative <c>(d16,PC)</c> control targets.
@@ -87,7 +83,7 @@ public static class EffectiveAddressControlResolver
     {
         var baseAddress = cpu.GetPcRelativeBaseAddress();
         var displacement = (short)cpu.FetchPcWord();
-        return AddDisplacement(baseAddress, displacement);
+        return EffectiveAddressMath.AddDisplacement(baseAddress, displacement);
     }
 
     /// <summary>
@@ -97,37 +93,6 @@ public static class EffectiveAddressControlResolver
     {
         var baseAddress = cpu.GetPcRelativeBaseAddress();
         var extension = cpu.FetchPcWord();
-        return AddIndex(cpu, baseAddress, extension);
-    }
-
-    /// <summary>
-    /// Adds a sign-extended displacement to a base address with 32-bit wrap semantics.
-    /// </summary>
-    private static uint AddDisplacement(uint baseAddress, short displacement) =>
-        unchecked((uint)(baseAddress + displacement));
-
-    /// <summary>
-    /// Computes brief indexed address forms: base + d8 + Xn.
-    /// </summary>
-    private static uint AddIndex(Cpu cpu, uint baseAddress, ushort extensionWord)
-    {
-        var displacement = (sbyte)(extensionWord & 0x00FF);
-        var indexValue = ResolveIndexValue(cpu, extensionWord);
-        return unchecked((uint)(baseAddress + displacement + indexValue));
-    }
-
-    /// <summary>
-    /// Resolves index register value from a brief extension word.
-    /// </summary>
-    private static int ResolveIndexValue(Cpu cpu, ushort extensionWord)
-    {
-        var usesAddressRegister = (extensionWord & 0x8000) != 0;
-        var registerIndex = (extensionWord >> 12) & 0x07;
-        var isLongIndex = (extensionWord & 0x0800) != 0;
-        var registerValue = usesAddressRegister
-            ? cpu.Registers.GetAddressRegister(registerIndex)
-            : cpu.Registers.GetDataRegister(registerIndex);
-
-        return isLongIndex ? unchecked((int)registerValue) : (short)registerValue;
+        return EffectiveAddressMath.AddIndex(cpu, baseAddress, extension);
     }
 }

@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using DTC.Emulation;
+using DTC.M68000.Addressing;
 using DTC.M68000.Decoding;
 
 namespace DTC.M68000;
@@ -92,10 +93,8 @@ public sealed class Cpu : CpuBase
             return FetchPrefetchedWord();
 
         var address = ValidateEvenAddress(Registers.ProgramCounter);
-        var value = Bus.Read16BigEndian(address);
+        var value = ReadInstructionWord(address);
         Registers.ProgramCounter = address + 2;
-        NotifyMemoryRead(address, (byte)(value >> 8));
-        NotifyMemoryRead(address + 1, (byte)(value & 0xFF));
         return value;
     }
 
@@ -131,7 +130,7 @@ public sealed class Cpu : CpuBase
     {
         address = EnsureEvenBusAddress(address, ".w");
         var hi = Read8(address);
-        var lo = Read8(NormalizeAddress24(address + 1));
+        var lo = Read8(EffectiveAddressMath.NormalizeAddress24(address + 1));
         return (ushort)((hi << 8) | lo);
     }
 
@@ -142,7 +141,7 @@ public sealed class Cpu : CpuBase
     {
         address = EnsureEvenBusAddress(address, ".w");
         Write8(address, (byte)(value >> 8));
-        Write8(NormalizeAddress24(address + 1), (byte)(value & 0xFF));
+        Write8(EffectiveAddressMath.NormalizeAddress24(address + 1), (byte)(value & 0xFF));
     }
 
     /// <summary>
@@ -152,9 +151,9 @@ public sealed class Cpu : CpuBase
     {
         address = EnsureEvenBusAddress(address, ".l");
         var b0 = Read8(address);
-        var b1 = Read8(NormalizeAddress24(address + 1));
-        var b2 = Read8(NormalizeAddress24(address + 2));
-        var b3 = Read8(NormalizeAddress24(address + 3));
+        var b1 = Read8(EffectiveAddressMath.NormalizeAddress24(address + 1));
+        var b2 = Read8(EffectiveAddressMath.NormalizeAddress24(address + 2));
+        var b3 = Read8(EffectiveAddressMath.NormalizeAddress24(address + 3));
         return ((uint)b0 << 24) | ((uint)b1 << 16) | ((uint)b2 << 8) | b3;
     }
 
@@ -165,9 +164,9 @@ public sealed class Cpu : CpuBase
     {
         address = EnsureEvenBusAddress(address, ".l");
         Write8(address, (byte)(value >> 24));
-        Write8(NormalizeAddress24(address + 1), (byte)((value >> 16) & 0xFF));
-        Write8(NormalizeAddress24(address + 2), (byte)((value >> 8) & 0xFF));
-        Write8(NormalizeAddress24(address + 3), (byte)(value & 0xFF));
+        Write8(EffectiveAddressMath.NormalizeAddress24(address + 1), (byte)((value >> 16) & 0xFF));
+        Write8(EffectiveAddressMath.NormalizeAddress24(address + 2), (byte)((value >> 8) & 0xFF));
+        Write8(EffectiveAddressMath.NormalizeAddress24(address + 3), (byte)(value & 0xFF));
     }
 
     /// <summary>
@@ -287,12 +286,9 @@ public sealed class Cpu : CpuBase
     private static uint ValidateEvenAddress(uint address) =>
         (address & 1) == 0 ? address : throw new InvalidOperationException($"Odd address fetch at 0x{address:X6}.");
 
-    private static uint NormalizeAddress24(uint address) =>
-        address & 0x00FF_FFFF;
-
     private static uint EnsureEvenBusAddress(uint address, string size)
     {
-        var normalized = NormalizeAddress24(address);
+        var normalized = EffectiveAddressMath.NormalizeAddress24(address);
         if ((normalized & 1) == 0)
             return normalized;
 
@@ -303,14 +299,19 @@ public sealed class Cpu : CpuBase
     {
         var value = m_prefetch0;
         var fetchAddress = ValidateEvenAddress(Registers.ProgramCounter);
-        var fetchedWord = Bus.Read16BigEndian(fetchAddress);
-        NotifyMemoryRead(fetchAddress, (byte)(fetchedWord >> 8));
-        NotifyMemoryRead(fetchAddress + 1, (byte)(fetchedWord & 0xFF));
+        var fetchedWord = ReadInstructionWord(fetchAddress);
 
         // Shift queue and refill the second slot from the next prefetch address.
         m_prefetch0 = m_prefetch1;
         m_prefetch1 = fetchedWord;
         Registers.ProgramCounter = fetchAddress + 2;
         return value;
+    }
+
+    private ushort ReadInstructionWord(uint address)
+    {
+        var hi = Read8(address);
+        var lo = Read8(address + 1);
+        return (ushort)((hi << 8) | lo);
     }
 }

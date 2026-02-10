@@ -58,7 +58,7 @@ public static class EffectiveAddressLongAccess
         {
             EffectiveAddressMode.DataRegisterDirect => cpu.Registers.GetDataRegister(ea.Register),
             EffectiveAddressMode.AddressRegisterDirect => cpu.Registers.GetAddressRegister(ea.Register),
-            EffectiveAddressMode.AddressRegisterIndirect => ReadLongFromBus(cpu, NormalizeAddress24(cpu.Registers.GetAddressRegister(ea.Register))),
+            EffectiveAddressMode.AddressRegisterIndirect => ReadLongFromBus(cpu, EffectiveAddressMath.NormalizeAddress24(cpu.Registers.GetAddressRegister(ea.Register))),
             EffectiveAddressMode.AddressRegisterIndirectPostIncrement => ReadLongPostIncrement(cpu, ea.Register),
             EffectiveAddressMode.AddressRegisterIndirectPreDecrement => ReadLongPreDecrement(cpu, ea.Register),
             EffectiveAddressMode.AddressRegisterIndirectDisplacement => ReadLongDisplacement(cpu, ea.Register),
@@ -82,7 +82,7 @@ public static class EffectiveAddressLongAccess
                 cpu.Registers.SetDataRegister(ea.Register, value);
                 return;
             case EffectiveAddressMode.AddressRegisterIndirect:
-                WriteLongToBus(cpu, NormalizeAddress24(cpu.Registers.GetAddressRegister(ea.Register)), value);
+                WriteLongToBus(cpu, EffectiveAddressMath.NormalizeAddress24(cpu.Registers.GetAddressRegister(ea.Register)), value);
                 return;
             case EffectiveAddressMode.AddressRegisterIndirectPostIncrement:
                 WriteLongPostIncrement(cpu, ea.Register, value);
@@ -113,7 +113,7 @@ public static class EffectiveAddressLongAccess
     private static uint ReadLongPostIncrement(Cpu cpu, byte registerIndex)
     {
         var address = cpu.Registers.GetAddressRegister(registerIndex);
-        var value = ReadLongFromBus(cpu, NormalizeAddress24(address));
+        var value = ReadLongFromBus(cpu, EffectiveAddressMath.NormalizeAddress24(address));
         cpu.Registers.SetAddressRegister(registerIndex, address + 4);
         return value;
     }
@@ -125,7 +125,7 @@ public static class EffectiveAddressLongAccess
     {
         var address = cpu.Registers.GetAddressRegister(registerIndex) - 4;
         cpu.Registers.SetAddressRegister(registerIndex, address);
-        return ReadLongFromBus(cpu, NormalizeAddress24(address));
+        return ReadLongFromBus(cpu, EffectiveAddressMath.NormalizeAddress24(address));
     }
 
     /// <summary>
@@ -135,7 +135,7 @@ public static class EffectiveAddressLongAccess
     {
         var displacement = (short)cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        return ReadLongFromBus(cpu, NormalizeAddress24(AddDisplacement(baseAddress, displacement)));
+        return ReadLongFromBus(cpu, EffectiveAddressMath.NormalizeAddress24(EffectiveAddressMath.AddDisplacement(baseAddress, displacement)));
     }
 
     /// <summary>
@@ -145,8 +145,8 @@ public static class EffectiveAddressLongAccess
     {
         var extension = cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        var address = AddIndex(cpu, baseAddress, extension);
-        return ReadLongFromBus(cpu, NormalizeAddress24(address));
+        var address = EffectiveAddressMath.AddIndex(cpu, baseAddress, extension);
+        return ReadLongFromBus(cpu, EffectiveAddressMath.NormalizeAddress24(address));
     }
 
     /// <summary>
@@ -154,8 +154,8 @@ public static class EffectiveAddressLongAccess
     /// </summary>
     private static uint ReadLongAbsoluteShort(Cpu cpu)
     {
-        var address = (uint)(short)cpu.FetchPcWord();
-        return ReadLongFromBus(cpu, NormalizeAddress24(address));
+        var address = EffectiveAddressMath.ReadAbsoluteShortAddress(cpu);
+        return ReadLongFromBus(cpu, EffectiveAddressMath.NormalizeAddress24(address));
     }
 
     /// <summary>
@@ -163,10 +163,8 @@ public static class EffectiveAddressLongAccess
     /// </summary>
     private static uint ReadLongAbsoluteLong(Cpu cpu)
     {
-        var hi = cpu.FetchPcWord();
-        var lo = cpu.FetchPcWord();
-        var address = ((uint)hi << 16) | lo;
-        return ReadLongFromBus(cpu, NormalizeAddress24(address));
+        var address = EffectiveAddressMath.ReadAbsoluteLongAddress(cpu);
+        return ReadLongFromBus(cpu, EffectiveAddressMath.NormalizeAddress24(address));
     }
 
     /// <summary>
@@ -176,7 +174,7 @@ public static class EffectiveAddressLongAccess
     {
         var baseAddress = cpu.GetPcRelativeBaseAddress();
         var displacement = (short)cpu.FetchPcWord();
-        return ReadLongFromBus(cpu, NormalizeAddress24(AddDisplacement(baseAddress, displacement)));
+        return ReadLongFromBus(cpu, EffectiveAddressMath.NormalizeAddress24(EffectiveAddressMath.AddDisplacement(baseAddress, displacement)));
     }
 
     /// <summary>
@@ -186,8 +184,8 @@ public static class EffectiveAddressLongAccess
     {
         var baseAddress = cpu.GetPcRelativeBaseAddress();
         var extension = cpu.FetchPcWord();
-        var address = AddIndex(cpu, baseAddress, extension);
-        return ReadLongFromBus(cpu, NormalizeAddress24(address));
+        var address = EffectiveAddressMath.AddIndex(cpu, baseAddress, extension);
+        return ReadLongFromBus(cpu, EffectiveAddressMath.NormalizeAddress24(address));
     }
 
     /// <summary>
@@ -206,7 +204,7 @@ public static class EffectiveAddressLongAccess
     private static void WriteLongPostIncrement(Cpu cpu, byte registerIndex, uint value)
     {
         var address = cpu.Registers.GetAddressRegister(registerIndex);
-        WriteLongToBus(cpu, NormalizeAddress24(address), value);
+        WriteLongToBus(cpu, EffectiveAddressMath.NormalizeAddress24(address), value);
         cpu.Registers.SetAddressRegister(registerIndex, address + 4);
     }
 
@@ -217,7 +215,7 @@ public static class EffectiveAddressLongAccess
     {
         var address = cpu.Registers.GetAddressRegister(registerIndex) - 4;
         cpu.Registers.SetAddressRegister(registerIndex, address);
-        WriteLongToBus(cpu, NormalizeAddress24(address), value);
+        WriteLongToBus(cpu, EffectiveAddressMath.NormalizeAddress24(address), value);
     }
 
     /// <summary>
@@ -227,7 +225,7 @@ public static class EffectiveAddressLongAccess
     {
         var displacement = (short)cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        WriteLongToBus(cpu, NormalizeAddress24(AddDisplacement(baseAddress, displacement)), value);
+        WriteLongToBus(cpu, EffectiveAddressMath.NormalizeAddress24(EffectiveAddressMath.AddDisplacement(baseAddress, displacement)), value);
     }
 
     /// <summary>
@@ -237,8 +235,8 @@ public static class EffectiveAddressLongAccess
     {
         var extension = cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        var address = AddIndex(cpu, baseAddress, extension);
-        WriteLongToBus(cpu, NormalizeAddress24(address), value);
+        var address = EffectiveAddressMath.AddIndex(cpu, baseAddress, extension);
+        WriteLongToBus(cpu, EffectiveAddressMath.NormalizeAddress24(address), value);
     }
 
     /// <summary>
@@ -246,8 +244,8 @@ public static class EffectiveAddressLongAccess
     /// </summary>
     private static void WriteLongAbsoluteShort(Cpu cpu, uint value)
     {
-        var address = (uint)(short)cpu.FetchPcWord();
-        WriteLongToBus(cpu, NormalizeAddress24(address), value);
+        var address = EffectiveAddressMath.ReadAbsoluteShortAddress(cpu);
+        WriteLongToBus(cpu, EffectiveAddressMath.NormalizeAddress24(address), value);
     }
 
     /// <summary>
@@ -255,48 +253,9 @@ public static class EffectiveAddressLongAccess
     /// </summary>
     private static void WriteLongAbsoluteLong(Cpu cpu, uint value)
     {
-        var hi = cpu.FetchPcWord();
-        var lo = cpu.FetchPcWord();
-        var address = ((uint)hi << 16) | lo;
-        WriteLongToBus(cpu, NormalizeAddress24(address), value);
+        var address = EffectiveAddressMath.ReadAbsoluteLongAddress(cpu);
+        WriteLongToBus(cpu, EffectiveAddressMath.NormalizeAddress24(address), value);
     }
-
-    /// <summary>
-    /// Adds a sign-extended displacement to a base address with 32-bit wrap semantics.
-    /// </summary>
-    private static uint AddDisplacement(uint baseAddress, short displacement) =>
-        unchecked((uint)(baseAddress + displacement));
-
-    /// <summary>
-    /// Computes address for brief index extension forms: base + d8 + Xn.
-    /// </summary>
-    private static uint AddIndex(Cpu cpu, uint baseAddress, ushort extensionWord)
-    {
-        var displacement = (sbyte)(extensionWord & 0x00FF);
-        var indexValue = ResolveIndexValue(cpu, extensionWord);
-        return unchecked((uint)(baseAddress + displacement + indexValue));
-    }
-
-    /// <summary>
-    /// Resolves the index value from the extension word (Dn/An, word/long size).
-    /// </summary>
-    private static int ResolveIndexValue(Cpu cpu, ushort extensionWord)
-    {
-        var usesAddressRegister = (extensionWord & 0x8000) != 0;
-        var registerIndex = (extensionWord >> 12) & 0x07;
-        var isLongIndex = (extensionWord & 0x0800) != 0;
-        var registerValue = usesAddressRegister
-            ? cpu.Registers.GetAddressRegister(registerIndex)
-            : cpu.Registers.GetDataRegister(registerIndex);
-
-        return isLongIndex ? unchecked((int)registerValue) : (short)registerValue;
-    }
-
-    /// <summary>
-    /// Masks an address to the 24-bit external bus space.
-    /// </summary>
-    private static uint NormalizeAddress24(uint address) =>
-        address & 0x00FF_FFFF;
 
     /// <summary>
     /// Reads a long from memory in big-endian byte order.
@@ -305,9 +264,9 @@ public static class EffectiveAddressLongAccess
     {
         address = EnsureEvenAddress(address);
         var b0 = cpu.Read8(address);
-        var b1 = cpu.Read8(NormalizeAddress24(address + 1));
-        var b2 = cpu.Read8(NormalizeAddress24(address + 2));
-        var b3 = cpu.Read8(NormalizeAddress24(address + 3));
+        var b1 = cpu.Read8(EffectiveAddressMath.NormalizeAddress24(address + 1));
+        var b2 = cpu.Read8(EffectiveAddressMath.NormalizeAddress24(address + 2));
+        var b3 = cpu.Read8(EffectiveAddressMath.NormalizeAddress24(address + 3));
         return ((uint)b0 << 24) | ((uint)b1 << 16) | ((uint)b2 << 8) | b3;
     }
 
@@ -318,9 +277,9 @@ public static class EffectiveAddressLongAccess
     {
         address = EnsureEvenAddress(address);
         cpu.Write8(address, (byte)(value >> 24));
-        cpu.Write8(NormalizeAddress24(address + 1), (byte)((value >> 16) & 0xFF));
-        cpu.Write8(NormalizeAddress24(address + 2), (byte)((value >> 8) & 0xFF));
-        cpu.Write8(NormalizeAddress24(address + 3), (byte)(value & 0xFF));
+        cpu.Write8(EffectiveAddressMath.NormalizeAddress24(address + 1), (byte)((value >> 16) & 0xFF));
+        cpu.Write8(EffectiveAddressMath.NormalizeAddress24(address + 2), (byte)((value >> 8) & 0xFF));
+        cpu.Write8(EffectiveAddressMath.NormalizeAddress24(address + 3), (byte)(value & 0xFF));
     }
 
     /// <summary>
@@ -328,7 +287,7 @@ public static class EffectiveAddressLongAccess
     /// </summary>
     private static uint EnsureEvenAddress(uint address)
     {
-        var normalized = NormalizeAddress24(address);
+        var normalized = EffectiveAddressMath.NormalizeAddress24(address);
         if ((normalized & 1) == 0)
             return normalized;
 

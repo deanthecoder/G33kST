@@ -341,7 +341,7 @@ public static class LogicalInstructions
     {
         var displacement = (short)cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        var address = NormalizeAddress24(unchecked((uint)(baseAddress + displacement)));
+        var address = NormalizeAddress24(EffectiveAddressMath.AddDisplacement(baseAddress, displacement));
         return DestinationOperand.ForMemoryAddress(address);
     }
 
@@ -349,41 +349,20 @@ public static class LogicalInstructions
     {
         var extension = cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        var address = NormalizeAddress24(AddIndex(cpu, baseAddress, extension));
+        var address = NormalizeAddress24(EffectiveAddressMath.AddIndex(cpu, baseAddress, extension));
         return DestinationOperand.ForMemoryAddress(address);
     }
 
     private static DestinationOperand ResolveAbsoluteShort(Cpu cpu)
     {
-        var address = NormalizeAddress24((uint)(short)cpu.FetchPcWord());
+        var address = NormalizeAddress24(EffectiveAddressMath.ReadAbsoluteShortAddress(cpu));
         return DestinationOperand.ForMemoryAddress(address);
     }
 
     private static DestinationOperand ResolveAbsoluteLong(Cpu cpu)
     {
-        var hi = cpu.FetchPcWord();
-        var lo = cpu.FetchPcWord();
-        var address = NormalizeAddress24(((uint)hi << 16) | lo);
+        var address = NormalizeAddress24(EffectiveAddressMath.ReadAbsoluteLongAddress(cpu));
         return DestinationOperand.ForMemoryAddress(address);
-    }
-
-    private static uint AddIndex(Cpu cpu, uint baseAddress, ushort extensionWord)
-    {
-        var displacement = (sbyte)(extensionWord & 0x00FF);
-        var indexValue = ResolveIndexValue(cpu, extensionWord);
-        return unchecked((uint)(baseAddress + displacement + indexValue));
-    }
-
-    private static int ResolveIndexValue(Cpu cpu, ushort extensionWord)
-    {
-        var usesAddressRegister = (extensionWord & 0x8000) != 0;
-        var registerIndex = (extensionWord >> 12) & 0x07;
-        var isLongIndex = (extensionWord & 0x0800) != 0;
-        var registerValue = usesAddressRegister
-            ? cpu.Registers.GetAddressRegister(registerIndex)
-            : cpu.Registers.GetDataRegister(registerIndex);
-
-        return isLongIndex ? unchecked((int)registerValue) : (short)registerValue;
     }
 
     private static ulong ReadUnsigned(Cpu cpu, DestinationOperand destination, OperandSize size) =>
@@ -484,7 +463,7 @@ public static class LogicalInstructions
     private static uint AddressStep(OperandSize size, byte registerIndex)
     {
         if (size == OperandSize.Byte)
-            return registerIndex == 7 ? 2u : 1u;
+            return EffectiveAddressMath.ByteAddressStep(registerIndex);
         if (size == OperandSize.Word)
             return 2;
 
@@ -492,7 +471,7 @@ public static class LogicalInstructions
     }
 
     private static uint NormalizeAddress24(uint address) =>
-        address & 0x00FF_FFFF;
+        EffectiveAddressMath.NormalizeAddress24(address);
 
     private static ulong OperandMask(OperandSize size) =>
         size switch

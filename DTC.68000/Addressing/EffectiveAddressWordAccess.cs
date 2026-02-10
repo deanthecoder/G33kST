@@ -134,7 +134,7 @@ public static class EffectiveAddressWordAccess
     {
         var displacement = (short)cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        return ReadWordFromBus(cpu, AddDisplacement(baseAddress, displacement));
+        return ReadWordFromBus(cpu, EffectiveAddressMath.AddDisplacement(baseAddress, displacement));
     }
 
     /// <summary>
@@ -144,7 +144,7 @@ public static class EffectiveAddressWordAccess
     {
         var extension = cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        var address = AddIndex(cpu, baseAddress, extension);
+        var address = EffectiveAddressMath.AddIndex(cpu, baseAddress, extension);
         return ReadWordFromBus(cpu, address);
     }
 
@@ -153,7 +153,7 @@ public static class EffectiveAddressWordAccess
     /// </summary>
     private static ushort ReadWordAbsoluteShort(Cpu cpu)
     {
-        var address = (uint)(short)cpu.FetchPcWord();
+        var address = EffectiveAddressMath.ReadAbsoluteShortAddress(cpu);
         return ReadWordFromBus(cpu, address);
     }
 
@@ -162,9 +162,7 @@ public static class EffectiveAddressWordAccess
     /// </summary>
     private static ushort ReadWordAbsoluteLong(Cpu cpu)
     {
-        var hi = cpu.FetchPcWord();
-        var lo = cpu.FetchPcWord();
-        var address = ((uint)hi << 16) | lo;
+        var address = EffectiveAddressMath.ReadAbsoluteLongAddress(cpu);
         return ReadWordFromBus(cpu, address);
     }
 
@@ -175,7 +173,7 @@ public static class EffectiveAddressWordAccess
     {
         var baseAddress = cpu.GetPcRelativeBaseAddress();
         var displacement = (short)cpu.FetchPcWord();
-        return ReadWordFromBus(cpu, AddDisplacement(baseAddress, displacement));
+        return ReadWordFromBus(cpu, EffectiveAddressMath.AddDisplacement(baseAddress, displacement));
     }
 
     /// <summary>
@@ -185,7 +183,7 @@ public static class EffectiveAddressWordAccess
     {
         var baseAddress = cpu.GetPcRelativeBaseAddress();
         var extension = cpu.FetchPcWord();
-        var address = AddIndex(cpu, baseAddress, extension);
+        var address = EffectiveAddressMath.AddIndex(cpu, baseAddress, extension);
         return ReadWordFromBus(cpu, address);
     }
 
@@ -222,7 +220,7 @@ public static class EffectiveAddressWordAccess
     {
         var displacement = (short)cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        WriteWordToBus(cpu, AddDisplacement(baseAddress, displacement), value);
+        WriteWordToBus(cpu, EffectiveAddressMath.AddDisplacement(baseAddress, displacement), value);
     }
 
     /// <summary>
@@ -232,7 +230,7 @@ public static class EffectiveAddressWordAccess
     {
         var extension = cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        var address = AddIndex(cpu, baseAddress, extension);
+        var address = EffectiveAddressMath.AddIndex(cpu, baseAddress, extension);
         WriteWordToBus(cpu, address, value);
     }
 
@@ -241,7 +239,7 @@ public static class EffectiveAddressWordAccess
     /// </summary>
     private static void WriteWordAbsoluteShort(Cpu cpu, ushort value)
     {
-        var address = (uint)(short)cpu.FetchPcWord();
+        var address = EffectiveAddressMath.ReadAbsoluteShortAddress(cpu);
         WriteWordToBus(cpu, address, value);
     }
 
@@ -250,48 +248,9 @@ public static class EffectiveAddressWordAccess
     /// </summary>
     private static void WriteWordAbsoluteLong(Cpu cpu, ushort value)
     {
-        var hi = cpu.FetchPcWord();
-        var lo = cpu.FetchPcWord();
-        var address = ((uint)hi << 16) | lo;
+        var address = EffectiveAddressMath.ReadAbsoluteLongAddress(cpu);
         WriteWordToBus(cpu, address, value);
     }
-
-    /// <summary>
-    /// Adds a sign-extended displacement to a base address with 32-bit wrap semantics.
-    /// </summary>
-    private static uint AddDisplacement(uint baseAddress, short displacement) =>
-        unchecked((uint)(baseAddress + displacement));
-
-    /// <summary>
-    /// Computes address for brief index extension forms: base + d8 + Xn.
-    /// </summary>
-    private static uint AddIndex(Cpu cpu, uint baseAddress, ushort extensionWord)
-    {
-        var displacement = (sbyte)(extensionWord & 0x00FF);
-        var indexValue = ResolveIndexValue(cpu, extensionWord);
-        return unchecked((uint)(baseAddress + displacement + indexValue));
-    }
-
-    /// <summary>
-    /// Resolves the index value from the extension word (Dn/An, word/long size).
-    /// </summary>
-    private static int ResolveIndexValue(Cpu cpu, ushort extensionWord)
-    {
-        var usesAddressRegister = (extensionWord & 0x8000) != 0;
-        var registerIndex = (extensionWord >> 12) & 0x07;
-        var isLongIndex = (extensionWord & 0x0800) != 0;
-        var registerValue = usesAddressRegister
-            ? cpu.Registers.GetAddressRegister(registerIndex)
-            : cpu.Registers.GetDataRegister(registerIndex);
-
-        return isLongIndex ? unchecked((int)registerValue) : (short)registerValue;
-    }
-
-    /// <summary>
-    /// Masks an address to the 24-bit external bus space.
-    /// </summary>
-    private static uint NormalizeAddress24(uint address) =>
-        address & 0x00FF_FFFF;
 
     /// <summary>
     /// Reads a word from memory in big-endian byte order.
@@ -300,7 +259,7 @@ public static class EffectiveAddressWordAccess
     {
         address = EnsureEvenAddress(address);
         var hi = cpu.Read8(address);
-        var lo = cpu.Read8(NormalizeAddress24(address + 1));
+        var lo = cpu.Read8(EffectiveAddressMath.NormalizeAddress24(address + 1));
         return (ushort)((hi << 8) | lo);
     }
 
@@ -311,7 +270,7 @@ public static class EffectiveAddressWordAccess
     {
         address = EnsureEvenAddress(address);
         cpu.Write8(address, (byte)(value >> 8));
-        cpu.Write8(NormalizeAddress24(address + 1), (byte)(value & 0xFF));
+        cpu.Write8(EffectiveAddressMath.NormalizeAddress24(address + 1), (byte)(value & 0xFF));
     }
 
     /// <summary>
@@ -328,7 +287,7 @@ public static class EffectiveAddressWordAccess
     /// </summary>
     private static uint EnsureEvenAddress(uint address)
     {
-        var normalized = NormalizeAddress24(address);
+        var normalized = EffectiveAddressMath.NormalizeAddress24(address);
         if ((normalized & 1) == 0)
             return normalized;
 
