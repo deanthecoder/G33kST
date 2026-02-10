@@ -21,5 +21,6 @@ public static class GroupCDecoder
     /// Decodes an opcode in this major group.
     /// </summary>
     public static Instruction Decode(ushort opcode) =>
-        AndInstructions.TryDecode(opcode);
+        ExgInstructions.TryDecode(opcode)
+        ?? AndInstructions.TryDecode(opcode);
 }
