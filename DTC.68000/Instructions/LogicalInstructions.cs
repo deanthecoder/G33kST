@@ -355,11 +355,4 @@ public static class LogicalInstructions
             OperandSize.Long => unchecked((int)(uint)value),
             _ => 0
         };
-
-    private enum OperandSize
-    {
-        Byte,
-        Word,
-        Long
-    }
 }

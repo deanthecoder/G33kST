@@ -8,19 +8,14 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
-using DTC.M68000.Instructions;
-
-namespace DTC.M68000.Decoding.Groups;
+namespace DTC.M68000.Instructions;
 
 /// <summary>
-/// Decoder for major opcode group 0xB.
+/// Operand size selector for byte/word/long instruction forms.
 /// </summary>
-public static class GroupBDecoder
+public enum OperandSize
 {
-    /// <summary>
-    /// Decodes an opcode in this major group.
-    /// </summary>
-    public static Instruction Decode(ushort opcode) =>
-        CompareInstructions.TryDecode(opcode)
-        ?? EorInstructions.TryDecode(opcode);
+    Byte,
+    Word,
+    Long
 }

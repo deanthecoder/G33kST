@@ -251,11 +251,4 @@ public static class OrInstructions
             OperandSize.Word => DestinationOperandSize.Word,
             _ => DestinationOperandSize.Long
         };
-
-    private enum OperandSize
-    {
-        Byte,
-        Word,
-        Long
-    }
 }
