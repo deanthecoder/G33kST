@@ -125,15 +125,18 @@ public static class MoveInstructions
         var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
         var sourceValue = EffectiveAddressLongAccess.ReadLong(cpu, source);
-        var applyFlagsBeforeWrite = SourceAppliesLongFlagsBeforeWrite(source);
-        if (applyFlagsBeforeWrite)
-            FlagMath.ApplyLogicalLong(cpu.Registers, sourceValue);
-
         var usePrefetchInstructionRegisterOnWriteFault = false;
-        var frameProgramCounterAdjust = DestinationFrameProgramCounterAdjust(destination);
-        WriteMoveLong(cpu, destination, sourceValue, usePrefetchInstructionRegisterOnWriteFault, frameProgramCounterAdjust);
-        if (!applyFlagsBeforeWrite)
+        var frameProgramCounterAdjust = DestinationFrameProgramCounterAdjustLong(source, destination);
+        try
+        {
+            WriteMoveLong(cpu, destination, sourceValue, usePrefetchInstructionRegisterOnWriteFault, frameProgramCounterAdjust);
             FlagMath.ApplyLogicalLong(cpu.Registers, sourceValue);
+        }
+        catch (AddressErrorException)
+        {
+            ApplyMoveLongAddressErrorFlags(cpu, source, destination, sourceValue);
+            throw;
+        }
     }
 
     /// <summary>
@@ -225,8 +228,45 @@ public static class MoveInstructions
             frameProgramCounterAdjust,
             usePrefetchInstructionRegister);
 
+    private static void ApplyMoveLongAddressErrorFlags(Cpu cpu, EffectiveAddress source, EffectiveAddress destination, uint value)
+    {
+        var current = cpu.Registers.StatusRegister;
+        var ccr = current & 0x1F;
+        var sourceIsRegisterOrImmediate = SourceUsesHighWordAddressErrorFlags(source);
+        var destinationMode = destination.Mode;
+        var destinationIsAddressIndirect = destinationMode == EffectiveAddressMode.AddressRegisterIndirect;
+        var destinationIsAddressPostIncrement = destinationMode == EffectiveAddressMode.AddressRegisterIndirectPostIncrement;
+        var destinationIsDisplacementOrIndex = destinationMode is EffectiveAddressMode.AddressRegisterIndirectDisplacement or EffectiveAddressMode.AddressRegisterIndirectIndex;
+
+        if (sourceIsRegisterOrImmediate && (destinationIsAddressIndirect || destinationIsAddressPostIncrement))
+            return;
+
+        var destinationIsAbsoluteLong = destinationMode == EffectiveAddressMode.Other && destination.Register == 1;
+        var useLowWordForNz = !sourceIsRegisterOrImmediate &&
+                              (destinationIsAddressIndirect || destinationIsAddressPostIncrement || destinationIsAbsoluteLong);
+        var preserveCarryAndOverflow = sourceIsRegisterOrImmediate && destinationIsDisplacementOrIndex;
+        var selectedWord = useLowWordForNz ? (ushort)value : (ushort)(value >> 16);
+        var next = ccr & 0x10; // Preserve extend.
+        if ((selectedWord & 0x8000) != 0)
+            next |= 0x08;
+        if (selectedWord == 0)
+            next |= 0x04;
+        if (preserveCarryAndOverflow)
+            next |= ccr & 0x03;
+
+        cpu.Registers.StatusRegister = (ushort)((current & 0xFFE0) | next);
+    }
+
     private static int DestinationFrameProgramCounterAdjust(EffectiveAddress destination) =>
         2 - (2 * DestinationExtensionWordCount(destination));
+
+    private static int DestinationFrameProgramCounterAdjustLong(EffectiveAddress source, EffectiveAddress destination)
+    {
+        if (destination.Mode == EffectiveAddressMode.Other && destination.Register == 1 && SourceUsesHighWordAddressErrorFlags(source))
+            return DestinationFrameProgramCounterAdjust(destination);
+
+        return 2 - (2 * DestinationExtensionWordCountLong(destination));
+    }
 
     private static int DestinationExtensionWordCount(EffectiveAddress destination) =>
         destination.Mode switch
@@ -238,15 +278,22 @@ public static class MoveInstructions
             _ => 0
         };
 
+    private static int DestinationExtensionWordCountLong(EffectiveAddress destination) =>
+        destination.Mode switch
+        {
+            EffectiveAddressMode.Other when destination.Register == 1 => 2,
+            _ => DestinationExtensionWordCount(destination)
+        };
+
     private static bool SourceUsesReadCycle(EffectiveAddress source) =>
         source.Mode is not EffectiveAddressMode.DataRegisterDirect and not EffectiveAddressMode.AddressRegisterDirect;
 
-    private static bool SourceAppliesLongFlagsBeforeWrite(EffectiveAddress source) =>
+    private static bool SourceUsesHighWordAddressErrorFlags(EffectiveAddress source) =>
         source.Mode switch
         {
-            EffectiveAddressMode.DataRegisterDirect => false,
-            EffectiveAddressMode.AddressRegisterDirect => false,
-            EffectiveAddressMode.Other when source.Register == 4 => false,
-            _ => true
+            EffectiveAddressMode.DataRegisterDirect => true,
+            EffectiveAddressMode.AddressRegisterDirect => true,
+            EffectiveAddressMode.Other when source.Register == 4 => true,
+            _ => false
         };
 }
