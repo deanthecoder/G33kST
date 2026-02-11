@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using DTC.M68000.Decoding.Groups;
+using DTC.M68000.Instructions;
 
 namespace DTC.M68000.Decoding;
 
@@ -17,6 +18,8 @@ namespace DTC.M68000.Decoding;
 /// </summary>
 public static class InstructionDecoder
 {
+    private static readonly Instruction IllegalFallbackInstruction =
+        SystemInstructions.TryDecode(0x4AFC) ?? throw new InvalidOperationException("Missing ILLEGAL fallback instruction.");
     private static readonly Func<ushort, Instruction>[] Decoders =
     [
         Group0Decoder.Decode,
@@ -51,7 +54,7 @@ public static class InstructionDecoder
         {
             var op = (ushort)opcode;
             var group = op >> 12;
-            table[opcode] = Decoders[group](op);
+            table[opcode] = Decoders[group](op) ?? IllegalFallbackInstruction;
         }
 
         return table;

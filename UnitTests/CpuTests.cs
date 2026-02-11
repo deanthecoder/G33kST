@@ -873,16 +873,27 @@ public sealed class CpuTests
     }
 
     [Test]
-    public void SubQuickByteToAddressRegisterDirectIsRejected()
+    public void SubQuickByteToAddressRegisterDirectEntersIllegalInstructionVector()
     {
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x5108); // SUBQ.B #8,A0 (illegal)
+        bus.Write16BigEndian(0x000010, 0x0000);
+        bus.Write16BigEndian(0x000012, 0x0200);
 
         var cpu = new Cpu(bus);
         cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.StatusRegister = 0x2000;
+        cpu.Registers.SupervisorStackPointer = 0x001000;
+        cpu.Registers.StackPointer = 0x001000;
 
-        Assert.That(
-            () => cpu.Step(),
-            Throws.TypeOf<NotImplementedException>().With.Message.Contains("Opcode 0x5108"));
+        Assert.DoesNotThrow(() => cpu.Step());
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000204));
+            Assert.That(cpu.Registers.StackPointer, Is.EqualTo(0x000FFA));
+            Assert.That(bus.Read16BigEndian(0x000FFA), Is.EqualTo(0x2000));
+            Assert.That(bus.Read16BigEndian(0x000FFC), Is.EqualTo(0x0000));
+            Assert.That(bus.Read16BigEndian(0x000FFE), Is.EqualTo(0x0100));
+        });
     }
 }

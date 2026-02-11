@@ -34,8 +34,9 @@ public sealed class OpcodeCoverageTests
         foreach (var group in byNibble)
             TestContext.Progress.WriteLine($"  0x{group.Key:X}: {group.Value}");
 
-        var sample = unimplemented.Take(32).Select(opcode => $"0x{opcode:X4}");
-        TestContext.Progress.WriteLine($"Unimplemented opcode sample: {string.Join(", ", sample)}");
+        var sample = unimplemented.Take(32).Select(opcode => $"0x{opcode:X4}").ToArray();
+        if (sample.Length > 0)
+            TestContext.Progress.WriteLine($"Unimplemented opcode sample: {string.Join(", ", sample)}");
 
         Assert.Multiple(() =>
         {
