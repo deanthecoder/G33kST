@@ -170,7 +170,7 @@ public abstract class CpuTestBase
 
         var testCases = LoadTests(sourceFile);
         var passed = 0;
-        var skipped = 0;
+        var handledAddressErrors = 0;
         var failures = new List<string>();
 
         foreach (var testCase in testCases)
@@ -189,7 +189,8 @@ public abstract class CpuTestBase
             }
             catch (AddressErrorException) when (expectsAddressError)
             {
-                skipped++;
+                passed++;
+                handledAddressErrors++;
             }
             catch (Exception ex)
             {
@@ -200,11 +201,11 @@ public abstract class CpuTestBase
         var failed = failures.Count;
         if (failed == 0)
         {
-            TestContext.Progress.WriteLine($"Single-step cases passed: {passed}. Skipped expected address-error cases: {skipped}.");
+            TestContext.Progress.WriteLine($"Single-step cases passed: {passed}. Handled expected address-error cases: {handledAddressErrors}.");
             return;
         }
 
-        Assert.Fail(BuildFailureSummary(testCases.Count, passed, skipped, failures));
+        Assert.Fail(BuildFailureSummary(testCases.Count, passed, handledAddressErrors, failures));
     }
 
     private void RunJsonTestCase(SingleStepTestCase testCase)
@@ -347,13 +348,13 @@ public abstract class CpuTestBase
     private static string BuildFailureSummary(
         int total,
         int passed,
-        int skipped,
+        int handledAddressErrors,
         IReadOnlyList<string> failures)
     {
         const int maxLines = 10;
         var failed = failures.Count;
         var builder = new StringBuilder();
-        builder.AppendLine($"Failed {failed} of {total} cases. Passed {passed}. Skipped {skipped}.");
+        builder.AppendLine($"Failed {failed} of {total} cases. Passed {passed}. Handled address-error cases {handledAddressErrors}.");
 
         builder.AppendLine("Sample failures:");
         foreach (var line in failures.Take(maxLines))
