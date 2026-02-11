@@ -21,6 +21,7 @@ public static class Group5Decoder
     /// Decodes an opcode in this major group.
     /// </summary>
     public static Instruction Decode(ushort opcode) =>
-        ConditionInstructions.TryDecodeDbcc(opcode)
+        AddSubtractQuickInstructions.TryDecode(opcode)
+        ?? ConditionInstructions.TryDecodeDbcc(opcode)
         ?? ConditionInstructions.TryDecodeScc(opcode);
 }

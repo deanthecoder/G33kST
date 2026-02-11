@@ -731,4 +731,158 @@ public sealed class CpuTests
             Assert.That(cpu.Registers.CarryFlag, Is.False);
         });
     }
+
+    [Test]
+    public void AddQuickWordDataRegisterSetsCarryExtendAndZero()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x5240); // ADDQ.W #1,D0
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0x1234FFFF);
+        cpu.Registers.ExtendFlag = false;
+        cpu.Registers.NegativeFlag = true;
+        cpu.Registers.ZeroFlag = false;
+        cpu.Registers.OverflowFlag = true;
+        cpu.Registers.CarryFlag = false;
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.GetDataRegister(0), Is.EqualTo(0x12340000));
+            Assert.That(cpu.Registers.ExtendFlag, Is.True);
+            Assert.That(cpu.Registers.NegativeFlag, Is.False);
+            Assert.That(cpu.Registers.ZeroFlag, Is.True);
+            Assert.That(cpu.Registers.OverflowFlag, Is.False);
+            Assert.That(cpu.Registers.CarryFlag, Is.True);
+        });
+    }
+
+    [Test]
+    public void AddQuickByteWithEncodedZeroUsesImmediateEight()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x5000); // ADDQ.B #8,D0
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0xAABBCC78);
+        cpu.Registers.ExtendFlag = true;
+        cpu.Registers.NegativeFlag = false;
+        cpu.Registers.ZeroFlag = true;
+        cpu.Registers.OverflowFlag = false;
+        cpu.Registers.CarryFlag = true;
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.GetDataRegister(0), Is.EqualTo(0xAABBCC80));
+            Assert.That(cpu.Registers.ExtendFlag, Is.False);
+            Assert.That(cpu.Registers.NegativeFlag, Is.True);
+            Assert.That(cpu.Registers.ZeroFlag, Is.False);
+            Assert.That(cpu.Registers.OverflowFlag, Is.True);
+            Assert.That(cpu.Registers.CarryFlag, Is.False);
+        });
+    }
+
+    [Test]
+    public void SubQuickByteDataRegisterSetsBorrowAndExtend()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x5300); // SUBQ.B #1,D0
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0x11223300);
+        cpu.Registers.ExtendFlag = false;
+        cpu.Registers.NegativeFlag = false;
+        cpu.Registers.ZeroFlag = true;
+        cpu.Registers.OverflowFlag = true;
+        cpu.Registers.CarryFlag = false;
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.GetDataRegister(0), Is.EqualTo(0x112233FF));
+            Assert.That(cpu.Registers.ExtendFlag, Is.True);
+            Assert.That(cpu.Registers.NegativeFlag, Is.True);
+            Assert.That(cpu.Registers.ZeroFlag, Is.False);
+            Assert.That(cpu.Registers.OverflowFlag, Is.False);
+            Assert.That(cpu.Registers.CarryFlag, Is.True);
+        });
+    }
+
+    [Test]
+    public void AddQuickWordAddressRegisterUsesLongArithmeticAndPreservesFlags()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x5248); // ADDQ.W #1,A0
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetAddressRegister(0, 0x0000FFFF);
+        cpu.Registers.ExtendFlag = true;
+        cpu.Registers.NegativeFlag = true;
+        cpu.Registers.ZeroFlag = false;
+        cpu.Registers.OverflowFlag = true;
+        cpu.Registers.CarryFlag = false;
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.GetAddressRegister(0), Is.EqualTo(0x00010000));
+            Assert.That(cpu.Registers.ExtendFlag, Is.True);
+            Assert.That(cpu.Registers.NegativeFlag, Is.True);
+            Assert.That(cpu.Registers.ZeroFlag, Is.False);
+            Assert.That(cpu.Registers.OverflowFlag, Is.True);
+            Assert.That(cpu.Registers.CarryFlag, Is.False);
+        });
+    }
+
+    [Test]
+    public void SubQuickLongAddressRegisterPreservesFlags()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x5389); // SUBQ.L #1,A1
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetAddressRegister(1, 0x00001000);
+        cpu.Registers.ExtendFlag = false;
+        cpu.Registers.NegativeFlag = true;
+        cpu.Registers.ZeroFlag = true;
+        cpu.Registers.OverflowFlag = false;
+        cpu.Registers.CarryFlag = true;
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.GetAddressRegister(1), Is.EqualTo(0x00000FFF));
+            Assert.That(cpu.Registers.ExtendFlag, Is.False);
+            Assert.That(cpu.Registers.NegativeFlag, Is.True);
+            Assert.That(cpu.Registers.ZeroFlag, Is.True);
+            Assert.That(cpu.Registers.OverflowFlag, Is.False);
+            Assert.That(cpu.Registers.CarryFlag, Is.True);
+        });
+    }
+
+    [Test]
+    public void SubQuickByteToAddressRegisterDirectIsRejected()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x5108); // SUBQ.B #8,A0 (illegal)
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+
+        Assert.That(
+            () => cpu.Step(),
+            Throws.TypeOf<NotImplementedException>().With.Message.Contains("Opcode 0x5108"));
+    }
 }

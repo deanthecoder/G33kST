@@ -49,6 +49,39 @@ public static class FlagMath
     }
 
     /// <summary>
+    /// Applies ADD-style flags for an 8-bit addition.
+    /// </summary>
+    public static void ApplyAddByte(Registers registers, byte destination, byte source, byte result)
+    {
+        registers.NegativeFlag = (result & 0x80) != 0;
+        registers.ZeroFlag = result == 0;
+        registers.OverflowFlag = ((~(destination ^ source) & (destination ^ result)) & 0x80) != 0;
+        registers.CarryFlag = destination + source > 0xFF;
+    }
+
+    /// <summary>
+    /// Applies ADD-style flags for a 16-bit addition.
+    /// </summary>
+    public static void ApplyAddWord(Registers registers, ushort destination, ushort source, ushort result)
+    {
+        registers.NegativeFlag = (result & 0x8000) != 0;
+        registers.ZeroFlag = result == 0;
+        registers.OverflowFlag = ((~(destination ^ source) & (destination ^ result)) & 0x8000) != 0;
+        registers.CarryFlag = destination + source > 0xFFFF;
+    }
+
+    /// <summary>
+    /// Applies ADD-style flags for a 32-bit addition.
+    /// </summary>
+    public static void ApplyAddLong(Registers registers, uint destination, uint source, uint result)
+    {
+        registers.NegativeFlag = (result & 0x8000_0000) != 0;
+        registers.ZeroFlag = result == 0;
+        registers.OverflowFlag = ((~(destination ^ source) & (destination ^ result)) & 0x8000_0000) != 0;
+        registers.CarryFlag = ((ulong)destination + source) > 0xFFFF_FFFF;
+    }
+
+    /// <summary>
     /// Applies flags for CLR-style operations (N=0, Z=1, V=0, C=0).
     /// </summary>
     public static void ApplyClear(Registers registers)
