@@ -21,5 +21,6 @@ public static class Group9Decoder
     /// Decodes an opcode in this major group.
     /// </summary>
     public static Instruction Decode(ushort opcode) =>
-        AddSubtractWithExtendInstructions.TryDecodeSubx(opcode);
+        AddSubtractWithExtendInstructions.TryDecodeSubx(opcode)
+        ?? AddSubtractInstructions.TryDecodeSub(opcode);
 }
