@@ -24,8 +24,12 @@ public sealed class Cpu : CpuBase
     private const ushort ValidStatusRegisterMask = 0xA71F;
     private const ushort SupervisorFlagMask = 0x2000;
     private const ushort TraceFlagMask = 0x8000;
+    private const ushort InterruptPriorityMaskBits = 0x0700;
     private const uint AddressErrorVectorAddress = 0x00000C;
+    private const uint TraceVectorAddress = 0x000024;
     private const uint PrivilegeViolationVectorAddress = 0x000020;
+    private const uint SpuriousInterruptVectorAddress = 0x000060;
+    private const uint InterruptAutovectorBaseAddress = 0x000060;
 
     // 0x2700 = supervisor mode with IPL 7, trace off, and XNZVC clear.
     private const ushort InitialStatusRegister = 0x2700;
@@ -33,6 +37,7 @@ public sealed class Cpu : CpuBase
     private ushort m_prefetch0;
     private ushort m_prefetch1;
     private bool m_hasPrefetch;
+    private byte m_pendingInterruptLevel;
 
     /// <summary>
     /// Gets the active CPU register set.
@@ -43,6 +48,19 @@ public sealed class Cpu : CpuBase
     /// Gets the total number of cycles accumulated since the last reset.
     /// </summary>
     public long CyclesSinceCpuStart { get; private set; }
+
+    /// <summary>
+    /// Optional callback for interrupt acknowledge cycles.
+    /// This hook lets machine/bus code decide whether an interrupt resolves as an autovector,
+    /// a spurious interrupt, or a device-supplied vector number.
+    /// </summary>
+    public Func<byte, InterruptAcknowledgeResult> InterruptAcknowledge { get; set; }
+
+    /// <summary>
+    /// Enables post-instruction trace exceptions when the T bit is set.
+    /// It is off by default so existing single-step tests can stay stable while trace behavior is phased in.
+    /// </summary>
+    public bool EnableTraceExceptions { get; set; }
 
     /// <summary>
     /// Creates a 68000 CPU bound to the supplied bus.
@@ -73,6 +91,19 @@ public sealed class Cpu : CpuBase
     /// </summary>
     public void InternalWait(uint cycles) =>
         CyclesSinceCpuStart += cycles;
+
+    /// <summary>
+    /// Latches a pending external interrupt request level (1-7).
+    /// The CPU checks this latch at instruction boundaries to model asynchronous interrupt delivery
+    /// without requiring cycle-level bus scheduling yet.
+    /// </summary>
+    public void RequestInterrupt(byte level)
+    {
+        if (level is < 1 or > 7)
+            throw new ArgumentOutOfRangeException(nameof(level), "Interrupt level must be in the range 1..7.");
+        if (level > m_pendingInterruptLevel)
+            m_pendingInterruptLevel = level;
+    }
 
     /// <summary>
     /// Seeds the two-word prefetch queue used by single-step test vectors.
@@ -225,8 +256,15 @@ public sealed class Cpu : CpuBase
     /// </summary>
     public override void Step()
     {
+        if (TryHandlePendingInterrupt())
+        {
+            NotifyAfterStep();
+            return;
+        }
+
         var opcodeAddress = Registers.ProgramCounter;
         ushort opcode = 0;
+        var traceWasEnabled = Registers.TraceFlag;
         try
         {
             opcode = FetchPcWord();
@@ -234,6 +272,8 @@ public sealed class Cpu : CpuBase
 
             var instruction = InstructionDecoder.Decode(opcode) ?? throw new NotImplementedException($"Opcode 0x{opcode:X4} is not implemented.");
             instruction.Execute(this, opcode);
+            if (EnableTraceExceptions && traceWasEnabled && Registers.TraceFlag)
+                EnterTraceException();
         }
         catch (AddressErrorException ex)
         {
@@ -291,6 +331,66 @@ public sealed class Cpu : CpuBase
         // Exception entry sets supervisor mode and clears trace.
         Registers.StatusRegister = (ushort)((oldStatus & ~TraceFlagMask) | SupervisorFlagMask);
         Registers.ProgramCounter = Read32(PrivilegeViolationVectorAddress);
+        RefreshPrefetchQueue();
+    }
+
+    /// <summary>
+    /// Accepts a pending interrupt (if one is eligible) and enters the resolved exception vector.
+    /// This centralizes interrupt mask checks and acknowledge resolution so normal instruction execution
+    /// can remain focused on opcode semantics.
+    /// </summary>
+    private bool TryHandlePendingInterrupt()
+    {
+        if (m_pendingInterruptLevel == 0)
+            return false;
+
+        var level = m_pendingInterruptLevel;
+        var isAccepted = level == 7 || level > Registers.InterruptPriorityMask;
+        if (!isAccepted)
+            return false;
+
+        m_pendingInterruptLevel = 0;
+        var acknowledgeResult = InterruptAcknowledge?.Invoke(level) ?? InterruptAcknowledgeResult.Autovector();
+        var vectorAddress = acknowledgeResult.Type switch
+        {
+            InterruptAcknowledgeType.Autovector => InterruptAutovectorBaseAddress + ((uint)level << 2),
+            InterruptAcknowledgeType.Spurious => SpuriousInterruptVectorAddress,
+            InterruptAcknowledgeType.VectorNumber => acknowledgeResult.VectorNumber * 4u,
+            _ => throw new ArgumentOutOfRangeException(nameof(acknowledgeResult))
+        };
+
+        EnterExceptionVector(vectorAddress, Registers.ProgramCounter, level);
+        return true;
+    }
+
+    /// <summary>
+    /// Enters the trace exception vector after an instruction completes with trace enabled.
+    /// This keeps trace behavior aligned with 68000 flow where tracing happens between instructions.
+    /// </summary>
+    private void EnterTraceException()
+    {
+        var oldPc = Registers.ProgramCounter;
+        EnterExceptionVector(TraceVectorAddress, oldPc, null);
+    }
+
+    /// <summary>
+    /// Shared exception entry routine for trace and interrupt vectors.
+    /// It performs consistent frame stacking, supervisor transition, and vector fetch so
+    /// exception sources do not duplicate subtle state-transition logic.
+    /// </summary>
+    private void EnterExceptionVector(uint vectorAddress, uint oldPc, byte? interruptPriorityMask)
+    {
+        var oldStatus = (ushort)(Registers.StatusRegister & ValidStatusRegisterMask);
+        Registers.IsSupervisor = true;
+        Push32(oldPc);
+        Push16(oldStatus);
+
+        var newStatus = (ushort)((oldStatus & ~TraceFlagMask) | SupervisorFlagMask);
+        if (interruptPriorityMask.HasValue)
+            newStatus = (ushort)((newStatus & ~InterruptPriorityMaskBits) | ((interruptPriorityMask.Value & 0x07) << 8));
+
+        Registers.StatusRegister = newStatus;
+        Registers.ProgramCounter = Read32(vectorAddress);
         RefreshPrefetchQueue();
     }
 
