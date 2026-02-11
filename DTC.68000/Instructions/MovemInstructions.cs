@@ -91,7 +91,7 @@ public static class MovemInstructions
 
             var value = ReadMovemRegister(cpu, registerCode);
             WriteMemory(cpu, address, size, value);
-            address = EffectiveAddressMath.NormalizeAddress24(address + step);
+            address += step;
         }
     }
 
@@ -107,11 +107,15 @@ public static class MovemInstructions
                 continue;
 
             address -= step;
-            cpu.Registers.SetAddressRegister(addressRegisterIndex, address);
             var value = registerCode == addressRegisterCode
                 ? initialAddressValue
                 : ReadMovemRegisterFromSnapshot(registerSnapshot, registerCode);
-            WriteMemory(cpu, address, size, value);
+            if (size == OperandSize.Long)
+                WriteMovemLongPredecrement(cpu, address, value);
+            else
+                WriteMemory(cpu, address, size, value);
+
+            cpu.Registers.SetAddressRegister(addressRegisterIndex, address);
         }
     }
 
@@ -129,9 +133,9 @@ public static class MovemInstructions
             if (!MaskIncludesRegister(registerMask, registerCode))
                 continue;
 
-            var value = ReadMemory(cpu, address, size);
+            var value = ReadMemory(cpu, address, size, source.IsProgramAccess);
             WriteMovemRegister(cpu, registerCode, size, value);
-            address = EffectiveAddressMath.NormalizeAddress24(address + step);
+            address += step;
             transferredRegisterCount++;
         }
 
@@ -144,11 +148,11 @@ public static class MovemInstructions
     private static uint ResolveRegistersToMemoryAddress(Cpu cpu, EffectiveAddress ea) =>
         ea.Mode switch
         {
-            EffectiveAddressMode.AddressRegisterIndirect => EffectiveAddressMath.NormalizeAddress24(cpu.Registers.GetAddressRegister(ea.Register)),
+            EffectiveAddressMode.AddressRegisterIndirect => cpu.Registers.GetAddressRegister(ea.Register),
             EffectiveAddressMode.AddressRegisterIndirectDisplacement => ResolveAddressRegisterDisplacement(cpu, ea.Register),
             EffectiveAddressMode.AddressRegisterIndirectIndex => ResolveAddressRegisterIndex(cpu, ea.Register),
-            EffectiveAddressMode.Other when ea.Register == 0 => EffectiveAddressMath.NormalizeAddress24(EffectiveAddressMath.ReadAbsoluteShortAddress(cpu)),
-            EffectiveAddressMode.Other when ea.Register == 1 => EffectiveAddressMath.NormalizeAddress24(EffectiveAddressMath.ReadAbsoluteLongAddress(cpu)),
+            EffectiveAddressMode.Other when ea.Register == 0 => EffectiveAddressMath.ReadAbsoluteShortAddress(cpu),
+            EffectiveAddressMode.Other when ea.Register == 1 => EffectiveAddressMath.ReadAbsoluteLongAddress(cpu),
             _ => throw new NotSupportedException($"MOVEM destination EA not supported: mode {(byte)ea.Mode}, reg {ea.Register}.")
         };
 
@@ -156,45 +160,53 @@ public static class MovemInstructions
         ea.Mode switch
         {
             EffectiveAddressMode.AddressRegisterIndirect => new MovemSource(
-                EffectiveAddressMath.NormalizeAddress24(cpu.Registers.GetAddressRegister(ea.Register)),
+                cpu.Registers.GetAddressRegister(ea.Register),
                 false,
                 0,
-                0),
+                0,
+                false),
             EffectiveAddressMode.AddressRegisterIndirectPostIncrement => new MovemSource(
-                EffectiveAddressMath.NormalizeAddress24(cpu.Registers.GetAddressRegister(ea.Register)),
+                cpu.Registers.GetAddressRegister(ea.Register),
                 true,
                 ea.Register,
-                cpu.Registers.GetAddressRegister(ea.Register)),
+                cpu.Registers.GetAddressRegister(ea.Register),
+                false),
             EffectiveAddressMode.AddressRegisterIndirectDisplacement => new MovemSource(
                 ResolveAddressRegisterDisplacement(cpu, ea.Register),
                 false,
                 0,
-                0),
+                0,
+                false),
             EffectiveAddressMode.AddressRegisterIndirectIndex => new MovemSource(
                 ResolveAddressRegisterIndex(cpu, ea.Register),
                 false,
                 0,
-                0),
+                0,
+                false),
             EffectiveAddressMode.Other when ea.Register == 0 => new MovemSource(
-                EffectiveAddressMath.NormalizeAddress24(EffectiveAddressMath.ReadAbsoluteShortAddress(cpu)),
+                EffectiveAddressMath.ReadAbsoluteShortAddress(cpu),
                 false,
                 0,
-                0),
+                0,
+                false),
             EffectiveAddressMode.Other when ea.Register == 1 => new MovemSource(
-                EffectiveAddressMath.NormalizeAddress24(EffectiveAddressMath.ReadAbsoluteLongAddress(cpu)),
+                EffectiveAddressMath.ReadAbsoluteLongAddress(cpu),
                 false,
                 0,
-                0),
+                0,
+                false),
             EffectiveAddressMode.Other when ea.Register == 2 => new MovemSource(
                 ResolvePcDisplacement(cpu),
                 false,
                 0,
-                0),
+                0,
+                true),
             EffectiveAddressMode.Other when ea.Register == 3 => new MovemSource(
                 ResolvePcIndex(cpu),
                 false,
                 0,
-                0),
+                0,
+                true),
             _ => throw new NotSupportedException($"MOVEM source EA not supported: mode {(byte)ea.Mode}, reg {ea.Register}.")
         };
 
@@ -202,35 +214,35 @@ public static class MovemInstructions
     {
         var displacement = (short)cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        return EffectiveAddressMath.NormalizeAddress24(EffectiveAddressMath.AddDisplacement(baseAddress, displacement));
+        return EffectiveAddressMath.AddDisplacement(baseAddress, displacement);
     }
 
     private static uint ResolveAddressRegisterIndex(Cpu cpu, byte registerIndex)
     {
         var extension = cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        return EffectiveAddressMath.NormalizeAddress24(EffectiveAddressMath.AddIndex(cpu, baseAddress, extension));
+        return EffectiveAddressMath.AddIndex(cpu, baseAddress, extension);
     }
 
     private static uint ResolvePcDisplacement(Cpu cpu)
     {
         var baseAddress = cpu.GetPcRelativeBaseAddress();
         var displacement = (short)cpu.FetchPcWord();
-        return EffectiveAddressMath.NormalizeAddress24(EffectiveAddressMath.AddDisplacement(baseAddress, displacement));
+        return EffectiveAddressMath.AddDisplacement(baseAddress, displacement);
     }
 
     private static uint ResolvePcIndex(Cpu cpu)
     {
         var baseAddress = cpu.GetPcRelativeBaseAddress();
         var extension = cpu.FetchPcWord();
-        return EffectiveAddressMath.NormalizeAddress24(EffectiveAddressMath.AddIndex(cpu, baseAddress, extension));
+        return EffectiveAddressMath.AddIndex(cpu, baseAddress, extension);
     }
 
-    private static uint ReadMemory(Cpu cpu, uint address, OperandSize size) =>
+    private static uint ReadMemory(Cpu cpu, uint address, OperandSize size, bool isProgramAccess) =>
         size switch
         {
-            OperandSize.Word => cpu.Read16(address),
-            OperandSize.Long => cpu.Read32(address),
+            OperandSize.Word => ReadMovemWord(cpu, address, isProgramAccess),
+            OperandSize.Long => ReadMovemLong(cpu, address, isProgramAccess),
             _ => 0
         };
 
@@ -239,15 +251,89 @@ public static class MovemInstructions
         switch (size)
         {
             case OperandSize.Word:
-                cpu.Write16(address, (ushort)value);
+                WriteMovemWord(cpu, address, (ushort)value);
                 return;
             case OperandSize.Long:
-                cpu.Write32(address, value);
+                WriteMovemLong(cpu, address, value);
                 return;
             default:
                 throw new ArgumentOutOfRangeException(nameof(size), size, null);
         }
     }
+
+    private static ushort ReadMovemWord(Cpu cpu, uint address, bool isProgramAccess)
+    {
+        try
+        {
+            return cpu.Read16(address);
+        }
+        catch (AddressErrorException error)
+        {
+            throw RethrowMovemAddressError(error, isProgramAccess);
+        }
+    }
+
+    private static uint ReadMovemLong(Cpu cpu, uint address, bool isProgramAccess)
+    {
+        try
+        {
+            return cpu.Read32(address);
+        }
+        catch (AddressErrorException error)
+        {
+            throw RethrowMovemAddressError(error, isProgramAccess);
+        }
+    }
+
+    private static void WriteMovemWord(Cpu cpu, uint address, ushort value)
+    {
+        try
+        {
+            cpu.Write16(address, value);
+        }
+        catch (AddressErrorException error)
+        {
+            throw RethrowMovemAddressError(error);
+        }
+    }
+
+    private static void WriteMovemLong(Cpu cpu, uint address, uint value)
+    {
+        try
+        {
+            cpu.Write32(address, value);
+        }
+        catch (AddressErrorException error)
+        {
+            throw RethrowMovemAddressError(error);
+        }
+    }
+
+    private static void WriteMovemLongPredecrement(Cpu cpu, uint address, uint value)
+    {
+        try
+        {
+            cpu.Write32(address, value);
+        }
+        catch (AddressErrorException error)
+        {
+            var adjustedAddress = unchecked(error.Address + 2);
+            throw new AddressErrorException(
+                adjustedAddress,
+                error.Size,
+                error.IsRead,
+                error.IsProgramAccess,
+                frameProgramCounterAdjust: 2);
+        }
+    }
+
+    private static AddressErrorException RethrowMovemAddressError(AddressErrorException error, bool isProgramAccess = false) =>
+        new(
+            error.Address,
+            error.Size,
+            error.IsRead,
+            error.IsProgramAccess || isProgramAccess,
+            frameProgramCounterAdjust: 2);
 
     private static bool MaskIncludesRegister(ushort registerMask, int registerCode) =>
         (registerMask & (1 << registerCode)) != 0;
@@ -315,6 +401,6 @@ public static class MovemInstructions
             _ => false
         };
 
-    private readonly record struct MovemSource(uint Address, bool HasPostIncrement, byte PostIncrementRegisterIndex, uint PostIncrementBaseAddress);
+    private readonly record struct MovemSource(uint Address, bool HasPostIncrement, byte PostIncrementRegisterIndex, uint PostIncrementBaseAddress, bool IsProgramAccess);
     private readonly record struct MovemRegisterSnapshot(uint[] Data, uint[] Address);
 }

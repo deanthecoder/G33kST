@@ -41,6 +41,11 @@ public sealed class AddressErrorException : Exception
     public int? FrameProgramCounterAdjust { get; }
 
     /// <summary>
+    /// Gets whether the address-error frame should use the current prefetch word as the instruction register.
+    /// </summary>
+    public bool UsePrefetchInstructionRegister { get; }
+
+    /// <summary>
     /// Creates a new address error exception.
     /// </summary>
     public AddressErrorException(
@@ -48,7 +53,8 @@ public sealed class AddressErrorException : Exception
         string size,
         bool isRead,
         bool isProgramAccess = false,
-        int? frameProgramCounterAdjust = null)
+        int? frameProgramCounterAdjust = null,
+        bool usePrefetchInstructionRegister = false)
         : base($"Address error for odd {size} access at 0x{address:X6}.")
     {
         Address = address;
@@ -56,5 +62,6 @@ public sealed class AddressErrorException : Exception
         IsRead = isRead;
         IsProgramAccess = isProgramAccess;
         FrameProgramCounterAdjust = frameProgramCounterAdjust;
+        UsePrefetchInstructionRegister = usePrefetchInstructionRegister;
     }
 }

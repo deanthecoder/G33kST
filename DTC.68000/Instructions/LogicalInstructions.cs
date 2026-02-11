@@ -122,7 +122,10 @@ public static class LogicalInstructions
     private static void ExecuteClearWord(Cpu cpu, ushort opcode)
     {
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
-        EffectiveAddressWordAccess.WriteWord(cpu, ea, 0);
+        var destination = ResolveDestination(cpu, ea, OperandSize.Word);
+        _ = ReadUnsigned(cpu, destination, OperandSize.Word);
+        WriteUnsigned(cpu, destination, OperandSize.Word, 0);
+        ApplyPostIncrement(cpu, destination);
         FlagMath.ApplyClear(cpu.Registers);
     }
 
@@ -132,7 +135,10 @@ public static class LogicalInstructions
     private static void ExecuteClearLong(Cpu cpu, ushort opcode)
     {
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
-        EffectiveAddressLongAccess.WriteLong(cpu, ea, 0);
+        var destination = ResolveDestination(cpu, ea, OperandSize.Long);
+        _ = ReadUnsigned(cpu, destination, OperandSize.Long);
+        WriteUnsigned(cpu, destination, OperandSize.Long, 0);
+        ApplyPostIncrement(cpu, destination);
         FlagMath.ApplyClear(cpu.Registers);
     }
 

@@ -241,23 +241,48 @@ public static class AddSubtractWithExtendInstructions
             case OperandSize.Byte:
             {
                 var address = currentAddress - EffectiveAddressMath.ByteAddressStep(registerIndex);
-                var value = cpu.Read8(address);
                 cpu.Registers.SetAddressRegister(registerIndex, address);
+                var value = cpu.Read8(address);
                 return (value, address);
             }
             case OperandSize.Word:
             {
                 var address = currentAddress - 2;
-                var value = cpu.Read16(address);
                 cpu.Registers.SetAddressRegister(registerIndex, address);
-                return (value, address);
+                try
+                {
+                    var value = cpu.Read16(address);
+                    return (value, address);
+                }
+                catch (AddressErrorException error)
+                {
+                    throw CreatePredecrementAddressError(error);
+                }
             }
             case OperandSize.Long:
             {
                 var lowWordAddress = currentAddress - 2;
-                var lowWord = cpu.Read16(lowWordAddress);
+                ushort lowWord;
+                try
+                {
+                    lowWord = cpu.Read16(lowWordAddress);
+                }
+                catch (AddressErrorException error)
+                {
+                    throw CreatePredecrementAddressError(error);
+                }
+
                 var highWordAddress = currentAddress - 4;
-                var highWord = cpu.Read16(highWordAddress);
+                ushort highWord;
+                try
+                {
+                    highWord = cpu.Read16(highWordAddress);
+                }
+                catch (AddressErrorException error)
+                {
+                    throw CreatePredecrementAddressError(error);
+                }
+
                 cpu.Registers.SetAddressRegister(registerIndex, highWordAddress);
                 var value = ((ulong)highWord << 16) | lowWord;
                 return (value, highWordAddress);
@@ -266,6 +291,14 @@ public static class AddSubtractWithExtendInstructions
                 throw new ArgumentOutOfRangeException(nameof(size), size, null);
         }
     }
+
+    private static AddressErrorException CreatePredecrementAddressError(AddressErrorException error) =>
+        new(
+            error.Address,
+            error.Size,
+            error.IsRead,
+            error.IsProgramAccess,
+            frameProgramCounterAdjust: 2);
 
     private static void WriteMemoryPredecrement(Cpu cpu, uint address, OperandSize size, ulong value)
     {

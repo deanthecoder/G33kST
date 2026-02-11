@@ -266,11 +266,11 @@ public sealed class Cpu : CpuBase
         var stackPointer = Registers.StackPointer;
         var restoredStatus = (ushort)(Read16(stackPointer) & ValidStatusRegisterMask);
         var returnAddress = Read32(stackPointer + 2);
+        Registers.StackPointer = stackPointer + 6;
+        Registers.StatusRegister = restoredStatus;
         if ((returnAddress & 1) != 0)
             throw new AddressErrorException(returnAddress, ".w", isRead: true, isProgramAccess: true);
 
-        Registers.StackPointer = stackPointer + 6;
-        Registers.StatusRegister = restoredStatus;
         Registers.ProgramCounter = returnAddress;
         RefreshPrefetchQueue();
     }
@@ -303,7 +303,11 @@ public sealed class Cpu : CpuBase
         else if (!error.IsRead)
             frameProgramCounter += 2;
 
-        var instructionRegister = opcode != 0 ? opcode : m_prefetch0;
+        var instructionRegister = error.UsePrefetchInstructionRegister
+            ? m_prefetch0
+            : opcode != 0
+                ? opcode
+                : m_prefetch0;
         var functionCode = GetFunctionCode(error.IsProgramAccess);
         var specialStatusWord = BuildSpecialStatusWord(instructionRegister, functionCode, error.IsRead);
         var faultAddress = error.Address | 1u;

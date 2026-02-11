@@ -155,8 +155,15 @@ public static class SystemInstructions
     /// </summary>
     private static void ExecuteMoveFromStatusRegister(Cpu cpu, ushort opcode)
     {
-        var destination = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
-        EffectiveAddressWordAccess.WriteWord(cpu, destination, cpu.Registers.StatusRegister);
+        var destinationEa = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+        var destination = DestinationOperandAccess.ResolveDataAlterable(
+            cpu,
+            destinationEa,
+            DestinationOperandSize.Word,
+            "MOVE from SR");
+        _ = DestinationOperandAccess.ReadUnsigned(cpu, destination, DestinationOperandSize.Word);
+        DestinationOperandAccess.WriteUnsigned(cpu, destination, DestinationOperandSize.Word, cpu.Registers.StatusRegister);
+        DestinationOperandAccess.ApplyPostIncrement(cpu, destination);
     }
 
     /// <summary>
@@ -261,9 +268,7 @@ public static class SystemInstructions
     /// </summary>
     private static void ExecuteReturnFromSubroutine(Cpu cpu, ushort opcode)
     {
-        var stackPointer = cpu.Registers.StackPointer;
-        var returnAddress = cpu.Read32(stackPointer);
-        cpu.Registers.StackPointer = stackPointer + 4;
+        var returnAddress = cpu.Pop32();
         if ((returnAddress & 1) != 0)
             throw new AddressErrorException(returnAddress, ".w", isRead: true, isProgramAccess: true);
 
@@ -278,11 +283,11 @@ public static class SystemInstructions
     {
         var restoredCcr = (ushort)(cpu.Pop16() & ConditionCodeRegisterMask);
         var returnAddress = cpu.Pop32();
+        var highStatusByte = (ushort)(cpu.Registers.StatusRegister & 0xFF00);
+        cpu.Registers.StatusRegister = (ushort)(highStatusByte | restoredCcr);
         if ((returnAddress & 1) != 0)
             throw new AddressErrorException(returnAddress, ".w", isRead: true, isProgramAccess: true);
 
-        var highStatusByte = (ushort)(cpu.Registers.StatusRegister & 0xFF00);
-        cpu.Registers.StatusRegister = (ushort)(highStatusByte | restoredCcr);
         cpu.Registers.ProgramCounter = returnAddress;
         cpu.RefreshPrefetchQueue();
     }
@@ -373,4 +378,5 @@ public static class SystemInstructions
 
     private static bool SupportsMoveToStatusSource(EffectiveAddress source) =>
         EffectiveAddressSupport.SupportsRead(source, allowsAddressRegisterDirect: false);
+
 }

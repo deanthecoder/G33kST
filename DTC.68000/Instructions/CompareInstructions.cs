@@ -148,10 +148,8 @@ public static class CompareInstructions
     {
         var sourceRegister = (byte)(opcode & 0x07);
         var destinationRegister = (byte)((opcode >> 9) & 0x07);
-        var sourceEa = new EffectiveAddress(EffectiveAddressMode.AddressRegisterIndirectPostIncrement, sourceRegister);
-        var destinationEa = new EffectiveAddress(EffectiveAddressMode.AddressRegisterIndirectPostIncrement, destinationRegister);
-        var source = EffectiveAddressWordAccess.ReadWord(cpu, sourceEa);
-        var destination = EffectiveAddressWordAccess.ReadWord(cpu, destinationEa);
+        var source = ReadWordPostIncrementSource(cpu, sourceRegister);
+        var destination = ReadWordPostIncrementDestination(cpu, destinationRegister);
         var result = (ushort)(destination - source);
         FlagMath.ApplySubtractWord(cpu.Registers, destination, source, result);
     }
@@ -163,11 +161,63 @@ public static class CompareInstructions
     {
         var sourceRegister = (byte)(opcode & 0x07);
         var destinationRegister = (byte)((opcode >> 9) & 0x07);
-        var sourceEa = new EffectiveAddress(EffectiveAddressMode.AddressRegisterIndirectPostIncrement, sourceRegister);
-        var destinationEa = new EffectiveAddress(EffectiveAddressMode.AddressRegisterIndirectPostIncrement, destinationRegister);
-        var source = EffectiveAddressLongAccess.ReadLong(cpu, sourceEa);
-        var destination = EffectiveAddressLongAccess.ReadLong(cpu, destinationEa);
+        var source = ReadLongPostIncrementSource(cpu, sourceRegister);
+        var destination = ReadLongPostIncrementDestination(cpu, destinationRegister);
         var result = destination - source;
         FlagMath.ApplySubtractLong(cpu.Registers, destination, source, result);
+    }
+
+    private static ushort ReadWordPostIncrementSource(Cpu cpu, byte registerIndex)
+    {
+        var address = cpu.Registers.GetAddressRegister(registerIndex);
+        cpu.Registers.SetAddressRegister(registerIndex, address + 2);
+        return ReadCmpmWord(cpu, address);
+    }
+
+    private static ushort ReadWordPostIncrementDestination(Cpu cpu, byte registerIndex)
+    {
+        var address = cpu.Registers.GetAddressRegister(registerIndex);
+        var value = ReadCmpmWord(cpu, address);
+        cpu.Registers.SetAddressRegister(registerIndex, address + 2);
+        return value;
+    }
+
+    private static uint ReadLongPostIncrementSource(Cpu cpu, byte registerIndex)
+    {
+        var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
+        cpu.Registers.SetAddressRegister(registerIndex, baseAddress + 2);
+        var highWord = ReadCmpmWord(cpu, baseAddress);
+        var lowWordAddress = EffectiveAddressMath.NormalizeAddress24(baseAddress + 2);
+        cpu.Registers.SetAddressRegister(registerIndex, baseAddress + 4);
+        var lowWord = ReadCmpmWord(cpu, lowWordAddress);
+        return ((uint)highWord << 16) | lowWord;
+    }
+
+    private static uint ReadLongPostIncrementDestination(Cpu cpu, byte registerIndex)
+    {
+        var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
+        var highWord = ReadCmpmWord(cpu, baseAddress);
+        cpu.Registers.SetAddressRegister(registerIndex, baseAddress + 2);
+        var lowWordAddress = EffectiveAddressMath.NormalizeAddress24(baseAddress + 2);
+        var lowWord = ReadCmpmWord(cpu, lowWordAddress);
+        cpu.Registers.SetAddressRegister(registerIndex, baseAddress + 4);
+        return ((uint)highWord << 16) | lowWord;
+    }
+
+    private static ushort ReadCmpmWord(Cpu cpu, uint address)
+    {
+        try
+        {
+            return cpu.Read16(address);
+        }
+        catch (AddressErrorException error)
+        {
+            throw new AddressErrorException(
+                error.Address,
+                error.Size,
+                error.IsRead,
+                error.IsProgramAccess,
+                frameProgramCounterAdjust: 2);
+        }
     }
 }

@@ -56,8 +56,29 @@ public static class StackInstructions
     private static void ExecuteUnlink(Cpu cpu, ushort opcode)
     {
         var registerIndex = opcode & 0x07;
-        cpu.Registers.StackPointer = cpu.Registers.GetAddressRegister(registerIndex);
-        var restoredAddressRegisterValue = cpu.Pop32();
+        var framePointer = cpu.Registers.GetAddressRegister(registerIndex);
+        uint restoredAddressRegisterValue;
+        try
+        {
+            restoredAddressRegisterValue = cpu.Read32(framePointer);
+        }
+        catch (AddressErrorException error)
+        {
+            throw new AddressErrorException(
+                error.Address,
+                error.Size,
+                error.IsRead,
+                error.IsProgramAccess,
+                frameProgramCounterAdjust: 2);
+        }
+
+        if (registerIndex == 7)
+        {
+            cpu.Registers.StackPointer = restoredAddressRegisterValue;
+            return;
+        }
+
         cpu.Registers.SetAddressRegister(registerIndex, restoredAddressRegisterValue);
+        cpu.Registers.StackPointer = framePointer + 4;
     }
 }

@@ -107,8 +107,13 @@ public static class MoveInstructions
         var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
         var sourceValue = EffectiveAddressWordAccess.ReadWord(cpu, source);
-        EffectiveAddressWordAccess.WriteWord(cpu, destination, sourceValue);
         FlagMath.ApplyLogicalWord(cpu.Registers, sourceValue);
+        var usePrefetchInstructionRegisterOnWriteFault = destination.Mode == EffectiveAddressMode.AddressRegisterIndirectPreDecrement;
+        var frameProgramCounterAdjust = DestinationFrameProgramCounterAdjust(destination);
+        if (destination.Mode == EffectiveAddressMode.Other && destination.Register == 1 && SourceUsesReadCycle(source))
+            frameProgramCounterAdjust -= 2;
+
+        WriteMoveWord(cpu, destination, sourceValue, usePrefetchInstructionRegisterOnWriteFault, frameProgramCounterAdjust);
     }
 
     /// <summary>
@@ -120,8 +125,15 @@ public static class MoveInstructions
         var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
         var sourceValue = EffectiveAddressLongAccess.ReadLong(cpu, source);
-        EffectiveAddressLongAccess.WriteLong(cpu, destination, sourceValue);
-        FlagMath.ApplyLogicalLong(cpu.Registers, sourceValue);
+        var applyFlagsBeforeWrite = SourceAppliesLongFlagsBeforeWrite(source);
+        if (applyFlagsBeforeWrite)
+            FlagMath.ApplyLogicalLong(cpu.Registers, sourceValue);
+
+        var usePrefetchInstructionRegisterOnWriteFault = false;
+        var frameProgramCounterAdjust = DestinationFrameProgramCounterAdjust(destination);
+        WriteMoveLong(cpu, destination, sourceValue, usePrefetchInstructionRegisterOnWriteFault, frameProgramCounterAdjust);
+        if (!applyFlagsBeforeWrite)
+            FlagMath.ApplyLogicalLong(cpu.Registers, sourceValue);
     }
 
     /// <summary>
@@ -148,4 +160,93 @@ public static class MoveInstructions
         cpu.Registers.SetAddressRegister(destinationRegisterIndex, sourceValue);
     }
 
+    private static void WriteMoveWord(Cpu cpu, EffectiveAddress destination, ushort value, bool usePrefetchInstructionRegisterOnWriteFault, int frameProgramCounterAdjust)
+    {
+        try
+        {
+            EffectiveAddressWordAccess.WriteWord(cpu, destination, value);
+        }
+        catch (AddressErrorException error)
+        {
+            throw RethrowMoveDestinationAddressError(error, usePrefetchInstructionRegisterOnWriteFault, frameProgramCounterAdjust);
+        }
+    }
+
+    private static void WriteMoveLong(Cpu cpu, EffectiveAddress destination, uint value, bool usePrefetchInstructionRegisterOnWriteFault, int frameProgramCounterAdjust)
+    {
+        if (destination.Mode == EffectiveAddressMode.AddressRegisterIndirectPreDecrement)
+        {
+            WriteMoveLongPreDecrement(cpu, destination.Register, value, usePrefetchInstructionRegisterOnWriteFault, frameProgramCounterAdjust);
+            return;
+        }
+
+        try
+        {
+            EffectiveAddressLongAccess.WriteLong(cpu, destination, value);
+        }
+        catch (AddressErrorException error)
+        {
+            throw RethrowMoveDestinationAddressError(error, usePrefetchInstructionRegisterOnWriteFault, frameProgramCounterAdjust);
+        }
+    }
+
+    private static void WriteMoveLongPreDecrement(Cpu cpu, byte registerIndex, uint value, bool usePrefetchInstructionRegisterOnWriteFault, int frameProgramCounterAdjust)
+    {
+        var currentAddress = cpu.Registers.GetAddressRegister(registerIndex);
+        var lowWordAddress = currentAddress - 2;
+        try
+        {
+            cpu.Write16(lowWordAddress, (ushort)value);
+        }
+        catch (AddressErrorException error)
+        {
+            throw RethrowMoveDestinationAddressError(error, usePrefetchInstructionRegisterOnWriteFault, frameProgramCounterAdjust);
+        }
+
+        var highWordAddress = currentAddress - 4;
+        try
+        {
+            cpu.Write16(highWordAddress, (ushort)(value >> 16));
+        }
+        catch (AddressErrorException error)
+        {
+            throw RethrowMoveDestinationAddressError(error, usePrefetchInstructionRegisterOnWriteFault, frameProgramCounterAdjust);
+        }
+
+        cpu.Registers.SetAddressRegister(registerIndex, highWordAddress);
+    }
+
+    private static AddressErrorException RethrowMoveDestinationAddressError(AddressErrorException error, bool usePrefetchInstructionRegister, int frameProgramCounterAdjust) =>
+        new(
+            error.Address,
+            error.Size,
+            error.IsRead,
+            error.IsProgramAccess,
+            frameProgramCounterAdjust,
+            usePrefetchInstructionRegister);
+
+    private static int DestinationFrameProgramCounterAdjust(EffectiveAddress destination) =>
+        2 - (2 * DestinationExtensionWordCount(destination));
+
+    private static int DestinationExtensionWordCount(EffectiveAddress destination) =>
+        destination.Mode switch
+        {
+            EffectiveAddressMode.AddressRegisterIndirectDisplacement => 1,
+            EffectiveAddressMode.AddressRegisterIndirectIndex => 1,
+            EffectiveAddressMode.Other when destination.Register == 0 => 1,
+            EffectiveAddressMode.Other when destination.Register == 1 => 1,
+            _ => 0
+        };
+
+    private static bool SourceUsesReadCycle(EffectiveAddress source) =>
+        source.Mode is not EffectiveAddressMode.DataRegisterDirect and not EffectiveAddressMode.AddressRegisterDirect;
+
+    private static bool SourceAppliesLongFlagsBeforeWrite(EffectiveAddress source) =>
+        source.Mode switch
+        {
+            EffectiveAddressMode.DataRegisterDirect => false,
+            EffectiveAddressMode.AddressRegisterDirect => false,
+            EffectiveAddressMode.Other when source.Register == 4 => false,
+            _ => true
+        };
 }
