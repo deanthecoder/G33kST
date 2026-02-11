@@ -208,7 +208,7 @@ public static class DecimalInstructions
         var currentAddress = cpu.Registers.GetAddressRegister(registerIndex);
         var newAddress = currentAddress - EffectiveAddressMath.ByteAddressStep(registerIndex);
         cpu.Registers.SetAddressRegister(registerIndex, newAddress);
-        return EffectiveAddressMath.NormalizeAddress24(newAddress);
+        return newAddress;
     }
 
     private static bool SupportsByteReadWrite(EffectiveAddress ea) =>

@@ -24,6 +24,7 @@ public sealed class Cpu : CpuBase
     private const ushort ValidStatusRegisterMask = 0xA71F;
     private const ushort SupervisorFlagMask = 0x2000;
     private const ushort TraceFlagMask = 0x8000;
+    private const uint AddressErrorVectorAddress = 0x00000C;
     private const uint PrivilegeViolationVectorAddress = 0x000020;
 
     // 0x2700 = supervisor mode with IPL 7, trace off, and XNZVC clear.
@@ -92,7 +93,7 @@ public sealed class Cpu : CpuBase
         if (m_hasPrefetch)
             return FetchPrefetchedWord();
 
-        var address = ValidateEvenAddress(Registers.ProgramCounter);
+        var address = ValidateEvenProgramAddress(Registers.ProgramCounter);
         var value = ReadInstructionWord(address);
         Registers.ProgramCounter = address + 2;
         return value;
@@ -130,7 +131,7 @@ public sealed class Cpu : CpuBase
     /// </summary>
     public ushort Read16(uint address)
     {
-        address = EnsureEvenBusAddress(address, ".w");
+        address = EnsureEvenBusAddress(address, ".w", isRead: true);
         var hi = Read8(address);
         var lo = Read8(address + 1);
         return (ushort)((hi << 8) | lo);
@@ -141,7 +142,7 @@ public sealed class Cpu : CpuBase
     /// </summary>
     public void Write16(uint address, ushort value)
     {
-        address = EnsureEvenBusAddress(address, ".w");
+        address = EnsureEvenBusAddress(address, ".w", isRead: false);
         Write8(address, (byte)(value >> 8));
         Write8(address + 1, (byte)(value & 0xFF));
     }
@@ -151,7 +152,7 @@ public sealed class Cpu : CpuBase
     /// </summary>
     public uint Read32(uint address)
     {
-        address = EnsureEvenBusAddress(address, ".l");
+        address = EnsureEvenBusAddress(address, ".l", isRead: true);
         var b0 = Read8(address);
         var b1 = Read8(address + 1);
         var b2 = Read8(address + 2);
@@ -164,7 +165,7 @@ public sealed class Cpu : CpuBase
     /// </summary>
     public void Write32(uint address, uint value)
     {
-        address = EnsureEvenBusAddress(address, ".l");
+        address = EnsureEvenBusAddress(address, ".l", isRead: false);
         Write8(address, (byte)(value >> 24));
         Write8(address + 1, (byte)((value >> 16) & 0xFF));
         Write8(address + 2, (byte)((value >> 8) & 0xFF));
@@ -178,7 +179,7 @@ public sealed class Cpu : CpuBase
     {
         var newStackPointer = Registers.StackPointer - 2;
         if ((newStackPointer & 1) != 0)
-            throw new AddressErrorException(newStackPointer, ".w");
+            throw new AddressErrorException(newStackPointer, ".w", isRead: false);
 
         Registers.StackPointer = newStackPointer;
         Write16(newStackPointer, value);
@@ -191,7 +192,7 @@ public sealed class Cpu : CpuBase
     {
         var newStackPointer = Registers.StackPointer - 4;
         if ((newStackPointer & 1) != 0)
-            throw new AddressErrorException(newStackPointer, ".l");
+            throw new AddressErrorException(newStackPointer, ".l", isRead: false);
 
         Registers.StackPointer = newStackPointer;
         Write32(newStackPointer, value);
@@ -224,12 +225,20 @@ public sealed class Cpu : CpuBase
     /// </summary>
     public override void Step()
     {
-        var oldPC = Registers.ProgramCounter;
-        var opcode = FetchPcWord();
-        NotifyBeforeInstruction(oldPC, opcode);
-        
-        var instruction = InstructionDecoder.Decode(opcode) ?? throw new NotImplementedException($"Opcode 0x{opcode:X4} is not implemented.");
-        instruction.Execute(this, opcode);
+        var opcodeAddress = Registers.ProgramCounter;
+        ushort opcode = 0;
+        try
+        {
+            opcode = FetchPcWord();
+            NotifyBeforeInstruction(opcodeAddress, opcode);
+
+            var instruction = InstructionDecoder.Decode(opcode) ?? throw new NotImplementedException($"Opcode 0x{opcode:X4} is not implemented.");
+            instruction.Execute(this, opcode);
+        }
+        catch (AddressErrorException ex)
+        {
+            EnterAddressError(ex, opcode);
+        }
 
         NotifyAfterStep();
     }
@@ -258,7 +267,7 @@ public sealed class Cpu : CpuBase
         var restoredStatus = (ushort)(Read16(stackPointer) & ValidStatusRegisterMask);
         var returnAddress = Read32(stackPointer + 2);
         if ((returnAddress & 1) != 0)
-            throw new AddressErrorException(returnAddress, ".w");
+            throw new AddressErrorException(returnAddress, ".w", isRead: true, isProgramAccess: true);
 
         Registers.StackPointer = stackPointer + 6;
         Registers.StatusRegister = restoredStatus;
@@ -285,22 +294,68 @@ public sealed class Cpu : CpuBase
         RefreshPrefetchQueue();
     }
 
-    private static uint ValidateEvenAddress(uint address) =>
-        (address & 1) == 0 ? address : throw new InvalidOperationException($"Odd address fetch at 0x{address:X6}.");
+    private void EnterAddressError(AddressErrorException error, ushort opcode)
+    {
+        var oldStatus = (ushort)(Registers.StatusRegister & ValidStatusRegisterMask);
+        var frameProgramCounter = GetPcRelativeBaseAddress();
+        if (error.FrameProgramCounterAdjust.HasValue)
+            frameProgramCounter = unchecked(frameProgramCounter + (uint)error.FrameProgramCounterAdjust.Value);
+        else if (!error.IsRead)
+            frameProgramCounter += 2;
 
-    private static uint EnsureEvenBusAddress(uint address, string size)
+        var instructionRegister = opcode != 0 ? opcode : m_prefetch0;
+        var functionCode = GetFunctionCode(error.IsProgramAccess);
+        var specialStatusWord = BuildSpecialStatusWord(instructionRegister, functionCode, error.IsRead);
+        var faultAddress = error.Address | 1u;
+
+        // Address-error exception entry always stacks to supervisor mode.
+        Registers.IsSupervisor = true;
+        Push32(frameProgramCounter);
+        Push16(oldStatus);
+        Push16(instructionRegister);
+        Push32(faultAddress);
+        Push16(specialStatusWord);
+
+        Registers.StatusRegister = (ushort)((oldStatus & ~TraceFlagMask) | SupervisorFlagMask);
+        Registers.ProgramCounter = Read32(AddressErrorVectorAddress);
+        RefreshPrefetchQueue();
+    }
+
+    private byte GetFunctionCode(bool programAccess)
+    {
+        if (programAccess)
+            return Registers.IsSupervisor ? (byte)6 : (byte)2;
+
+        return Registers.IsSupervisor ? (byte)5 : (byte)1;
+    }
+
+    private static ushort BuildSpecialStatusWord(ushort instructionRegister, byte functionCode, bool isRead)
+    {
+        var lowBits = (byte)(functionCode & 0x07);
+        if (isRead)
+            lowBits |= 0x10;
+
+        return (ushort)((instructionRegister & 0xFFE0) | lowBits);
+    }
+
+    private uint ValidateEvenProgramAddress(uint address) =>
+        (address & 1) == 0
+            ? address
+            : throw new AddressErrorException(address, ".w", isRead: true, isProgramAccess: true);
+
+    private uint EnsureEvenBusAddress(uint address, string size, bool isRead)
     {
         var normalized = EffectiveAddressMath.NormalizeAddress24(address);
         if ((normalized & 1) == 0)
             return normalized;
 
-        throw new AddressErrorException(normalized, size);
+        throw new AddressErrorException(address, size, isRead);
     }
 
     private ushort FetchPrefetchedWord()
     {
         var value = m_prefetch0;
-        var fetchAddress = ValidateEvenAddress(Registers.ProgramCounter);
+        var fetchAddress = ValidateEvenProgramAddress(Registers.ProgramCounter);
         var fetchedWord = ReadInstructionWord(fetchAddress);
 
         // Shift queue and refill the second slot from the next prefetch address.

@@ -85,7 +85,7 @@ public static class ConditionInstructions
         var conditionCode = (byte)((opcode >> 8) & 0x0F);
         var displacement = ReadBranchDisplacement(cpu, opcode, out var usedExtensionWord);
         if (ConditionCodeEvaluator.Evaluate(conditionCode, cpu.Registers))
-            BranchRelative(cpu, displacement, usedExtensionWord);
+            BranchRelative(cpu, displacement, usedExtensionWord, useFaultAddressAsFrameProgramCounter: false);
     }
 
     /// <summary>
@@ -94,7 +94,7 @@ public static class ConditionInstructions
     private static void ExecuteBranchAlways(Cpu cpu, ushort opcode)
     {
         var displacement = ReadBranchDisplacement(cpu, opcode, out var usedExtensionWord);
-        BranchRelative(cpu, displacement, usedExtensionWord);
+        BranchRelative(cpu, displacement, usedExtensionWord, useFaultAddressAsFrameProgramCounter: false);
     }
 
     /// <summary>
@@ -104,7 +104,7 @@ public static class ConditionInstructions
     {
         var displacement = ReadBranchDisplacement(cpu, opcode, out var usedExtensionWord);
         cpu.Push32(cpu.GetPcRelativeBaseAddress());
-        BranchRelative(cpu, displacement, usedExtensionWord);
+        BranchRelative(cpu, displacement, usedExtensionWord, useFaultAddressAsFrameProgramCounter: true);
     }
 
     /// <summary>
@@ -121,15 +121,18 @@ public static class ConditionInstructions
         var registerIndex = opcode & 0x07;
         var registerValue = cpu.Registers.GetDataRegister(registerIndex);
         var decrementedLowWord = (ushort)(registerValue - 1);
-        cpu.Registers.SetDataRegister(registerIndex, (registerValue & 0xFFFF0000) | decrementedLowWord);
         if (decrementedLowWord == 0xFFFF)
+        {
+            cpu.Registers.SetDataRegister(registerIndex, (registerValue & 0xFFFF0000) | decrementedLowWord);
             return;
+        }
 
         // DBcc displacement is relative to the extension-word base in this prefetch model.
         var branchTarget = unchecked((uint)(cpu.Registers.ProgramCounter + displacement - 2));
         if ((branchTarget & 1) != 0)
-            throw new AddressErrorException(branchTarget, ".w");
+            throw new AddressErrorException(unchecked(branchTarget - 4), ".w", isRead: true, isProgramAccess: true);
 
+        cpu.Registers.SetDataRegister(registerIndex, (registerValue & 0xFFFF0000) | decrementedLowWord);
         cpu.Registers.ProgramCounter = branchTarget;
     }
 
@@ -146,7 +149,7 @@ public static class ConditionInstructions
         return (short)cpu.FetchPcWord();
     }
 
-    private static void BranchRelative(Cpu cpu, int displacement, bool usedExtensionWord)
+    private static void BranchRelative(Cpu cpu, int displacement, bool usedExtensionWord, bool useFaultAddressAsFrameProgramCounter)
     {
         var baseAddress = cpu.Registers.ProgramCounter;
         if (usedExtensionWord)
@@ -154,7 +157,16 @@ public static class ConditionInstructions
 
         var branchTarget = unchecked((uint)(baseAddress + displacement));
         if ((branchTarget & 1) != 0)
-            throw new AddressErrorException(branchTarget, ".w");
+        {
+            var faultAddress = unchecked(branchTarget - 4);
+            int? frameProgramCounterAdjust = null;
+            if (useFaultAddressAsFrameProgramCounter)
+                frameProgramCounterAdjust = unchecked((int)(faultAddress - cpu.GetPcRelativeBaseAddress()));
+            else if (usedExtensionWord)
+                frameProgramCounterAdjust = -2;
+
+            throw new AddressErrorException(faultAddress, ".w", isRead: true, isProgramAccess: true, frameProgramCounterAdjust: frameProgramCounterAdjust);
+        }
 
         cpu.Registers.ProgramCounter = branchTarget;
     }

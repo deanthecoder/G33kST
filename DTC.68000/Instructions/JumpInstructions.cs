@@ -50,7 +50,16 @@ public static class JumpInstructions
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var targetAddress = EffectiveAddressControlResolver.ResolveControlTarget(cpu, ea);
         if ((targetAddress & 1) != 0)
-            throw new AddressErrorException(targetAddress, ".w");
+        {
+            var extensionWordCount = GetControlExtensionWordCount(ea);
+            var frameProgramCounterAdjust = -2 * extensionWordCount;
+            throw new AddressErrorException(
+                targetAddress,
+                ".w",
+                isRead: true,
+                isProgramAccess: true,
+                frameProgramCounterAdjust: frameProgramCounterAdjust);
+        }
 
         cpu.Registers.ProgramCounter = targetAddress;
         cpu.RefreshPrefetchQueue();
@@ -64,11 +73,24 @@ public static class JumpInstructions
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var targetAddress = EffectiveAddressControlResolver.ResolveControlTarget(cpu, ea);
         if ((targetAddress & 1) != 0)
-            throw new AddressErrorException(targetAddress, ".w");
+            throw new AddressErrorException(targetAddress, ".w", isRead: true, isProgramAccess: true);
 
         // For prefetch-seeded runs, ProgramCounter tracks the next fetch slot; use prefetch-aware base.
         cpu.Push32(cpu.GetPcRelativeBaseAddress());
         cpu.Registers.ProgramCounter = targetAddress;
         cpu.RefreshPrefetchQueue();
     }
+
+    private static int GetControlExtensionWordCount(EffectiveAddress ea) =>
+        ea.Mode switch
+        {
+            EffectiveAddressMode.AddressRegisterIndirect => 0,
+            EffectiveAddressMode.AddressRegisterIndirectDisplacement => 1,
+            EffectiveAddressMode.AddressRegisterIndirectIndex => 1,
+            EffectiveAddressMode.Other when ea.Register == 0 => 1,
+            EffectiveAddressMode.Other when ea.Register == 1 => 2,
+            EffectiveAddressMode.Other when ea.Register == 2 => 1,
+            EffectiveAddressMode.Other when ea.Register == 3 => 1,
+            _ => 0
+        };
 }

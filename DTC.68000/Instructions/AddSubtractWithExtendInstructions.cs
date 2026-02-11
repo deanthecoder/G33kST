@@ -83,14 +83,13 @@ public static class AddSubtractWithExtendInstructions
         var size = DecodeSize(opcode) ?? throw new InvalidOperationException($"Invalid ADDX size for opcode 0x{opcode:X4}.");
         var sourceRegisterIndex = (byte)(opcode & 0x07);
         var destinationRegisterIndex = (byte)((opcode >> 9) & 0x07);
-        var sourceAddress = PredecrementAddress(cpu, sourceRegisterIndex, size);
-        var destinationAddress = PredecrementAddress(cpu, destinationRegisterIndex, size);
-        var source = ReadMemory(cpu, sourceAddress, size);
-        var destination = ReadMemory(cpu, destinationAddress, size);
+        var source = ReadMemoryPredecrement(cpu, sourceRegisterIndex, size).Value;
+        var destinationOperand = ReadMemoryPredecrement(cpu, destinationRegisterIndex, size);
+        var destination = destinationOperand.Value;
         var extendInput = cpu.Registers.ExtendFlag ? 1ul : 0ul;
         var result = AddWithExtend(source, destination, extendInput, size);
 
-        WriteMemory(cpu, destinationAddress, size, result.Result);
+        WriteMemoryPredecrement(cpu, destinationOperand.Address, size, result.Result);
         ApplyExtendArithmeticFlags(cpu.Registers, result);
     }
 
@@ -119,14 +118,13 @@ public static class AddSubtractWithExtendInstructions
         var size = DecodeSize(opcode) ?? throw new InvalidOperationException($"Invalid SUBX size for opcode 0x{opcode:X4}.");
         var sourceRegisterIndex = (byte)(opcode & 0x07);
         var destinationRegisterIndex = (byte)((opcode >> 9) & 0x07);
-        var sourceAddress = PredecrementAddress(cpu, sourceRegisterIndex, size);
-        var destinationAddress = PredecrementAddress(cpu, destinationRegisterIndex, size);
-        var source = ReadMemory(cpu, sourceAddress, size);
-        var destination = ReadMemory(cpu, destinationAddress, size);
+        var source = ReadMemoryPredecrement(cpu, sourceRegisterIndex, size).Value;
+        var destinationOperand = ReadMemoryPredecrement(cpu, destinationRegisterIndex, size);
+        var destination = destinationOperand.Value;
         var extendInput = cpu.Registers.ExtendFlag ? 1ul : 0ul;
         var result = SubtractWithExtend(source, destination, extendInput, size);
 
-        WriteMemory(cpu, destinationAddress, size, result.Result);
+        WriteMemoryPredecrement(cpu, destinationOperand.Address, size, result.Result);
         ApplyExtendArithmeticFlags(cpu.Registers, result);
     }
 
@@ -235,21 +233,61 @@ public static class AddSubtractWithExtendInstructions
         }
     }
 
-    private static uint PredecrementAddress(Cpu cpu, byte registerIndex, OperandSize size)
+    private static (ulong Value, uint Address) ReadMemoryPredecrement(Cpu cpu, byte registerIndex, OperandSize size)
     {
         var currentAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        var newAddress = currentAddress - AddressStep(size, registerIndex);
-        cpu.Registers.SetAddressRegister(registerIndex, newAddress);
-        return EffectiveAddressMath.NormalizeAddress24(newAddress);
+        switch (size)
+        {
+            case OperandSize.Byte:
+            {
+                var address = currentAddress - EffectiveAddressMath.ByteAddressStep(registerIndex);
+                var value = cpu.Read8(address);
+                cpu.Registers.SetAddressRegister(registerIndex, address);
+                return (value, address);
+            }
+            case OperandSize.Word:
+            {
+                var address = currentAddress - 2;
+                var value = cpu.Read16(address);
+                cpu.Registers.SetAddressRegister(registerIndex, address);
+                return (value, address);
+            }
+            case OperandSize.Long:
+            {
+                var lowWordAddress = currentAddress - 2;
+                var lowWord = cpu.Read16(lowWordAddress);
+                var highWordAddress = currentAddress - 4;
+                var highWord = cpu.Read16(highWordAddress);
+                cpu.Registers.SetAddressRegister(registerIndex, highWordAddress);
+                var value = ((ulong)highWord << 16) | lowWord;
+                return (value, highWordAddress);
+            }
+            default:
+                throw new ArgumentOutOfRangeException(nameof(size), size, null);
+        }
     }
 
-    private static uint AddressStep(OperandSize size, byte registerIndex) =>
-        size switch
+    private static void WriteMemoryPredecrement(Cpu cpu, uint address, OperandSize size, ulong value)
+    {
+        switch (size)
         {
-            OperandSize.Byte => EffectiveAddressMath.ByteAddressStep(registerIndex),
-            OperandSize.Word => 2u,
-            _ => 4u
-        };
+            case OperandSize.Byte:
+                cpu.Write8(address, (byte)value);
+                return;
+            case OperandSize.Word:
+                cpu.Write16(address, (ushort)value);
+                return;
+            case OperandSize.Long:
+            {
+                // Memory-predecrement long writes emit low word first, then high word.
+                cpu.Write16(address + 2, (ushort)value);
+                cpu.Write16(address, (ushort)(value >> 16));
+                return;
+            }
+            default:
+                throw new ArgumentOutOfRangeException(nameof(size), size, null);
+        }
+    }
 
     private static OperandSize? DecodeSize(ushort opcode) =>
         ((opcode >> 6) & 0x03) switch

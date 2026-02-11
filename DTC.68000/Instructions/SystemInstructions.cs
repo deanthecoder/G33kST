@@ -265,7 +265,7 @@ public static class SystemInstructions
         var returnAddress = cpu.Read32(stackPointer);
         cpu.Registers.StackPointer = stackPointer + 4;
         if ((returnAddress & 1) != 0)
-            throw new AddressErrorException(returnAddress, ".w");
+            throw new AddressErrorException(returnAddress, ".w", isRead: true, isProgramAccess: true);
 
         cpu.Registers.ProgramCounter = returnAddress;
         cpu.RefreshPrefetchQueue();
@@ -279,7 +279,7 @@ public static class SystemInstructions
         var restoredCcr = (ushort)(cpu.Pop16() & ConditionCodeRegisterMask);
         var returnAddress = cpu.Pop32();
         if ((returnAddress & 1) != 0)
-            throw new AddressErrorException(returnAddress, ".w");
+            throw new AddressErrorException(returnAddress, ".w", isRead: true, isProgramAccess: true);
 
         var highStatusByte = (ushort)(cpu.Registers.StatusRegister & 0xFF00);
         cpu.Registers.StatusRegister = (ushort)(highStatusByte | restoredCcr);

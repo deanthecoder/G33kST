@@ -26,12 +26,35 @@ public sealed class AddressErrorException : Exception
     public string Size { get; }
 
     /// <summary>
+    /// Gets whether the failing access was a read cycle.
+    /// </summary>
+    public bool IsRead { get; }
+
+    /// <summary>
+    /// Gets whether the failing access used program-space function codes.
+    /// </summary>
+    public bool IsProgramAccess { get; }
+
+    /// <summary>
+    /// Gets an optional adjustment (in bytes) applied to the frame PC relative to the CPU prefetch base.
+    /// </summary>
+    public int? FrameProgramCounterAdjust { get; }
+
+    /// <summary>
     /// Creates a new address error exception.
     /// </summary>
-    public AddressErrorException(uint address, string size)
+    public AddressErrorException(
+        uint address,
+        string size,
+        bool isRead,
+        bool isProgramAccess = false,
+        int? frameProgramCounterAdjust = null)
         : base($"Address error for odd {size} access at 0x{address:X6}.")
     {
         Address = address;
         Size = size;
+        IsRead = isRead;
+        IsProgramAccess = isProgramAccess;
+        FrameProgramCounterAdjust = frameProgramCounterAdjust;
     }
 }

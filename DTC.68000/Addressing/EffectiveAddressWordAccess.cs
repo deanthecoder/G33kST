@@ -103,7 +103,7 @@ public static class EffectiveAddressWordAccess
     {
         var address = cpu.Registers.GetAddressRegister(registerIndex) - 2;
         cpu.Registers.SetAddressRegister(registerIndex, address);
-        return ReadWordFromBus(cpu, address);
+        return ReadWordFromBus(cpu, address, frameProgramCounterAdjust: 2);
     }
 
     /// <summary>
@@ -113,7 +113,7 @@ public static class EffectiveAddressWordAccess
     {
         var displacement = (short)cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        return ReadWordFromBus(cpu, EffectiveAddressMath.AddDisplacement(baseAddress, displacement));
+        return ReadWordFromBus(cpu, EffectiveAddressMath.AddDisplacement(baseAddress, displacement), frameProgramCounterAdjust: -2);
     }
 
     /// <summary>
@@ -124,7 +124,7 @@ public static class EffectiveAddressWordAccess
         var extension = cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
         var address = EffectiveAddressMath.AddIndex(cpu, baseAddress, extension);
-        return ReadWordFromBus(cpu, address);
+        return ReadWordFromBus(cpu, address, frameProgramCounterAdjust: -2);
     }
 
     /// <summary>
@@ -152,7 +152,7 @@ public static class EffectiveAddressWordAccess
     {
         var baseAddress = cpu.GetPcRelativeBaseAddress();
         var displacement = (short)cpu.FetchPcWord();
-        return ReadWordFromBus(cpu, EffectiveAddressMath.AddDisplacement(baseAddress, displacement));
+        return ReadWordFromBus(cpu, EffectiveAddressMath.AddDisplacement(baseAddress, displacement), frameProgramCounterAdjust: -2, isProgramAccess: true);
     }
 
     /// <summary>
@@ -163,7 +163,7 @@ public static class EffectiveAddressWordAccess
         var baseAddress = cpu.GetPcRelativeBaseAddress();
         var extension = cpu.FetchPcWord();
         var address = EffectiveAddressMath.AddIndex(cpu, baseAddress, extension);
-        return ReadWordFromBus(cpu, address);
+        return ReadWordFromBus(cpu, address, frameProgramCounterAdjust: -2, isProgramAccess: true);
     }
 
     /// <summary>
@@ -234,9 +234,9 @@ public static class EffectiveAddressWordAccess
     /// <summary>
     /// Reads a word from memory in big-endian byte order.
     /// </summary>
-    private static ushort ReadWordFromBus(Cpu cpu, uint address)
+    private static ushort ReadWordFromBus(Cpu cpu, uint address, int frameProgramCounterAdjust = 0, bool isProgramAccess = false)
     {
-        address = EnsureEvenAddress(address);
+        address = EnsureEvenReadAddress(address, frameProgramCounterAdjust, isProgramAccess);
         var hi = cpu.Read8(address);
         var lo = cpu.Read8(EffectiveAddressMath.NormalizeAddress24(address + 1));
         return (ushort)((hi << 8) | lo);
@@ -247,7 +247,7 @@ public static class EffectiveAddressWordAccess
     /// </summary>
     private static void WriteWordToBus(Cpu cpu, uint address, ushort value)
     {
-        address = EnsureEvenAddress(address);
+        address = EnsureEvenWriteAddress(address);
         cpu.Write8(address, (byte)(value >> 8));
         cpu.Write8(EffectiveAddressMath.NormalizeAddress24(address + 1), (byte)(value & 0xFF));
     }
@@ -264,12 +264,24 @@ public static class EffectiveAddressWordAccess
     /// <summary>
     /// Validates word alignment and raises a CPU address error on odd addresses.
     /// </summary>
-    private static uint EnsureEvenAddress(uint address)
+    private static uint EnsureEvenReadAddress(uint address, int frameProgramCounterAdjust, bool isProgramAccess)
     {
         var normalized = EffectiveAddressMath.NormalizeAddress24(address);
         if ((normalized & 1) == 0)
             return normalized;
 
-        throw new AddressErrorException(address, ".w");
+        throw new AddressErrorException(address, ".w", isRead: true, isProgramAccess: isProgramAccess, frameProgramCounterAdjust: frameProgramCounterAdjust);
+    }
+
+    /// <summary>
+    /// Validates word-aligned write addresses and raises a CPU address error on odd addresses.
+    /// </summary>
+    private static uint EnsureEvenWriteAddress(uint address)
+    {
+        var normalized = EffectiveAddressMath.NormalizeAddress24(address);
+        if ((normalized & 1) == 0)
+            return normalized;
+
+        throw new AddressErrorException(address, ".w", isRead: false);
     }
 }

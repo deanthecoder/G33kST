@@ -59,7 +59,25 @@ public readonly struct DestinationOperand
     /// </summary>
     public uint PostIncrement { get; }
 
-    private DestinationOperand(bool isDataRegister, byte registerIndex, uint address, bool hasPostIncrement, byte postIncrementRegisterIndex, uint postIncrement)
+    /// <summary>
+    /// Gets the frame-PC adjustment applied if this operand faults on word/long access.
+    /// </summary>
+    public int FrameProgramCounterAdjust { get; }
+
+    /// <summary>
+    /// Gets whether this operand uses program-space function codes when faulting.
+    /// </summary>
+    public bool IsProgramAccess { get; }
+
+    private DestinationOperand(
+        bool isDataRegister,
+        byte registerIndex,
+        uint address,
+        bool hasPostIncrement,
+        byte postIncrementRegisterIndex,
+        uint postIncrement,
+        int frameProgramCounterAdjust,
+        bool isProgramAccess)
     {
         IsDataRegister = isDataRegister;
         RegisterIndex = registerIndex;
@@ -67,25 +85,27 @@ public readonly struct DestinationOperand
         HasPostIncrement = hasPostIncrement;
         PostIncrementRegisterIndex = postIncrementRegisterIndex;
         PostIncrement = postIncrement;
+        FrameProgramCounterAdjust = frameProgramCounterAdjust;
+        IsProgramAccess = isProgramAccess;
     }
 
     /// <summary>
     /// Creates a data-register destination wrapper.
     /// </summary>
     public static DestinationOperand ForDataRegister(byte registerIndex) =>
-        new(true, registerIndex, 0, false, 0, 0);
+        new(true, registerIndex, 0, false, 0, 0, 0, false);
 
     /// <summary>
     /// Creates a direct memory destination wrapper.
     /// </summary>
-    public static DestinationOperand ForMemoryAddress(uint address) =>
-        new(false, 0, address, false, 0, 0);
+    public static DestinationOperand ForMemoryAddress(uint address, int frameProgramCounterAdjust = 0, bool isProgramAccess = false) =>
+        new(false, 0, address, false, 0, 0, frameProgramCounterAdjust, isProgramAccess);
 
     /// <summary>
     /// Creates a memory destination wrapper with deferred post-increment metadata.
     /// </summary>
-    public static DestinationOperand ForPostIncrement(uint address, byte registerIndex, uint increment) =>
-        new(false, 0, address, true, registerIndex, increment);
+    public static DestinationOperand ForPostIncrement(uint address, byte registerIndex, uint increment, int frameProgramCounterAdjust = 0, bool isProgramAccess = false) =>
+        new(false, 0, address, true, registerIndex, increment, frameProgramCounterAdjust, isProgramAccess);
 }
 
 /// <summary>
@@ -101,7 +121,7 @@ public static class DestinationOperandAccess
         ea.Mode switch
         {
             EffectiveAddressMode.DataRegisterDirect => DestinationOperand.ForDataRegister(ea.Register),
-            EffectiveAddressMode.AddressRegisterIndirect => DestinationOperand.ForMemoryAddress(EffectiveAddressMath.NormalizeAddress24(cpu.Registers.GetAddressRegister(ea.Register))),
+            EffectiveAddressMode.AddressRegisterIndirect => DestinationOperand.ForMemoryAddress(cpu.Registers.GetAddressRegister(ea.Register)),
             EffectiveAddressMode.AddressRegisterIndirectPostIncrement => ResolvePostIncrement(cpu, ea.Register, size),
             EffectiveAddressMode.AddressRegisterIndirectPreDecrement => ResolvePreDecrement(cpu, ea.Register, size),
             EffectiveAddressMode.AddressRegisterIndirectDisplacement => ResolveDisplacement(cpu, ea.Register),
@@ -131,8 +151,8 @@ public static class DestinationOperandAccess
         return size switch
         {
             DestinationOperandSize.Byte => cpu.Read8(destination.Address),
-            DestinationOperandSize.Word => cpu.Read16(destination.Address),
-            DestinationOperandSize.Long => cpu.Read32(destination.Address),
+            DestinationOperandSize.Word => ReadWordFromMemory(cpu, destination),
+            DestinationOperandSize.Long => ReadLongFromMemory(cpu, destination),
             _ => 0
         };
     }
@@ -172,10 +192,10 @@ public static class DestinationOperandAccess
                 cpu.Write8(destination.Address, (byte)value);
                 return;
             case DestinationOperandSize.Word:
-                cpu.Write16(destination.Address, (ushort)value);
+                WriteWordToMemory(cpu, destination, (ushort)value);
                 return;
             case DestinationOperandSize.Long:
-                cpu.Write32(destination.Address, value);
+                WriteLongToMemory(cpu, destination, value);
                 return;
             default:
                 throw new ArgumentOutOfRangeException(nameof(size), size, null);
@@ -208,8 +228,14 @@ public static class DestinationOperandAccess
 
     private static DestinationOperand ResolvePostIncrement(Cpu cpu, byte registerIndex, DestinationOperandSize size)
     {
-        var address = EffectiveAddressMath.NormalizeAddress24(cpu.Registers.GetAddressRegister(registerIndex));
+        var address = cpu.Registers.GetAddressRegister(registerIndex);
         var step = AddressStep(size, registerIndex);
+        if (size == DestinationOperandSize.Word)
+        {
+            cpu.Registers.SetAddressRegister(registerIndex, address + step);
+            return DestinationOperand.ForMemoryAddress(address);
+        }
+
         return DestinationOperand.ForPostIncrement(address, registerIndex, step);
     }
 
@@ -217,28 +243,77 @@ public static class DestinationOperandAccess
     {
         var newAddress = cpu.Registers.GetAddressRegister(registerIndex) - AddressStep(size, registerIndex);
         cpu.Registers.SetAddressRegister(registerIndex, newAddress);
-        return DestinationOperand.ForMemoryAddress(EffectiveAddressMath.NormalizeAddress24(newAddress));
+        var frameProgramCounterAdjust = size == DestinationOperandSize.Word ? 2 : 0;
+        return DestinationOperand.ForMemoryAddress(newAddress, frameProgramCounterAdjust: frameProgramCounterAdjust);
     }
 
     private static DestinationOperand ResolveDisplacement(Cpu cpu, byte registerIndex)
     {
         var displacement = (short)cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        var address = EffectiveAddressMath.NormalizeAddress24(EffectiveAddressMath.AddDisplacement(baseAddress, displacement));
-        return DestinationOperand.ForMemoryAddress(address);
+        var address = EffectiveAddressMath.AddDisplacement(baseAddress, displacement);
+        return DestinationOperand.ForMemoryAddress(address, frameProgramCounterAdjust: -2);
     }
 
     private static DestinationOperand ResolveIndex(Cpu cpu, byte registerIndex)
     {
         var extension = cpu.FetchPcWord();
         var baseAddress = cpu.Registers.GetAddressRegister(registerIndex);
-        var address = EffectiveAddressMath.NormalizeAddress24(EffectiveAddressMath.AddIndex(cpu, baseAddress, extension));
-        return DestinationOperand.ForMemoryAddress(address);
+        var address = EffectiveAddressMath.AddIndex(cpu, baseAddress, extension);
+        return DestinationOperand.ForMemoryAddress(address, frameProgramCounterAdjust: -2);
     }
 
     private static DestinationOperand ResolveAbsoluteShort(Cpu cpu) =>
-        DestinationOperand.ForMemoryAddress(EffectiveAddressMath.NormalizeAddress24(EffectiveAddressMath.ReadAbsoluteShortAddress(cpu)));
+        DestinationOperand.ForMemoryAddress(EffectiveAddressMath.ReadAbsoluteShortAddress(cpu));
 
     private static DestinationOperand ResolveAbsoluteLong(Cpu cpu) =>
-        DestinationOperand.ForMemoryAddress(EffectiveAddressMath.NormalizeAddress24(EffectiveAddressMath.ReadAbsoluteLongAddress(cpu)));
+        DestinationOperand.ForMemoryAddress(EffectiveAddressMath.ReadAbsoluteLongAddress(cpu));
+
+    private static ushort ReadWordFromMemory(Cpu cpu, DestinationOperand destination)
+    {
+        var address = EnsureEvenMemoryAddress(destination, ".w", isRead: true);
+        var hi = cpu.Read8(address);
+        var lo = cpu.Read8(EffectiveAddressMath.NormalizeAddress24(address + 1));
+        return (ushort)((hi << 8) | lo);
+    }
+
+    private static uint ReadLongFromMemory(Cpu cpu, DestinationOperand destination)
+    {
+        var address = EnsureEvenMemoryAddress(destination, ".l", isRead: true);
+        var b0 = cpu.Read8(address);
+        var b1 = cpu.Read8(EffectiveAddressMath.NormalizeAddress24(address + 1));
+        var b2 = cpu.Read8(EffectiveAddressMath.NormalizeAddress24(address + 2));
+        var b3 = cpu.Read8(EffectiveAddressMath.NormalizeAddress24(address + 3));
+        return ((uint)b0 << 24) | ((uint)b1 << 16) | ((uint)b2 << 8) | b3;
+    }
+
+    private static void WriteWordToMemory(Cpu cpu, DestinationOperand destination, ushort value)
+    {
+        var address = EnsureEvenMemoryAddress(destination, ".w", isRead: false);
+        cpu.Write8(address, (byte)(value >> 8));
+        cpu.Write8(EffectiveAddressMath.NormalizeAddress24(address + 1), (byte)(value & 0xFF));
+    }
+
+    private static void WriteLongToMemory(Cpu cpu, DestinationOperand destination, uint value)
+    {
+        var address = EnsureEvenMemoryAddress(destination, ".l", isRead: false);
+        cpu.Write8(address, (byte)(value >> 24));
+        cpu.Write8(EffectiveAddressMath.NormalizeAddress24(address + 1), (byte)((value >> 16) & 0xFF));
+        cpu.Write8(EffectiveAddressMath.NormalizeAddress24(address + 2), (byte)((value >> 8) & 0xFF));
+        cpu.Write8(EffectiveAddressMath.NormalizeAddress24(address + 3), (byte)(value & 0xFF));
+    }
+
+    private static uint EnsureEvenMemoryAddress(DestinationOperand destination, string size, bool isRead)
+    {
+        var normalizedAddress = EffectiveAddressMath.NormalizeAddress24(destination.Address);
+        if ((normalizedAddress & 1) == 0)
+            return normalizedAddress;
+
+        throw new AddressErrorException(
+            destination.Address,
+            size,
+            isRead,
+            isProgramAccess: destination.IsProgramAccess,
+            frameProgramCounterAdjust: destination.FrameProgramCounterAdjust);
+    }
 }
