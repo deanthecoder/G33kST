@@ -109,8 +109,9 @@ public sealed class Cpu : CpuBase
     /// </summary>
     public override byte Read8(uint address)
     {
-        var value = Bus.Read8(address);
-        NotifyMemoryRead(address, value);
+        var normalized = EffectiveAddressMath.NormalizeAddress24(address);
+        var value = Bus.Read8(normalized);
+        NotifyMemoryRead(normalized, value);
         return value;
     }
 
@@ -119,8 +120,9 @@ public sealed class Cpu : CpuBase
     /// </summary>
     public override void Write8(uint address, byte value)
     {
-        Bus.Write8(address, value);
-        NotifyMemoryWrite(address, value);
+        var normalized = EffectiveAddressMath.NormalizeAddress24(address);
+        Bus.Write8(normalized, value);
+        NotifyMemoryWrite(normalized, value);
     }
 
     /// <summary>
@@ -130,7 +132,7 @@ public sealed class Cpu : CpuBase
     {
         address = EnsureEvenBusAddress(address, ".w");
         var hi = Read8(address);
-        var lo = Read8(EffectiveAddressMath.NormalizeAddress24(address + 1));
+        var lo = Read8(address + 1);
         return (ushort)((hi << 8) | lo);
     }
 
@@ -141,7 +143,7 @@ public sealed class Cpu : CpuBase
     {
         address = EnsureEvenBusAddress(address, ".w");
         Write8(address, (byte)(value >> 8));
-        Write8(EffectiveAddressMath.NormalizeAddress24(address + 1), (byte)(value & 0xFF));
+        Write8(address + 1, (byte)(value & 0xFF));
     }
 
     /// <summary>
@@ -151,9 +153,9 @@ public sealed class Cpu : CpuBase
     {
         address = EnsureEvenBusAddress(address, ".l");
         var b0 = Read8(address);
-        var b1 = Read8(EffectiveAddressMath.NormalizeAddress24(address + 1));
-        var b2 = Read8(EffectiveAddressMath.NormalizeAddress24(address + 2));
-        var b3 = Read8(EffectiveAddressMath.NormalizeAddress24(address + 3));
+        var b1 = Read8(address + 1);
+        var b2 = Read8(address + 2);
+        var b3 = Read8(address + 3);
         return ((uint)b0 << 24) | ((uint)b1 << 16) | ((uint)b2 << 8) | b3;
     }
 
@@ -164,9 +166,9 @@ public sealed class Cpu : CpuBase
     {
         address = EnsureEvenBusAddress(address, ".l");
         Write8(address, (byte)(value >> 24));
-        Write8(EffectiveAddressMath.NormalizeAddress24(address + 1), (byte)((value >> 16) & 0xFF));
-        Write8(EffectiveAddressMath.NormalizeAddress24(address + 2), (byte)((value >> 8) & 0xFF));
-        Write8(EffectiveAddressMath.NormalizeAddress24(address + 3), (byte)(value & 0xFF));
+        Write8(address + 1, (byte)((value >> 16) & 0xFF));
+        Write8(address + 2, (byte)((value >> 8) & 0xFF));
+        Write8(address + 3, (byte)(value & 0xFF));
     }
 
     /// <summary>

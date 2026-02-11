@@ -37,9 +37,9 @@ public static class EorInstructions
         var sizeCode = (opcode >> 6) & 0x03;
         return sizeCode switch
         {
-            0 => SupportsByteReadWrite(destination) ? InstrEoriByte : null,
-            1 => SupportsWordReadWrite(destination) ? InstrEoriWord : null,
-            2 => SupportsLongReadWrite(destination) ? InstrEoriLong : null,
+            0 => SupportsReadWrite(destination, OperandSize.Byte) ? InstrEoriByte : null,
+            1 => SupportsReadWrite(destination, OperandSize.Word) ? InstrEoriWord : null,
+            2 => SupportsReadWrite(destination, OperandSize.Long) ? InstrEoriLong : null,
             _ => null
         };
     }
@@ -57,21 +57,15 @@ public static class EorInstructions
         var operationMode = (opcode >> 6) & 0x07;
         return operationMode switch
         {
-            4 => SupportsByteReadWrite(destination) ? InstrEorByteDataRegisterToEa : null,
-            5 => SupportsWordReadWrite(destination) ? InstrEorWordDataRegisterToEa : null,
-            6 => SupportsLongReadWrite(destination) ? InstrEorLongDataRegisterToEa : null,
+            4 => SupportsReadWrite(destination, OperandSize.Byte) ? InstrEorByteDataRegisterToEa : null,
+            5 => SupportsReadWrite(destination, OperandSize.Word) ? InstrEorWordDataRegisterToEa : null,
+            6 => SupportsReadWrite(destination, OperandSize.Long) ? InstrEorLongDataRegisterToEa : null,
             _ => null
         };
     }
 
-    private static bool SupportsByteReadWrite(EffectiveAddress ea) =>
-        EffectiveAddressByteAccess.SupportsByteRead(ea) && EffectiveAddressByteAccess.SupportsByteWrite(ea);
-
-    private static bool SupportsWordReadWrite(EffectiveAddress ea) =>
-        EffectiveAddressWordAccess.SupportsWordRead(ea) && EffectiveAddressWordAccess.SupportsWordWrite(ea);
-
-    private static bool SupportsLongReadWrite(EffectiveAddress ea) =>
-        EffectiveAddressLongAccess.SupportsLongRead(ea) && EffectiveAddressLongAccess.SupportsLongWrite(ea);
+    private static bool SupportsReadWrite(EffectiveAddress ea, OperandSize size) =>
+        BitwiseLogicalInstructionHelpers.SupportsReadWrite(ea, size);
 
     /// <summary>
     /// Executes <c>EOR.B Dn,&lt;ea&gt;</c>.
@@ -109,79 +103,9 @@ public static class EorInstructions
     private static void ExecuteEorImmediateLong(Cpu cpu, ushort opcode) =>
         ExecuteEorImmediate(cpu, opcode, OperandSize.Long);
 
-    private static void ExecuteEorDataRegisterToEa(Cpu cpu, ushort opcode, OperandSize size)
-    {
-        var sourceRegisterIndex = (opcode >> 9) & 0x07;
-        var source = ReadDataRegister(cpu, sourceRegisterIndex, size);
-        var destinationEa = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
-        var destinationSize = ToDestinationOperandSize(size);
-        var destination = DestinationOperandAccess.ResolveDataAlterable(cpu, destinationEa, destinationSize, "EOR");
-        var destinationValue = DestinationOperandAccess.ReadUnsigned(cpu, destination, destinationSize);
-        var result = source ^ destinationValue;
+    private static void ExecuteEorDataRegisterToEa(Cpu cpu, ushort opcode, OperandSize size) =>
+        BitwiseLogicalInstructionHelpers.ExecuteDataRegisterToEa(cpu, opcode, size, "EOR", static (source, destination) => source ^ destination);
 
-        DestinationOperandAccess.WriteUnsigned(cpu, destination, destinationSize, result);
-        DestinationOperandAccess.ApplyPostIncrement(cpu, destination);
-        ApplyLogicalFlags(cpu.Registers, size, result);
-    }
-
-    private static void ExecuteEorImmediate(Cpu cpu, ushort opcode, OperandSize size)
-    {
-        var source = ReadImmediate(cpu, size);
-        var destinationEa = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
-        var destinationSize = ToDestinationOperandSize(size);
-        var destination = DestinationOperandAccess.ResolveDataAlterable(cpu, destinationEa, destinationSize, "EORI");
-        var destinationValue = DestinationOperandAccess.ReadUnsigned(cpu, destination, destinationSize);
-        var result = source ^ destinationValue;
-
-        DestinationOperandAccess.WriteUnsigned(cpu, destination, destinationSize, result);
-        DestinationOperandAccess.ApplyPostIncrement(cpu, destination);
-        ApplyLogicalFlags(cpu.Registers, size, result);
-    }
-
-    private static uint ReadImmediate(Cpu cpu, OperandSize size) =>
-        size switch
-        {
-            OperandSize.Byte => (byte)cpu.FetchPcWord(),
-            OperandSize.Word => cpu.FetchPcWord(),
-            OperandSize.Long => ((uint)cpu.FetchPcWord() << 16) | cpu.FetchPcWord(),
-            _ => 0
-        };
-
-    private static uint ReadDataRegister(Cpu cpu, int registerIndex, OperandSize size)
-    {
-        var registerValue = cpu.Registers.GetDataRegister(registerIndex);
-        return size switch
-        {
-            OperandSize.Byte => registerValue & 0x0000_00FF,
-            OperandSize.Word => registerValue & 0x0000_FFFF,
-            OperandSize.Long => registerValue,
-            _ => 0
-        };
-    }
-
-    private static void ApplyLogicalFlags(Registers registers, OperandSize size, uint result)
-    {
-        switch (size)
-        {
-            case OperandSize.Byte:
-                FlagMath.ApplyLogicalByte(registers, (byte)result);
-                return;
-            case OperandSize.Word:
-                FlagMath.ApplyLogicalWord(registers, (ushort)result);
-                return;
-            case OperandSize.Long:
-                FlagMath.ApplyLogicalLong(registers, result);
-                return;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(size), size, null);
-        }
-    }
-
-    private static DestinationOperandSize ToDestinationOperandSize(OperandSize size) =>
-        size switch
-        {
-            OperandSize.Byte => DestinationOperandSize.Byte,
-            OperandSize.Word => DestinationOperandSize.Word,
-            _ => DestinationOperandSize.Long
-        };
+    private static void ExecuteEorImmediate(Cpu cpu, ushort opcode, OperandSize size) =>
+        BitwiseLogicalInstructionHelpers.ExecuteImmediateToEa(cpu, opcode, size, "EORI", static (source, destination) => source ^ destination);
 }
