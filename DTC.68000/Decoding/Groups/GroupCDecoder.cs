@@ -23,5 +23,6 @@ public static class GroupCDecoder
     public static Instruction Decode(ushort opcode) =>
         ExgInstructions.TryDecode(opcode)
         ?? DecimalInstructions.TryDecodeAbcd(opcode)
+        ?? MultiplyDivideInstructions.TryDecodeMultiply(opcode)
         ?? AndInstructions.TryDecode(opcode);
 }

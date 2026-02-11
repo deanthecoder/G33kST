@@ -22,5 +22,6 @@ public static class Group8Decoder
     /// </summary>
     public static Instruction Decode(ushort opcode) =>
         DecimalInstructions.TryDecodeSbcd(opcode)
+        ?? MultiplyDivideInstructions.TryDecodeDivide(opcode)
         ?? OrInstructions.TryDecode(opcode);
 }
