@@ -25,6 +25,14 @@ G33kST is my way of learning its hardware properly, starting from a pragmatic an
 - `STOP` currently follows the single-step test harness expectation; full halted-state + interrupt wake behavior is still to be modeled.
 - Full 68000 address-error/bus-error stack frame behavior is still to be modeled.
 
+## CPU roadmap (toward full 68000 support)
+- Add an opcode-completeness audit (ideally as an automated unit test) so legal opcodes are implemented and illegal ones route to the correct exception path.
+- Complete exception and interrupt behavior: trace (`T`) flow, interrupt acknowledge/autovector paths, spurious interrupts, and bus-error handling.
+- Complete execution-state behavior for `STOP`/halt/wake and reset/vector startup semantics expected by real software.
+- Add cycle accounting with instruction + EA + exception timing, then tighten timing only where software compatibility needs it.
+- Improve prefetch fidelity where software depends on refill/flush edge cases.
+- Validate at software level by booting TOS and running a practical app/game/demo smoke set.
+
 ## Highlights
 - **68000 core** - A clean, reusable Motorola 68000 implementation (work in progress).
 - **Shared core utilities** - `DTC.Core` provides commands, extensions, converters, and Avalonia helpers shared across projects.
