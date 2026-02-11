@@ -36,6 +36,8 @@ public static class SystemInstructions
     private static readonly Instruction InstrNop = new("NOP", static (_, _) => { });
     private static readonly Instruction InstrTrap = new("TRAP #<vector>", ExecuteTrap);
     private static readonly Instruction InstrTrapv = new("TRAPV", ExecuteTrapOnOverflow);
+    private static readonly Instruction InstrStop = new("STOP #<imm16>", ExecuteStop);
+    private static readonly Instruction InstrReset = new("RESET", ExecuteReset);
     private static readonly Instruction InstrRtr = new("RTR", ExecuteReturnAndRestore);
     private static readonly Instruction InstrRts = new("RTS", ExecuteReturnFromSubroutine);
     private static readonly Instruction InstrRte = new("RTE", static (cpu, _) => cpu.ExecuteReturnFromException());
@@ -110,13 +112,42 @@ public static class SystemInstructions
 
         return opcode switch
         {
+            0x4E70 => InstrReset,
             0x4E71 => InstrNop,
+            0x4E72 => InstrStop,
             0x4E73 => InstrRte,
             0x4E75 => InstrRts,
             0x4E76 => InstrTrapv,
             0x4E77 => InstrRtr,
             _ => null
         };
+    }
+
+    /// <summary>
+    /// Executes <c>RESET</c>. Requires supervisor privilege.
+    /// </summary>
+    private static void ExecuteReset(Cpu cpu, ushort opcode)
+    {
+        if (EnsureSupervisor(cpu))
+        {
+            // TODO: Model RESET bus/device side effects once memory-mapped hardware is wired.
+        }
+    }
+
+    /// <summary>
+    /// Executes <c>STOP #&lt;imm16&gt;</c>. Requires supervisor privilege.
+    /// </summary>
+    private static void ExecuteStop(Cpu cpu, ushort opcode)
+    {
+        if (!EnsureSupervisor(cpu))
+            return;
+
+        // TODO: Replace this with a real halted CPU state that resumes on eligible interrupt.
+        // In this prefetch model, tests expect STOP to leave PC on the STOP instruction slot.
+        var haltedProgramCounter = cpu.Registers.ProgramCounter - 2;
+        var statusRegister = cpu.FetchPcWord();
+        cpu.Registers.StatusRegister = (ushort)(statusRegister & ValidStatusRegisterMask);
+        cpu.Registers.ProgramCounter = haltedProgramCounter;
     }
 
     /// <summary>

@@ -20,6 +20,11 @@ G33kST is my way of learning its hardware properly, starting from a pragmatic an
 - Some exception-heavy CPU behavior (for example, full 68000 address-error frame handling) may be deferred unless real software depends on it.
 - Current single-step tests temporarily treat expected address-error cases as skipped until full exception flow is implemented.
 
+## Deferred behavior (post phase 1)
+- `RESET` is currently privilege-gated; external bus/device reset side effects are still to be modeled.
+- `STOP` currently follows the single-step test harness expectation; full halted-state + interrupt wake behavior is still to be modeled.
+- Full 68000 address-error/bus-error stack frame behavior is still to be modeled.
+
 ## Highlights
 - **68000 core** - A clean, reusable Motorola 68000 implementation (work in progress).
 - **Shared core utilities** - `DTC.Core` provides commands, extensions, converters, and Avalonia helpers shared across projects.

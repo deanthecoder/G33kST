@@ -29,6 +29,7 @@ public static class LogicalInstructions
     private static readonly Instruction InstrNotByte = new("NOT.B <ea>", ExecuteNotByte);
     private static readonly Instruction InstrNotWord = new("NOT.W <ea>", ExecuteNotWord);
     private static readonly Instruction InstrNotLong = new("NOT.L <ea>", ExecuteNotLong);
+    private static readonly Instruction InstrTas = new("TAS <ea>", ExecuteTestAndSetByte);
     private static readonly Instruction InstrTstByte = new("TST.B <ea>", ExecuteTestByte);
     private static readonly Instruction InstrTstWord = new("TST.W <ea>", ExecuteTestWord);
     private static readonly Instruction InstrTstLong = new("TST.L <ea>", ExecuteTestLong);
@@ -38,6 +39,13 @@ public static class LogicalInstructions
     /// </summary>
     public static Instruction TryDecode(ushort opcode)
     {
+        // 0100 1010 11 mmm rrr = TAS <ea>.
+        if ((opcode & 0xFFC0) == 0x4AC0)
+        {
+            var destinationEa = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+            return SupportsTasDestination(destinationEa) ? InstrTas : null;
+        }
+
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var size = (byte)((opcode >> 6) & 0x03);
         if (size > 2)
@@ -52,6 +60,20 @@ public static class LogicalInstructions
             0x4A00 => DecodeTest(size, ea),
             _ => null
         };
+    }
+
+    /// <summary>
+    /// Executes <c>TAS &lt;ea&gt;</c> by setting bit 7 in destination and updating NZVC from the original byte.
+    /// </summary>
+    private static void ExecuteTestAndSetByte(Cpu cpu, ushort opcode)
+    {
+        var destinationEa = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+        var destination = ResolveDestination(cpu, destinationEa, OperandSize.Byte);
+        var sourceValue = (byte)ReadUnsigned(cpu, destination, OperandSize.Byte);
+        var result = (byte)(sourceValue | 0x80);
+        WriteUnsigned(cpu, destination, OperandSize.Byte, result);
+        ApplyPostIncrement(cpu, destination);
+        FlagMath.ApplyLogicalByte(cpu.Registers, sourceValue);
     }
 
     /// <summary>
@@ -270,6 +292,10 @@ public static class LogicalInstructions
             2 => EffectiveAddressLongAccess.SupportsLongWrite(ea),
             _ => false
         };
+
+    private static bool SupportsTasDestination(EffectiveAddress destinationEa) =>
+        EffectiveAddressByteAccess.SupportsByteRead(destinationEa)
+        && EffectiveAddressByteAccess.SupportsByteWrite(destinationEa);
 
     private static void ExecuteNeg(Cpu cpu, ushort opcode, OperandSize size, bool useExtend)
     {
