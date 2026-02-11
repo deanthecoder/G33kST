@@ -21,34 +21,13 @@ public static class EffectiveAddressLongAccess
     /// Returns true when the EA can be read as a source long operand.
     /// </summary>
     public static bool SupportsLongRead(EffectiveAddress ea) =>
-        ea.Mode switch
-        {
-            EffectiveAddressMode.DataRegisterDirect => true,
-            EffectiveAddressMode.AddressRegisterDirect => true,
-            EffectiveAddressMode.AddressRegisterIndirect => true,
-            EffectiveAddressMode.AddressRegisterIndirectPostIncrement => true,
-            EffectiveAddressMode.AddressRegisterIndirectPreDecrement => true,
-            EffectiveAddressMode.AddressRegisterIndirectDisplacement => true,
-            EffectiveAddressMode.AddressRegisterIndirectIndex => true,
-            EffectiveAddressMode.Other => ea.Register is 0 or 1 or 2 or 3 or 4,
-            _ => false
-        };
+        EffectiveAddressSupport.SupportsRead(ea, allowsAddressRegisterDirect: true);
 
     /// <summary>
     /// Returns true when the EA can be written as a destination long operand.
     /// </summary>
     public static bool SupportsLongWrite(EffectiveAddress ea) =>
-        ea.Mode switch
-        {
-            EffectiveAddressMode.DataRegisterDirect => true,
-            EffectiveAddressMode.AddressRegisterIndirect => true,
-            EffectiveAddressMode.AddressRegisterIndirectPostIncrement => true,
-            EffectiveAddressMode.AddressRegisterIndirectPreDecrement => true,
-            EffectiveAddressMode.AddressRegisterIndirectDisplacement => true,
-            EffectiveAddressMode.AddressRegisterIndirectIndex => true,
-            EffectiveAddressMode.Other => ea.Register is 0 or 1,
-            _ => false
-        };
+        EffectiveAddressSupport.SupportsWrite(ea);
 
     /// <summary>
     /// Reads a long from the provided EA and applies EA side-effects where required.

@@ -17,6 +17,7 @@ namespace DTC.M68000.Instructions;
 /// </summary>
 public static class SystemInstructions
 {
+    private const ushort ValidStatusRegisterMask = 0xA71F;
     private const ushort ConditionCodeRegisterMask = 0x001F;
     private const ushort TraceFlagMask = 0x8000;
     private const ushort SupervisorFlagMask = 0x2000;
@@ -41,12 +42,46 @@ public static class SystemInstructions
     private static readonly Instruction InstrSwap = new("SWAP Dn", ExecuteSwap);
     private static readonly Instruction InstrExtWord = new("EXT.W Dn", ExecuteExtWord);
     private static readonly Instruction InstrExtLong = new("EXT.L Dn", ExecuteExtLong);
+    private static readonly Instruction InstrMoveFromStatusRegister = new("MOVE SR,<ea>", ExecuteMoveFromStatusRegister);
+    private static readonly Instruction InstrMoveToConditionCodeRegister = new("MOVE <ea>,CCR", ExecuteMoveToConditionCodeRegister);
+    private static readonly Instruction InstrMoveToStatusRegister = new("MOVE <ea>,SR", ExecuteMoveToStatusRegister);
+    private static readonly Instruction InstrMoveToUserStackPointer = new("MOVE An,USP", ExecuteMoveToUserStackPointer);
+    private static readonly Instruction InstrMoveFromUserStackPointer = new("MOVE USP,An", ExecuteMoveFromUserStackPointer);
 
     /// <summary>
     /// Decodes system/control opcodes handled by this module.
     /// </summary>
     public static Instruction TryDecode(ushort opcode)
     {
+        // 0100 0000 11 mmm rrr = MOVE SR,<ea>.
+        if ((opcode & 0xFFC0) == 0x40C0)
+        {
+            var destination = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+            return EffectiveAddressWordAccess.SupportsWordWrite(destination) ? InstrMoveFromStatusRegister : null;
+        }
+
+        // 0100 0100 11 mmm rrr = MOVE <ea>,CCR.
+        if ((opcode & 0xFFC0) == 0x44C0)
+        {
+            var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+            return SupportsMoveToStatusSource(source) ? InstrMoveToConditionCodeRegister : null;
+        }
+
+        // 0100 0110 11 mmm rrr = MOVE <ea>,SR.
+        if ((opcode & 0xFFC0) == 0x46C0)
+        {
+            var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+            return SupportsMoveToStatusSource(source) ? InstrMoveToStatusRegister : null;
+        }
+
+        // 0100 1110 0110 0 rrr = MOVE Ar,USP.
+        if ((opcode & 0xFFF8) == 0x4E60)
+            return InstrMoveToUserStackPointer;
+
+        // 0100 1110 0110 1 rrr = MOVE USP,Ar.
+        if ((opcode & 0xFFF8) == 0x4E68)
+            return InstrMoveFromUserStackPointer;
+
         // 0100 ddd 110 mmm rrr = CHK.W <ea>,Dn.
         if ((opcode & 0xF1C0) == 0x4180)
         {
@@ -82,6 +117,63 @@ public static class SystemInstructions
             0x4E77 => InstrRtr,
             _ => null
         };
+    }
+
+    /// <summary>
+    /// Executes <c>MOVE SR,&lt;ea&gt;</c>.
+    /// </summary>
+    private static void ExecuteMoveFromStatusRegister(Cpu cpu, ushort opcode)
+    {
+        var destination = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+        EffectiveAddressWordAccess.WriteWord(cpu, destination, cpu.Registers.StatusRegister);
+    }
+
+    /// <summary>
+    /// Executes <c>MOVE &lt;ea&gt;,CCR</c>.
+    /// </summary>
+    private static void ExecuteMoveToConditionCodeRegister(Cpu cpu, ushort opcode)
+    {
+        var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+        var value = (ushort)(EffectiveAddressWordAccess.ReadWord(cpu, source) & ConditionCodeRegisterMask);
+        var statusRegister = cpu.Registers.StatusRegister;
+        cpu.Registers.StatusRegister = (ushort)((statusRegister & ~ConditionCodeRegisterMask) | value);
+    }
+
+    /// <summary>
+    /// Executes <c>MOVE &lt;ea&gt;,SR</c>. Requires supervisor privilege.
+    /// </summary>
+    private static void ExecuteMoveToStatusRegister(Cpu cpu, ushort opcode)
+    {
+        if (!EnsureSupervisor(cpu))
+            return;
+
+        var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+        var value = EffectiveAddressWordAccess.ReadWord(cpu, source);
+        cpu.Registers.StatusRegister = (ushort)(value & ValidStatusRegisterMask);
+    }
+
+    /// <summary>
+    /// Executes <c>MOVE An,USP</c>. Requires supervisor privilege.
+    /// </summary>
+    private static void ExecuteMoveToUserStackPointer(Cpu cpu, ushort opcode)
+    {
+        if (!EnsureSupervisor(cpu))
+            return;
+
+        var sourceRegisterIndex = opcode & 0x07;
+        cpu.Registers.UserStackPointer = cpu.Registers.GetAddressRegister(sourceRegisterIndex);
+    }
+
+    /// <summary>
+    /// Executes <c>MOVE USP,An</c>. Requires supervisor privilege.
+    /// </summary>
+    private static void ExecuteMoveFromUserStackPointer(Cpu cpu, ushort opcode)
+    {
+        if (!EnsureSupervisor(cpu))
+            return;
+
+        var destinationRegisterIndex = opcode & 0x07;
+        cpu.Registers.SetAddressRegister(destinationRegisterIndex, cpu.Registers.UserStackPointer);
     }
 
     /// <summary>
@@ -238,4 +330,16 @@ public static class SystemInstructions
         cpu.Registers.ProgramCounter = cpu.Read32(vectorAddress);
         cpu.RefreshPrefetchQueue();
     }
+
+    private static bool EnsureSupervisor(Cpu cpu)
+    {
+        if (cpu.Registers.IsSupervisor)
+            return true;
+
+        cpu.EnterPrivilegeViolation();
+        return false;
+    }
+
+    private static bool SupportsMoveToStatusSource(EffectiveAddress source) =>
+        EffectiveAddressSupport.SupportsRead(source, allowsAddressRegisterDirect: false);
 }
