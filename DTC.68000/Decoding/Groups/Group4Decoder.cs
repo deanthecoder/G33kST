@@ -24,6 +24,7 @@ public static class Group4Decoder
         AddressInstructions.TryDecode(opcode)
         ?? LogicalInstructions.TryDecode(opcode)
         ?? DecimalInstructions.TryDecodeNbcd(opcode)
+        ?? MovemInstructions.TryDecode(opcode)
         ?? StackInstructions.TryDecode(opcode)
         ?? JumpInstructions.TryDecode(opcode)
         ?? SystemInstructions.TryDecode(opcode);
