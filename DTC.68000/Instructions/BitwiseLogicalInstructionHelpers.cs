@@ -35,12 +35,12 @@ public static class BitwiseLogicalInstructionHelpers
     public static void ExecuteEaToDataRegister(Cpu cpu, ushort opcode, OperandSize size, Func<uint, uint, uint> operation)
     {
         var sourceEa = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
-        var source = ReadFromEa(cpu, sourceEa, size);
+        var source = InstructionOperandAccess.ReadFromEa(cpu, sourceEa, size);
         var destinationRegisterIndex = (opcode >> 9) & 0x07;
-        var destination = ReadDataRegister(cpu, destinationRegisterIndex, size);
+        var destination = InstructionOperandAccess.ReadDataRegister(cpu, destinationRegisterIndex, size);
         var result = operation(destination, source);
 
-        WriteDataRegister(cpu, destinationRegisterIndex, size, result);
+        InstructionOperandAccess.WriteDataRegister(cpu, destinationRegisterIndex, size, result);
         ApplyLogicalFlags(cpu.Registers, size, result);
     }
 
@@ -50,9 +50,9 @@ public static class BitwiseLogicalInstructionHelpers
     public static void ExecuteDataRegisterToEa(Cpu cpu, ushort opcode, OperandSize size, string instructionName, Func<uint, uint, uint> operation)
     {
         var sourceRegisterIndex = (opcode >> 9) & 0x07;
-        var source = ReadDataRegister(cpu, sourceRegisterIndex, size);
+        var source = InstructionOperandAccess.ReadDataRegister(cpu, sourceRegisterIndex, size);
         var destinationEa = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
-        var destinationSize = ToDestinationOperandSize(size);
+        var destinationSize = InstructionOperandAccess.ToDestinationOperandSize(size);
         var destination = DestinationOperandAccess.ResolveDataAlterable(cpu, destinationEa, destinationSize, instructionName);
         var destinationValue = DestinationOperandAccess.ReadUnsigned(cpu, destination, destinationSize);
         var result = operation(source, destinationValue);
@@ -69,7 +69,7 @@ public static class BitwiseLogicalInstructionHelpers
     {
         var source = ReadImmediate(cpu, size);
         var destinationEa = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
-        var destinationSize = ToDestinationOperandSize(size);
+        var destinationSize = InstructionOperandAccess.ToDestinationOperandSize(size);
         var destination = DestinationOperandAccess.ResolveDataAlterable(cpu, destinationEa, destinationSize, instructionName);
         var destinationValue = DestinationOperandAccess.ReadUnsigned(cpu, destination, destinationSize);
         var result = operation(source, destinationValue);
@@ -87,51 +87,6 @@ public static class BitwiseLogicalInstructionHelpers
             OperandSize.Long => ((uint)cpu.FetchPcWord() << 16) | cpu.FetchPcWord(),
             _ => 0
         };
-
-    private static uint ReadFromEa(Cpu cpu, EffectiveAddress ea, OperandSize size) =>
-        size switch
-        {
-            OperandSize.Byte => EffectiveAddressByteAccess.ReadByte(cpu, ea),
-            OperandSize.Word => EffectiveAddressWordAccess.ReadWord(cpu, ea),
-            OperandSize.Long => EffectiveAddressLongAccess.ReadLong(cpu, ea),
-            _ => 0
-        };
-
-    private static uint ReadDataRegister(Cpu cpu, int registerIndex, OperandSize size)
-    {
-        var registerValue = cpu.Registers.GetDataRegister(registerIndex);
-        return size switch
-        {
-            OperandSize.Byte => registerValue & 0x0000_00FF,
-            OperandSize.Word => registerValue & 0x0000_FFFF,
-            OperandSize.Long => registerValue,
-            _ => 0
-        };
-    }
-
-    private static void WriteDataRegister(Cpu cpu, int registerIndex, OperandSize size, uint value)
-    {
-        switch (size)
-        {
-            case OperandSize.Byte:
-            {
-                var registerValue = cpu.Registers.GetDataRegister(registerIndex);
-                cpu.Registers.SetDataRegister(registerIndex, (registerValue & 0xFFFF_FF00) | (value & 0xFF));
-                return;
-            }
-            case OperandSize.Word:
-            {
-                var registerValue = cpu.Registers.GetDataRegister(registerIndex);
-                cpu.Registers.SetDataRegister(registerIndex, (registerValue & 0xFFFF_0000) | (value & 0xFFFF));
-                return;
-            }
-            case OperandSize.Long:
-                cpu.Registers.SetDataRegister(registerIndex, value);
-                return;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(size), size, null);
-        }
-    }
 
     private static void ApplyLogicalFlags(Registers registers, OperandSize size, uint result)
     {
@@ -151,11 +106,4 @@ public static class BitwiseLogicalInstructionHelpers
         }
     }
 
-    private static DestinationOperandSize ToDestinationOperandSize(OperandSize size) =>
-        size switch
-        {
-            OperandSize.Byte => DestinationOperandSize.Byte,
-            OperandSize.Word => DestinationOperandSize.Word,
-            _ => DestinationOperandSize.Long
-        };
 }

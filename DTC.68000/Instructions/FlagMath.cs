@@ -82,6 +82,27 @@ public static class FlagMath
     }
 
     /// <summary>
+    /// Applies ADD-style flags using the requested operand size.
+    /// </summary>
+    public static void ApplyAdd(Registers registers, OperandSize size, uint destination, uint source, uint result)
+    {
+        switch (size)
+        {
+            case OperandSize.Byte:
+                ApplyAddByte(registers, (byte)destination, (byte)source, (byte)result);
+                return;
+            case OperandSize.Word:
+                ApplyAddWord(registers, (ushort)destination, (ushort)source, (ushort)result);
+                return;
+            case OperandSize.Long:
+                ApplyAddLong(registers, destination, source, result);
+                return;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(size), size, null);
+        }
+    }
+
+    /// <summary>
     /// Applies flags for CLR-style operations (N=0, Z=1, V=0, C=0).
     /// </summary>
     public static void ApplyClear(Registers registers)
@@ -123,6 +144,27 @@ public static class FlagMath
         registers.ZeroFlag = result == 0;
         registers.OverflowFlag = ((destination ^ source) & (destination ^ result) & 0x8000_0000) != 0;
         registers.CarryFlag = source > destination;
+    }
+
+    /// <summary>
+    /// Applies CMP/SUB-style flags using the requested operand size.
+    /// </summary>
+    public static void ApplySubtract(Registers registers, OperandSize size, uint destination, uint source, uint result)
+    {
+        switch (size)
+        {
+            case OperandSize.Byte:
+                ApplySubtractByte(registers, (byte)destination, (byte)source, (byte)result);
+                return;
+            case OperandSize.Word:
+                ApplySubtractWord(registers, (ushort)destination, (ushort)source, (ushort)result);
+                return;
+            case OperandSize.Long:
+                ApplySubtractLong(registers, destination, source, result);
+                return;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(size), size, null);
+        }
     }
 
     /// <summary>

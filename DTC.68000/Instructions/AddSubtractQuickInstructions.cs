@@ -101,14 +101,14 @@ public static class AddSubtractQuickInstructions
             return;
         }
 
-        var destinationSize = ToDestinationOperandSize(size);
+        var destinationSize = InstructionOperandAccess.ToDestinationOperandSize(size);
         var destination = DestinationOperandAccess.ResolveDataAlterable(cpu, destinationEa, destinationSize, "ADDQ");
         var destinationValue = DestinationOperandAccess.ReadUnsigned(cpu, destination, destinationSize);
         var result = destinationValue + quickImmediate;
 
         DestinationOperandAccess.WriteUnsigned(cpu, destination, destinationSize, result);
         DestinationOperandAccess.ApplyPostIncrement(cpu, destination);
-        ApplyAddFlags(cpu.Registers, size, destinationValue, quickImmediate, result);
+        FlagMath.ApplyAdd(cpu.Registers, size, destinationValue, quickImmediate, result);
         cpu.Registers.ExtendFlag = cpu.Registers.CarryFlag;
     }
 
@@ -123,51 +123,15 @@ public static class AddSubtractQuickInstructions
             return;
         }
 
-        var destinationSize = ToDestinationOperandSize(size);
+        var destinationSize = InstructionOperandAccess.ToDestinationOperandSize(size);
         var destination = DestinationOperandAccess.ResolveDataAlterable(cpu, destinationEa, destinationSize, "SUBQ");
         var destinationValue = DestinationOperandAccess.ReadUnsigned(cpu, destination, destinationSize);
         var result = destinationValue - quickImmediate;
 
         DestinationOperandAccess.WriteUnsigned(cpu, destination, destinationSize, result);
         DestinationOperandAccess.ApplyPostIncrement(cpu, destination);
-        ApplySubFlags(cpu.Registers, size, destinationValue, quickImmediate, result);
+        FlagMath.ApplySubtract(cpu.Registers, size, destinationValue, quickImmediate, result);
         cpu.Registers.ExtendFlag = cpu.Registers.CarryFlag;
-    }
-
-    private static void ApplyAddFlags(Registers registers, OperandSize size, uint destination, uint source, uint result)
-    {
-        switch (size)
-        {
-            case OperandSize.Byte:
-                FlagMath.ApplyAddByte(registers, (byte)destination, (byte)source, (byte)result);
-                return;
-            case OperandSize.Word:
-                FlagMath.ApplyAddWord(registers, (ushort)destination, (ushort)source, (ushort)result);
-                return;
-            case OperandSize.Long:
-                FlagMath.ApplyAddLong(registers, destination, source, result);
-                return;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(size), size, null);
-        }
-    }
-
-    private static void ApplySubFlags(Registers registers, OperandSize size, uint destination, uint source, uint result)
-    {
-        switch (size)
-        {
-            case OperandSize.Byte:
-                FlagMath.ApplySubtractByte(registers, (byte)destination, (byte)source, (byte)result);
-                return;
-            case OperandSize.Word:
-                FlagMath.ApplySubtractWord(registers, (ushort)destination, (ushort)source, (ushort)result);
-                return;
-            case OperandSize.Long:
-                FlagMath.ApplySubtractLong(registers, destination, source, result);
-                return;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(size), size, null);
-        }
     }
 
     private static bool SupportsDestination(EffectiveAddress destination, OperandSize size)
@@ -199,11 +163,4 @@ public static class AddSubtractQuickInstructions
             _ => null
         };
 
-    private static DestinationOperandSize ToDestinationOperandSize(OperandSize size) =>
-        size switch
-        {
-            OperandSize.Byte => DestinationOperandSize.Byte,
-            OperandSize.Word => DestinationOperandSize.Word,
-            _ => DestinationOperandSize.Long
-        };
 }
