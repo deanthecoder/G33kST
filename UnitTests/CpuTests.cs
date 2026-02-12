@@ -153,6 +153,44 @@ public sealed class CpuTests
     }
 
     [Test]
+    public void RefreshPrefetchQueueWithoutSeededPrefetchDoesNotAdvanceProgramCounter()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x1234);
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+
+        cpu.RefreshPrefetchQueue();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000100));
+            Assert.That(cpu.FetchPcWord(), Is.EqualTo(0x1234));
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000102));
+        });
+    }
+
+    [Test]
+    public void RefreshPrefetchQueueWithSeededPrefetchConsumesTwoFetchSlots()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x1111);
+        bus.Write16BigEndian(0x000102, 0x2222);
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.SeedPrefetch(0xAAAA, 0xBBBB);
+
+        cpu.RefreshPrefetchQueue();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000104));
+            Assert.That(cpu.FetchPcWord(), Is.EqualTo(0x1111));
+            Assert.That(cpu.FetchPcWord(), Is.EqualTo(0x2222));
+        });
+    }
+
+    [Test]
     public void Read16WithOddAddressThrowsAddressError()
     {
         var cpu = new Cpu(new Bus(0x1000000));
@@ -889,7 +927,7 @@ public sealed class CpuTests
         Assert.DoesNotThrow(() => cpu.Step());
         Assert.Multiple(() =>
         {
-            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000204));
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000200));
             Assert.That(cpu.Registers.StackPointer, Is.EqualTo(0x000FFA));
             Assert.That(bus.Read16BigEndian(0x000FFA), Is.EqualTo(0x2000));
             Assert.That(bus.Read16BigEndian(0x000FFC), Is.EqualTo(0x0000));
@@ -916,7 +954,7 @@ public sealed class CpuTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000204));
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000200));
             Assert.That(cpu.Registers.StackPointer, Is.EqualTo(0x000FFA));
             Assert.That(bus.Read16BigEndian(0x000FFA), Is.EqualTo(0xA000));
             Assert.That(bus.Read16BigEndian(0x000FFC), Is.EqualTo(0x0000));
@@ -945,7 +983,7 @@ public sealed class CpuTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000304));
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000300));
             Assert.That(cpu.Registers.StackPointer, Is.EqualTo(0x000FFA));
             Assert.That(bus.Read16BigEndian(0x000FFA), Is.EqualTo(0x2000));
             Assert.That(bus.Read16BigEndian(0x000FFC), Is.EqualTo(0x0000));
@@ -977,7 +1015,7 @@ public sealed class CpuTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000344));
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000340));
             Assert.That(cpu.Registers.StackPointer, Is.EqualTo(0x000FFA));
             Assert.That(bus.Read16BigEndian(0x000FFA), Is.EqualTo(0x2000));
             Assert.That(bus.Read16BigEndian(0x000FFC), Is.EqualTo(0x0000));
