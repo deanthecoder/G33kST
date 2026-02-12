@@ -192,6 +192,8 @@ public static class AddSubtractInstructions
         InstructionOperandAccess.WriteDataRegister(cpu, destinationRegisterIndex, size, result);
         FlagMath.ApplyAdd(cpu.Registers, size, destination, source, result);
         cpu.Registers.ExtendFlag = cpu.Registers.CarryFlag;
+        var baseCycles = size == OperandSize.Long ? 6u : 4u;
+        cpu.InternalWait(baseCycles + InstructionTiming.GetDataEffectiveAddressCycles(size, sourceEa));
     }
 
     private static void ExecuteAddDataRegisterToEa(Cpu cpu, ushort opcode, OperandSize size)
@@ -208,6 +210,11 @@ public static class AddSubtractInstructions
         DestinationOperandAccess.ApplyPostIncrement(cpu, destination);
         FlagMath.ApplyAdd(cpu.Registers, size, destinationValue, source, result);
         cpu.Registers.ExtendFlag = cpu.Registers.CarryFlag;
+        var baseCycles = size == OperandSize.Long ? 12u : 8u;
+        if (destinationEa.Mode == EffectiveAddressMode.DataRegisterDirect)
+            baseCycles = size == OperandSize.Long ? 6u : 4u;
+
+        cpu.InternalWait(baseCycles + InstructionTiming.GetDataEffectiveAddressCycles(size, destinationEa));
     }
 
     private static void ExecuteSubEaToDataRegister(Cpu cpu, ushort opcode, OperandSize size)
@@ -221,6 +228,8 @@ public static class AddSubtractInstructions
         InstructionOperandAccess.WriteDataRegister(cpu, destinationRegisterIndex, size, result);
         FlagMath.ApplySubtract(cpu.Registers, size, destination, source, result);
         cpu.Registers.ExtendFlag = cpu.Registers.CarryFlag;
+        var baseCycles = size == OperandSize.Long ? 6u : 4u;
+        cpu.InternalWait(baseCycles + InstructionTiming.GetDataEffectiveAddressCycles(size, sourceEa));
     }
 
     private static void ExecuteSubDataRegisterToEa(Cpu cpu, ushort opcode, OperandSize size)
@@ -237,6 +246,11 @@ public static class AddSubtractInstructions
         DestinationOperandAccess.ApplyPostIncrement(cpu, destination);
         FlagMath.ApplySubtract(cpu.Registers, size, destinationValue, source, result);
         cpu.Registers.ExtendFlag = cpu.Registers.CarryFlag;
+        var baseCycles = size == OperandSize.Long ? 12u : 8u;
+        if (destinationEa.Mode == EffectiveAddressMode.DataRegisterDirect)
+            baseCycles = size == OperandSize.Long ? 6u : 4u;
+
+        cpu.InternalWait(baseCycles + InstructionTiming.GetDataEffectiveAddressCycles(size, destinationEa));
     }
 
     private static void ExecuteAddAddress(Cpu cpu, ushort opcode, OperandSize size)
@@ -252,6 +266,8 @@ public static class AddSubtractInstructions
         var destinationRegisterIndex = (opcode >> 9) & 0x07;
         var destinationValue = cpu.Registers.GetAddressRegister(destinationRegisterIndex);
         cpu.Registers.SetAddressRegister(destinationRegisterIndex, destinationValue + sourceValue);
+        var baseCycles = size == OperandSize.Long ? 6u : 8u;
+        cpu.InternalWait(baseCycles + InstructionTiming.GetDataEffectiveAddressCycles(size, sourceEa));
     }
 
     private static void ExecuteSubAddress(Cpu cpu, ushort opcode, OperandSize size)
@@ -267,6 +283,8 @@ public static class AddSubtractInstructions
         var destinationRegisterIndex = (opcode >> 9) & 0x07;
         var destinationValue = cpu.Registers.GetAddressRegister(destinationRegisterIndex);
         cpu.Registers.SetAddressRegister(destinationRegisterIndex, destinationValue - sourceValue);
+        var baseCycles = size == OperandSize.Long ? 6u : 8u;
+        cpu.InternalWait(baseCycles + InstructionTiming.GetDataEffectiveAddressCycles(size, sourceEa));
     }
 
     private static bool SupportsReadWrite(EffectiveAddress ea, OperandSize size) =>

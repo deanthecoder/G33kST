@@ -75,6 +75,9 @@ public static class ConditionInstructions
         var conditionCode = (byte)((opcode >> 8) & 0x0F);
         var isConditionTrue = ConditionCodeEvaluator.Evaluate(conditionCode, cpu.Registers);
         EffectiveAddressByteAccess.WriteByte(cpu, destination, isConditionTrue ? (byte)0xFF : (byte)0x00);
+
+        // Base Scc timing: register-direct is cheaper than memory forms.
+        cpu.InternalWait(destination.Mode == EffectiveAddressMode.DataRegisterDirect ? 4u : 8u);
     }
 
     /// <summary>
@@ -84,8 +87,12 @@ public static class ConditionInstructions
     {
         var conditionCode = (byte)((opcode >> 8) & 0x0F);
         var displacement = ReadBranchDisplacement(cpu, opcode, out var usedExtensionWord);
-        if (ConditionCodeEvaluator.Evaluate(conditionCode, cpu.Registers))
+        var isTaken = ConditionCodeEvaluator.Evaluate(conditionCode, cpu.Registers);
+        if (isTaken)
             BranchRelative(cpu, displacement, usedExtensionWord, useFaultAddressAsFrameProgramCounter: false);
+
+        // Bcc timing depends on branch outcome and whether displacement uses an extension word.
+        cpu.InternalWait(InstructionTiming.GetConditionalBranchCycles(isTaken, usedExtensionWord));
     }
 
     /// <summary>
@@ -95,6 +102,8 @@ public static class ConditionInstructions
     {
         var displacement = ReadBranchDisplacement(cpu, opcode, out var usedExtensionWord);
         BranchRelative(cpu, displacement, usedExtensionWord, useFaultAddressAsFrameProgramCounter: false);
+        // BRA is a fixed-cost branch in this initial timing model.
+        cpu.InternalWait(10);
     }
 
     /// <summary>
@@ -105,6 +114,8 @@ public static class ConditionInstructions
         var displacement = ReadBranchDisplacement(cpu, opcode, out var usedExtensionWord);
         cpu.Push32(cpu.GetPcRelativeBaseAddress());
         BranchRelative(cpu, displacement, usedExtensionWord, useFaultAddressAsFrameProgramCounter: true);
+        // BSR includes stack push overhead in addition to branch work.
+        cpu.InternalWait(18);
     }
 
     /// <summary>
@@ -116,7 +127,11 @@ public static class ConditionInstructions
         var conditionCode = (byte)((opcode >> 8) & 0x0F);
         var displacement = (short)cpu.FetchPcWord();
         if (ConditionCodeEvaluator.Evaluate(conditionCode, cpu.Registers))
+        {
+            // DBcc with true condition: no decrement/branch path.
+            cpu.InternalWait(12);
             return;
+        }
 
         var registerIndex = opcode & 0x07;
         var registerValue = cpu.Registers.GetDataRegister(registerIndex);
@@ -124,6 +139,8 @@ public static class ConditionInstructions
         if (decrementedLowWord == 0xFFFF)
         {
             cpu.Registers.SetDataRegister(registerIndex, (registerValue & 0xFFFF0000) | decrementedLowWord);
+            // DBcc exhausted counter path (no branch).
+            cpu.InternalWait(14);
             return;
         }
 
@@ -134,6 +151,8 @@ public static class ConditionInstructions
 
         cpu.Registers.SetDataRegister(registerIndex, (registerValue & 0xFFFF0000) | decrementedLowWord);
         cpu.Registers.ProgramCounter = branchTarget;
+        // DBcc branch-taken path.
+        cpu.InternalWait(10);
     }
 
     private static int ReadBranchDisplacement(Cpu cpu, ushort opcode, out bool usedExtensionWord)

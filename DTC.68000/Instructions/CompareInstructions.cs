@@ -71,6 +71,7 @@ public static class CompareInstructions
         var destination = (byte)cpu.Registers.GetDataRegister(destinationRegister);
         var result = (byte)(destination - source);
         FlagMath.ApplySubtractByte(cpu.Registers, destination, source, result);
+        cpu.InternalWait(4 + InstructionTiming.GetDataEffectiveAddressCycles(OperandSize.Byte, sourceEa));
     }
 
     /// <summary>
@@ -84,6 +85,7 @@ public static class CompareInstructions
         var destination = (ushort)cpu.Registers.GetDataRegister(destinationRegister);
         var result = (ushort)(destination - source);
         FlagMath.ApplySubtractWord(cpu.Registers, destination, source, result);
+        cpu.InternalWait(4 + InstructionTiming.GetDataEffectiveAddressCycles(OperandSize.Word, sourceEa));
     }
 
     /// <summary>
@@ -97,6 +99,7 @@ public static class CompareInstructions
         var destination = cpu.Registers.GetDataRegister(destinationRegister);
         var result = destination - source;
         FlagMath.ApplySubtractLong(cpu.Registers, destination, source, result);
+        cpu.InternalWait(6 + InstructionTiming.GetDataEffectiveAddressCycles(OperandSize.Long, sourceEa));
     }
 
     /// <summary>
@@ -111,6 +114,7 @@ public static class CompareInstructions
         var destination = cpu.Registers.GetAddressRegister(destinationRegister);
         var result = destination - source;
         FlagMath.ApplySubtractLong(cpu.Registers, destination, source, result);
+        cpu.InternalWait(6 + InstructionTiming.GetDataEffectiveAddressCycles(OperandSize.Word, sourceEa));
     }
 
     /// <summary>
@@ -124,6 +128,7 @@ public static class CompareInstructions
         var destination = cpu.Registers.GetAddressRegister(destinationRegister);
         var result = destination - source;
         FlagMath.ApplySubtractLong(cpu.Registers, destination, source, result);
+        cpu.InternalWait(6 + InstructionTiming.GetDataEffectiveAddressCycles(OperandSize.Long, sourceEa));
     }
 
     /// <summary>
@@ -139,6 +144,7 @@ public static class CompareInstructions
         var destination = EffectiveAddressByteAccess.ReadByte(cpu, destinationEa);
         var result = (byte)(destination - source);
         FlagMath.ApplySubtractByte(cpu.Registers, destination, source, result);
+        cpu.InternalWait(12);
     }
 
     /// <summary>
@@ -152,6 +158,7 @@ public static class CompareInstructions
         var destination = ReadWordPostIncrementDestination(cpu, destinationRegister);
         var result = (ushort)(destination - source);
         FlagMath.ApplySubtractWord(cpu.Registers, destination, source, result);
+        cpu.InternalWait(12);
     }
 
     /// <summary>
@@ -165,6 +172,7 @@ public static class CompareInstructions
         var destination = ReadLongPostIncrementDestination(cpu, destinationRegister);
         var result = destination - source;
         FlagMath.ApplySubtractLong(cpu.Registers, destination, source, result);
+        cpu.InternalWait(20);
     }
 
     private static ushort ReadWordPostIncrementSource(Cpu cpu, byte registerIndex)

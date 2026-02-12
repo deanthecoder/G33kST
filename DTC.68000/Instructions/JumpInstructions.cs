@@ -48,6 +48,7 @@ public static class JumpInstructions
     private static void ExecuteUnconditionalJump(Cpu cpu, ushort opcode)
     {
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+        var controlEaCycles = InstructionTiming.GetControlEffectiveAddressCycles(ea);
         var targetAddress = EffectiveAddressControlResolver.ResolveControlTarget(cpu, ea);
         if ((targetAddress & 1) != 0)
         {
@@ -63,6 +64,8 @@ public static class JumpInstructions
 
         cpu.Registers.ProgramCounter = targetAddress;
         cpu.RefreshPrefetchQueue();
+        // JMP timing = base + control-EA work.
+        cpu.InternalWait(8 + controlEaCycles);
     }
 
     /// <summary>
@@ -71,6 +74,7 @@ public static class JumpInstructions
     private static void ExecuteJumpToSubroutine(Cpu cpu, ushort opcode)
     {
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+        var controlEaCycles = InstructionTiming.GetControlEffectiveAddressCycles(ea);
         var targetAddress = EffectiveAddressControlResolver.ResolveControlTarget(cpu, ea);
         if ((targetAddress & 1) != 0)
             throw new AddressErrorException(targetAddress, ".w", isRead: true, isProgramAccess: true);
@@ -79,6 +83,8 @@ public static class JumpInstructions
         cpu.Push32(cpu.GetPcRelativeBaseAddress());
         cpu.Registers.ProgramCounter = targetAddress;
         cpu.RefreshPrefetchQueue();
+        // JSR timing = base + control-EA work.
+        cpu.InternalWait(16 + controlEaCycles);
     }
 
     private static int GetControlExtensionWordCount(EffectiveAddress ea) =>

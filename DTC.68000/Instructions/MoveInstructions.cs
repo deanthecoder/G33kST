@@ -83,6 +83,7 @@ public static class MoveInstructions
 
         cpu.Registers.SetDataRegister(registerIndex, value);
         FlagMath.ApplyLogicalLong(cpu.Registers, value);
+        cpu.InternalWait(4);
     }
 
     /// <summary>

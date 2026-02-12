@@ -93,6 +93,307 @@ public sealed class CpuTests
     }
 
     [Test]
+    public void NopStepAddsFourCycles()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x4E71);
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+
+        cpu.Step();
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(4));
+    }
+
+    [Test]
+    public void MoveQuickStepAddsFourCycles()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x7001);
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+
+        cpu.Step();
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(4));
+    }
+
+    [Test]
+    public void BranchConditionFalseByteAddsEightCycles()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x6602); // BNE.B +2
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.ZeroFlag = true;
+
+        cpu.Step();
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(8));
+    }
+
+    [Test]
+    public void BranchConditionFalseWordAddsTwelveCycles()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x6600); // BNE.W +2
+        bus.Write16BigEndian(0x000102, 0x0002);
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.ZeroFlag = true;
+
+        cpu.Step();
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(12));
+    }
+
+    [Test]
+    public void BranchConditionTrueByteAddsTenCycles()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x6702); // BEQ.B +2
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.ZeroFlag = true;
+
+        cpu.Step();
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(10));
+    }
+
+    [Test]
+    public void DecrementBranchConditionTrueAddsTwelveCycles()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x57C8); // DBEQ D0,#disp16
+        bus.Write16BigEndian(0x000102, 0x0002);
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.ZeroFlag = true;
+        cpu.Registers.SetDataRegister(0, 0x0000_0002);
+
+        cpu.Step();
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(12));
+    }
+
+    [Test]
+    public void DecrementBranchTakenAddsTenCycles()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x51C8); // DBF D0,#disp16
+        bus.Write16BigEndian(0x000102, 0x0002);
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0x0000_0001);
+
+        cpu.Step();
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(10));
+    }
+
+    [Test]
+    public void DecrementBranchExpiredAddsFourteenCycles()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x51C8); // DBF D0,#disp16
+        bus.Write16BigEndian(0x000102, 0x0002);
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0x0000_0000);
+
+        cpu.Step();
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(14));
+    }
+
+    [Test]
+    public void LinkAddsSixteenCycles()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x4E50); // LINK A0,#-4
+        bus.Write16BigEndian(0x000102, 0xFFFC);
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.StatusRegister = 0x2000;
+        cpu.Registers.StackPointer = 0x001000;
+        cpu.Registers.SetAddressRegister(0, 0x000220);
+
+        cpu.Step();
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(16));
+    }
+
+    [Test]
+    public void RtsAddsSixteenCycles()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x4E75);
+        bus.Write16BigEndian(0x001000, 0x0000);
+        bus.Write16BigEndian(0x001002, 0x0200);
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.StatusRegister = 0x2000;
+        cpu.Registers.StackPointer = 0x001000;
+
+        cpu.Step();
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(16));
+    }
+
+    [Test]
+    public void LeaAbsoluteShortAddsEightCycles()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x41F8); // LEA (xxx).W,A0
+        bus.Write16BigEndian(0x000102, 0x0200);
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+
+        cpu.Step();
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(8));
+    }
+
+    [Test]
+    public void JsrAbsoluteShortAddsTwentyCycles()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x4EB8); // JSR (xxx).W
+        bus.Write16BigEndian(0x000102, 0x0200);
+        bus.Write16BigEndian(0x000200, 0x4E71);
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.StatusRegister = 0x2000;
+        cpu.Registers.StackPointer = 0x001000;
+
+        cpu.Step();
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(20));
+    }
+
+    [Test]
+    public void AddByteFromAddressIndirectToDataRegisterAddsEightCycles()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0xD010); // ADD.B (A0),D0
+        bus.Write8(0x000200, 0x01);
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetAddressRegister(0, 0x000200);
+
+        cpu.Step();
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(8));
+    }
+
+    [Test]
+    public void AddLongFromAddressIndirectToDataRegisterAddsFourteenCycles()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0xD090); // ADD.L (A0),D0
+        bus.Write16BigEndian(0x000200, 0x0000);
+        bus.Write16BigEndian(0x000202, 0x0001);
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetAddressRegister(0, 0x000200);
+
+        cpu.Step();
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(14));
+    }
+
+    [Test]
+    public void SubByteFromAddressIndirectToDataRegisterAddsEightCycles()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x9010); // SUB.B (A0),D0
+        bus.Write8(0x000200, 0x01);
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetAddressRegister(0, 0x000200);
+
+        cpu.Step();
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(8));
+    }
+
+    [Test]
+    public void AndByteFromAddressIndirectToDataRegisterAddsEightCycles()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0xC010); // AND.B (A0),D0
+        bus.Write8(0x000200, 0x01);
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetAddressRegister(0, 0x000200);
+
+        cpu.Step();
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(8));
+    }
+
+    [Test]
+    public void OrByteFromAddressIndirectToDataRegisterAddsEightCycles()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x8010); // OR.B (A0),D0
+        bus.Write8(0x000200, 0x01);
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetAddressRegister(0, 0x000200);
+
+        cpu.Step();
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(8));
+    }
+
+    [Test]
+    public void EorImmediateByteToDataRegisterAddsEightCycles()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x0A00); // EORI.B #<imm>,D0
+        bus.Write16BigEndian(0x000102, 0x0001);
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+
+        cpu.Step();
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(8));
+    }
+
+    [Test]
+    public void CompareByteFromAddressIndirectToDataRegisterAddsEightCycles()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0xB010); // CMP.B (A0),D0
+        bus.Write8(0x000200, 0x01);
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetAddressRegister(0, 0x000200);
+
+        cpu.Step();
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(8));
+    }
+
+    [Test]
+    public void CompareLongFromAddressIndirectToDataRegisterAddsFourteenCycles()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0xB090); // CMP.L (A0),D0
+        bus.Write16BigEndian(0x000200, 0x0000);
+        bus.Write16BigEndian(0x000202, 0x0001);
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetAddressRegister(0, 0x000200);
+
+        cpu.Step();
+
+        Assert.That(cpu.CyclesSinceCpuStart, Is.EqualTo(14));
+    }
+
+    [Test]
     public void Read16UsesBigEndianOrder()
     {
         var bus = new Bus(0x1000000);

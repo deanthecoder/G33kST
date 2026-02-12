@@ -98,6 +98,7 @@ public static class AddSubtractQuickInstructions
         {
             var addressValue = cpu.Registers.GetAddressRegister(destinationEa.Register);
             cpu.Registers.SetAddressRegister(destinationEa.Register, addressValue + quickImmediate);
+            cpu.InternalWait(8);
             return;
         }
 
@@ -110,6 +111,11 @@ public static class AddSubtractQuickInstructions
         DestinationOperandAccess.ApplyPostIncrement(cpu, destination);
         FlagMath.ApplyAdd(cpu.Registers, size, destinationValue, quickImmediate, result);
         cpu.Registers.ExtendFlag = cpu.Registers.CarryFlag;
+        var baseCycles = size == OperandSize.Long ? 12u : 8u;
+        if (destinationEa.Mode == EffectiveAddressMode.DataRegisterDirect)
+            baseCycles = size == OperandSize.Long ? 8u : 4u;
+
+        cpu.InternalWait(baseCycles + InstructionTiming.GetDataEffectiveAddressCycles(size, destinationEa));
     }
 
     private static void ExecuteSubQuick(Cpu cpu, ushort opcode, OperandSize size)
@@ -120,6 +126,7 @@ public static class AddSubtractQuickInstructions
         {
             var addressValue = cpu.Registers.GetAddressRegister(destinationEa.Register);
             cpu.Registers.SetAddressRegister(destinationEa.Register, addressValue - quickImmediate);
+            cpu.InternalWait(8);
             return;
         }
 
@@ -132,6 +139,11 @@ public static class AddSubtractQuickInstructions
         DestinationOperandAccess.ApplyPostIncrement(cpu, destination);
         FlagMath.ApplySubtract(cpu.Registers, size, destinationValue, quickImmediate, result);
         cpu.Registers.ExtendFlag = cpu.Registers.CarryFlag;
+        var baseCycles = size == OperandSize.Long ? 12u : 8u;
+        if (destinationEa.Mode == EffectiveAddressMode.DataRegisterDirect)
+            baseCycles = size == OperandSize.Long ? 8u : 4u;
+
+        cpu.InternalWait(baseCycles + InstructionTiming.GetDataEffectiveAddressCycles(size, destinationEa));
     }
 
     private static bool SupportsDestination(EffectiveAddress destination, OperandSize size)

@@ -47,6 +47,7 @@ public static class StackInstructions
 
         var displacement = (short)cpu.FetchPcWord();
         cpu.Registers.StackPointer = unchecked((uint)(cpu.Registers.StackPointer + displacement));
+        cpu.InternalWait(16);
     }
 
     /// <summary>
@@ -75,10 +76,12 @@ public static class StackInstructions
         if (registerIndex == 7)
         {
             cpu.Registers.StackPointer = restoredAddressRegisterValue;
+            cpu.InternalWait(12);
             return;
         }
 
         cpu.Registers.SetAddressRegister(registerIndex, restoredAddressRegisterValue);
         cpu.Registers.StackPointer = framePointer + 4;
+        cpu.InternalWait(12);
     }
 }

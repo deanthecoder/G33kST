@@ -265,6 +265,7 @@ public sealed class Cpu : CpuBase
         var opcodeAddress = Registers.ProgramCounter;
         ushort opcode = 0;
         var traceWasEnabled = Registers.TraceFlag;
+        var cyclesBeforeInstruction = CyclesSinceCpuStart;
         try
         {
             opcode = FetchPcWord();
@@ -274,6 +275,10 @@ public sealed class Cpu : CpuBase
             instruction.Execute(this, opcode);
             if (EnableTraceExceptions && traceWasEnabled && Registers.TraceFlag)
                 EnterTraceException();
+
+            // Instructions with explicit timing call InternalWait themselves.
+            // Everything else currently uses the baseline fallback.
+            InstructionTiming.ApplyFallbackIfUntimed(this, cyclesBeforeInstruction);
         }
         catch (AddressErrorException ex)
         {
@@ -316,6 +321,7 @@ public sealed class Cpu : CpuBase
 
         Registers.ProgramCounter = returnAddress;
         RefreshPrefetchQueue();
+        InternalWait(20);
     }
 
     /// <summary>

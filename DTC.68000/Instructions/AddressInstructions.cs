@@ -50,6 +50,8 @@ public static class AddressInstructions
         var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var effectiveAddress = EffectiveAddressControlResolver.ResolveControlTarget(cpu, source);
         cpu.Registers.SetAddressRegister(destinationRegisterIndex, effectiveAddress);
+        // LEA timing = small base + control-EA resolution work.
+        cpu.InternalWait(4 + InstructionTiming.GetControlEffectiveAddressCycles(source));
     }
 
     /// <summary>
@@ -61,5 +63,7 @@ public static class AddressInstructions
         var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var effectiveAddress = EffectiveAddressControlResolver.ResolveControlTarget(cpu, source);
         cpu.Push32(effectiveAddress);
+        // PEA timing = push cost + control-EA resolution work.
+        cpu.InternalWait(12 + InstructionTiming.GetControlEffectiveAddressCycles(source));
     }
 }

@@ -33,7 +33,7 @@ public static class SystemInstructions
     private static readonly Instruction InstrChkWord = new("CHK.W <ea>,Dn", ExecuteCheckWord);
     private static readonly Instruction InstrLineA = new("LINEA", ExecuteLineAEmulator);
     private static readonly Instruction InstrLineF = new("LINEF", ExecuteLineFEmulator);
-    private static readonly Instruction InstrNop = new("NOP", static (_, _) => { });
+    private static readonly Instruction InstrNop = new("NOP", ExecuteNop);
     private static readonly Instruction InstrTrap = new("TRAP #<vector>", ExecuteTrap);
     private static readonly Instruction InstrTrapv = new("TRAPV", ExecuteTrapOnOverflow);
     private static readonly Instruction InstrStop = new("STOP #<imm16>", ExecuteStop);
@@ -131,6 +131,7 @@ public static class SystemInstructions
         if (EnsureSupervisor(cpu))
         {
             // TODO: Model RESET bus/device side effects once memory-mapped hardware is wired.
+            cpu.InternalWait(132);
         }
     }
 
@@ -148,6 +149,7 @@ public static class SystemInstructions
         var statusRegister = cpu.FetchPcWord();
         cpu.Registers.StatusRegister = (ushort)(statusRegister & ValidStatusRegisterMask);
         cpu.Registers.ProgramCounter = haltedProgramCounter;
+        cpu.InternalWait(4);
     }
 
     /// <summary>
@@ -164,6 +166,7 @@ public static class SystemInstructions
         _ = DestinationOperandAccess.ReadUnsigned(cpu, destination, DestinationOperandSize.Word);
         DestinationOperandAccess.WriteUnsigned(cpu, destination, DestinationOperandSize.Word, cpu.Registers.StatusRegister);
         DestinationOperandAccess.ApplyPostIncrement(cpu, destination);
+        cpu.InternalWait(6);
     }
 
     /// <summary>
@@ -175,6 +178,7 @@ public static class SystemInstructions
         var value = (ushort)(EffectiveAddressWordAccess.ReadWord(cpu, source) & ConditionCodeRegisterMask);
         var statusRegister = cpu.Registers.StatusRegister;
         cpu.Registers.StatusRegister = (ushort)((statusRegister & ~ConditionCodeRegisterMask) | value);
+        cpu.InternalWait(12);
     }
 
     /// <summary>
@@ -188,6 +192,7 @@ public static class SystemInstructions
         var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var value = EffectiveAddressWordAccess.ReadWord(cpu, source);
         cpu.Registers.StatusRegister = (ushort)(value & ValidStatusRegisterMask);
+        cpu.InternalWait(12);
     }
 
     /// <summary>
@@ -200,6 +205,7 @@ public static class SystemInstructions
 
         var sourceRegisterIndex = opcode & 0x07;
         cpu.Registers.UserStackPointer = cpu.Registers.GetAddressRegister(sourceRegisterIndex);
+        cpu.InternalWait(4);
     }
 
     /// <summary>
@@ -212,6 +218,7 @@ public static class SystemInstructions
 
         var destinationRegisterIndex = opcode & 0x07;
         cpu.Registers.SetAddressRegister(destinationRegisterIndex, cpu.Registers.UserStackPointer);
+        cpu.InternalWait(4);
     }
 
     /// <summary>
@@ -225,6 +232,7 @@ public static class SystemInstructions
         var result = (value & 0xFFFF_0000) | resultWord;
         cpu.Registers.SetDataRegister(registerIndex, result);
         FlagMath.ApplyLogicalWord(cpu.Registers, resultWord);
+        cpu.InternalWait(4);
     }
 
     /// <summary>
@@ -237,6 +245,7 @@ public static class SystemInstructions
         var result = (uint)(short)(ushort)value;
         cpu.Registers.SetDataRegister(registerIndex, result);
         FlagMath.ApplyLogicalLong(cpu.Registers, result);
+        cpu.InternalWait(4);
     }
 
     /// <summary>
@@ -249,7 +258,14 @@ public static class SystemInstructions
         var result = (value << 16) | (value >> 16);
         cpu.Registers.SetDataRegister(registerIndex, result);
         FlagMath.ApplyLogicalLong(cpu.Registers, result);
+        cpu.InternalWait(4);
     }
+
+    /// <summary>
+    /// Executes <c>NOP</c>.
+    /// </summary>
+    private static void ExecuteNop(Cpu cpu, ushort opcode) =>
+        cpu.InternalWait(4);
 
     /// <summary>
     /// Decodes the LINEA emulator-trap opcode family.
@@ -274,6 +290,7 @@ public static class SystemInstructions
 
         cpu.Registers.ProgramCounter = returnAddress;
         cpu.RefreshPrefetchQueue();
+        cpu.InternalWait(16);
     }
 
     /// <summary>
@@ -290,6 +307,7 @@ public static class SystemInstructions
 
         cpu.Registers.ProgramCounter = returnAddress;
         cpu.RefreshPrefetchQueue();
+        cpu.InternalWait(20);
     }
 
     /// <summary>
@@ -298,7 +316,13 @@ public static class SystemInstructions
     private static void ExecuteTrapOnOverflow(Cpu cpu, ushort opcode)
     {
         if (cpu.Registers.OverflowFlag)
+        {
             EnterExceptionVector(cpu, TrapOnOverflowVectorAddress);
+            cpu.InternalWait(34);
+            return;
+        }
+
+        cpu.InternalWait(4);
     }
 
     /// <summary>
@@ -347,6 +371,7 @@ public static class SystemInstructions
         var trapNumber = (uint)(opcode & TrapInstructionVectorMask);
         var vectorAddress = TrapInstructionVectorBaseAddress + (trapNumber << 2);
         EnterExceptionVector(cpu, vectorAddress);
+        cpu.InternalWait(34);
     }
 
     /// <summary>
