@@ -48,6 +48,10 @@ Current note for exception/interrupt work:
 The single-step 68000 test data comes from the excellent `m68000` repo by SingleStepTests, used under its license:
 https://github.com/SingleStepTests/m68000
 
+The MC68000 opcode test suite by **Ted Fried / MicroCore Labs** is included under:
+`external/MC68000_Test_Code`
+Source: https://github.com/MicroCoreLabs/Projects/tree/master/MCL68/MC68000_Test_Code
+
 ## Useful links
 - [Motorola 68000 Programmer's Reference Manual](https://www.nxp.com/docs/en/reference-manual/M68000PRM.pdf)
 - [Atari ST Wiki (Hardware Overview)](https://en.wikipedia.org/wiki/Atari_ST)
