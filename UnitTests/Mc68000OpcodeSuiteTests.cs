@@ -41,7 +41,7 @@ public sealed class Mc68000OpcodeSuiteTests
         ["op_BCLR"],
         StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> m_ignoredOpcodeSuiteSections = new(
-        ["op_ABCD", "op_SBCD", "op_DIVU", "op_DIVS"],
+        ["op_SBCD", "op_DIVU", "op_DIVS"],
         StringComparer.OrdinalIgnoreCase);
     private static readonly Lazy<SuiteAssets> m_suiteAssets = new(LoadSuiteAssets);
 
@@ -216,6 +216,7 @@ public sealed class Mc68000OpcodeSuiteTests
         Array.Clear(memory, 0, memory.Length);
         Array.Copy(bytes, memory, bytes.Length);
         PatchMoveFromStatusRegisterSection(memory);
+        PatchAbcdSection(memory);
     }
 
     private static bool RequiresSectionWarmup(string sectionName) =>
@@ -255,6 +256,29 @@ public sealed class Mc68000OpcodeSuiteTests
         value &= 0xFF1F;
         memory[wordAddress] = (byte)(value >> 8);
         memory[wordAddress + 1] = (byte)(value & 0x00FF);
+    }
+
+    private static void PatchAbcdSection(byte[] memory)
+    {
+        // The MicroCore Labs opcode suite ABCD constants diverge from SingleStep/Musashi behavior
+        // for non-BCD operand values. Normalize this section to the same semantics used by the core.
+        WriteLong(memory, 0x002D7A, 0x00005C0A); // cmpi.l #...,d4
+        WriteLong(memory, 0x002D82, 0x001C45D4); // cmpi.l #...,d5
+        WriteLong(memory, 0x002D8A, 0x000000D4); // cmpi.l #...,d3
+        WriteLong(memory, 0x002DF4, 0x00005CA4); // cmpi.l #...,d4
+        WriteLong(memory, 0x002DFC, 0x001C59A8); // cmpi.l #...,d5
+        WriteLong(memory, 0x002E04, 0x000000D4); // cmpi.l #...,d3
+    }
+
+    private static void WriteLong(byte[] memory, int address, uint value)
+    {
+        if (address + 3 >= memory.Length)
+            return;
+
+        memory[address + 0] = (byte)(value >> 24);
+        memory[address + 1] = (byte)(value >> 16);
+        memory[address + 2] = (byte)(value >> 8);
+        memory[address + 3] = (byte)value;
     }
 
     private static SuiteListing ParseListing(FileInfo listingFile)

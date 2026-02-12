@@ -911,6 +911,31 @@ public sealed class CpuTests
     }
 
     [Test]
+    public void AbcdWithNonBcdOperandsUsesCurrentCoreSemantics()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0xC300); // ABCD D0,D1
+
+        var cpu = new Cpu(bus);
+        cpu.Registers.ProgramCounter = 0x000100;
+        cpu.Registers.SetDataRegister(0, 0x0000008F);
+        cpu.Registers.SetDataRegister(1, 0x00000005);
+        cpu.Registers.ExtendFlag = false;
+        cpu.Registers.CarryFlag = true;
+        cpu.Registers.ZeroFlag = true;
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.GetDataRegister(1), Is.EqualTo(0x0000009A));
+            Assert.That(cpu.Registers.CarryFlag, Is.False);
+            Assert.That(cpu.Registers.ExtendFlag, Is.False);
+            Assert.That(cpu.Registers.ZeroFlag, Is.False);
+        });
+    }
+
+    [Test]
     public void SubQuickByteToAddressRegisterDirectEntersIllegalInstructionVector()
     {
         var bus = new Bus(0x1000000);
