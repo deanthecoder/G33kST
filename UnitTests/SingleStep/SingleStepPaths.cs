@@ -21,7 +21,7 @@ public static class SingleStepPaths
     private static DirectoryInfo m_repoRoot;
 
     private static DirectoryInfo RepoRoot => m_repoRoot ??= FindRepoRoot();
-    private static DirectoryInfo ExternalRoot => RepoRoot.GetDir("external");
+    public static DirectoryInfo ExternalRoot => RepoRoot.GetDir("external");
     private static DirectoryInfo SingleStepRoot => ExternalRoot.GetDir("m68000");
 
     public static DirectoryInfo TestDataRoot => SingleStepRoot.GetDir("v1");

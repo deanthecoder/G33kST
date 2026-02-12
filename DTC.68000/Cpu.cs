@@ -288,6 +288,9 @@ public sealed class Cpu : CpuBase
     /// </summary>
     public void RefreshPrefetchQueue()
     {
+        if (!m_hasPrefetch)
+            return;
+
         _ = FetchPcWord();
         _ = FetchPcWord();
     }
