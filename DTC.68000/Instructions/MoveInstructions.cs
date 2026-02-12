@@ -17,11 +17,11 @@ namespace DTC.M68000.Instructions;
 /// </summary>
 public static class MoveInstructions
 {
-    private static readonly Instruction InstrMoveByte = new("MOVE.B <ea>,<ea>", ExecuteMoveByte);
-    private static readonly Instruction InstrMoveWord = new("MOVE.W <ea>,<ea>", ExecuteMoveWord);
-    private static readonly Instruction InstrMoveLong = new("MOVE.L <ea>,<ea>", ExecuteMoveLong);
-    private static readonly Instruction InstrMoveAddressWord = new("MOVEA.W <ea>,An", ExecuteMoveAddressWord);
-    private static readonly Instruction InstrMoveAddressLong = new("MOVEA.L <ea>,An", ExecuteMoveAddressLong);
+    private static readonly Instruction s_instrMoveByte = new("MOVE.B <ea>,<ea>", ExecuteMoveByte);
+    private static readonly Instruction s_instrMoveWord = new("MOVE.W <ea>,<ea>", ExecuteMoveWord);
+    private static readonly Instruction s_instrMoveLong = new("MOVE.L <ea>,<ea>", ExecuteMoveLong);
+    private static readonly Instruction s_instrMoveAddressWord = new("MOVEA.W <ea>,An", ExecuteMoveAddressWord);
+    private static readonly Instruction s_instrMoveAddressLong = new("MOVEA.L <ea>,An", ExecuteMoveAddressLong);
 
     /// <summary>
     /// Decodes byte-sized MOVE opcodes handled by this module.
@@ -32,10 +32,7 @@ public static class MoveInstructions
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
         if (!EffectiveAddressByteAccess.SupportsByteRead(source))
             return null;
-        if (!EffectiveAddressByteAccess.SupportsByteWrite(destination))
-            return null;
-
-        return InstrMoveByte;
+        return EffectiveAddressByteAccess.SupportsByteWrite(destination) ? s_instrMoveByte : null;
     }
 
     /// <summary>
@@ -46,13 +43,10 @@ public static class MoveInstructions
         var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
         if (destination.Mode == EffectiveAddressMode.AddressRegisterDirect)
-            return EffectiveAddressWordAccess.SupportsWordRead(source) ? InstrMoveAddressWord : null;
+            return EffectiveAddressWordAccess.SupportsWordRead(source) ? s_instrMoveAddressWord : null;
         if (!EffectiveAddressWordAccess.SupportsWordRead(source))
             return null;
-        if (!EffectiveAddressWordAccess.SupportsWordWrite(destination))
-            return null;
-
-        return InstrMoveWord;
+        return EffectiveAddressWordAccess.SupportsWordWrite(destination) ? s_instrMoveWord : null;
     }
 
     /// <summary>
@@ -63,13 +57,10 @@ public static class MoveInstructions
         var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
         if (destination.Mode == EffectiveAddressMode.AddressRegisterDirect)
-            return EffectiveAddressLongAccess.SupportsLongRead(source) ? InstrMoveAddressLong : null;
+            return EffectiveAddressLongAccess.SupportsLongRead(source) ? s_instrMoveAddressLong : null;
         if (!EffectiveAddressLongAccess.SupportsLongRead(source))
             return null;
-        if (!EffectiveAddressLongAccess.SupportsLongWrite(destination))
-            return null;
-
-        return InstrMoveLong;
+        return EffectiveAddressLongAccess.SupportsLongWrite(destination) ? s_instrMoveLong : null;
     }
 
     /// <summary>
@@ -97,6 +88,7 @@ public static class MoveInstructions
         var sourceValue = EffectiveAddressByteAccess.ReadByte(cpu, source);
         EffectiveAddressByteAccess.WriteByte(cpu, destination, sourceValue);
         FlagMath.ApplyLogicalByte(cpu.Registers, sourceValue);
+        cpu.InternalWait(InstructionTiming.GetMoveCycles(OperandSize.Byte, source, destination));
     }
 
     /// <summary>
@@ -115,6 +107,7 @@ public static class MoveInstructions
             frameProgramCounterAdjust -= 2;
 
         WriteMoveWord(cpu, destination, sourceValue, usePrefetchInstructionRegisterOnWriteFault, frameProgramCounterAdjust);
+        cpu.InternalWait(InstructionTiming.GetMoveCycles(OperandSize.Word, source, destination));
     }
 
     /// <summary>
@@ -126,12 +119,13 @@ public static class MoveInstructions
         var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
         var sourceValue = EffectiveAddressLongAccess.ReadLong(cpu, source);
-        var usePrefetchInstructionRegisterOnWriteFault = false;
+        const bool usePrefetchInstructionRegisterOnWriteFault = false;
         var frameProgramCounterAdjust = DestinationFrameProgramCounterAdjustLong(source, destination);
         try
         {
             WriteMoveLong(cpu, destination, sourceValue, usePrefetchInstructionRegisterOnWriteFault, frameProgramCounterAdjust);
             FlagMath.ApplyLogicalLong(cpu.Registers, sourceValue);
+            cpu.InternalWait(InstructionTiming.GetMoveCycles(OperandSize.Long, source, destination));
         }
         catch (AddressErrorException)
         {
@@ -150,6 +144,7 @@ public static class MoveInstructions
         var destinationRegisterIndex = (opcode >> 9) & 0x07;
         var sourceValue = (short)EffectiveAddressWordAccess.ReadWord(cpu, source);
         cpu.Registers.SetAddressRegister(destinationRegisterIndex, unchecked((uint)sourceValue));
+        cpu.InternalWait(InstructionTiming.GetMoveAddressCycles(OperandSize.Word, source));
     }
 
     /// <summary>
@@ -162,6 +157,7 @@ public static class MoveInstructions
         var destinationRegisterIndex = (opcode >> 9) & 0x07;
         var sourceValue = EffectiveAddressLongAccess.ReadLong(cpu, source);
         cpu.Registers.SetAddressRegister(destinationRegisterIndex, sourceValue);
+        cpu.InternalWait(InstructionTiming.GetMoveAddressCycles(OperandSize.Long, source));
     }
 
     private static void WriteMoveWord(Cpu cpu, EffectiveAddress destination, ushort value, bool usePrefetchInstructionRegisterOnWriteFault, int frameProgramCounterAdjust)

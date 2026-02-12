@@ -451,12 +451,12 @@ public sealed class Cpu : CpuBase
         return (ushort)((instructionRegister & 0xFFE0) | lowBits);
     }
 
-    private uint ValidateEvenProgramAddress(uint address) =>
+    private static uint ValidateEvenProgramAddress(uint address) =>
         (address & 1) == 0
             ? address
             : throw new AddressErrorException(address, ".w", isRead: true, isProgramAccess: true);
 
-    private uint EnsureEvenBusAddress(uint address, string size, bool isRead)
+    private static uint EnsureEvenBusAddress(uint address, string size, bool isRead)
     {
         var normalized = EffectiveAddressMath.NormalizeAddress24(address);
         if ((normalized & 1) == 0)

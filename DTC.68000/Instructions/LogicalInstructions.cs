@@ -74,6 +74,7 @@ public static class LogicalInstructions
         WriteUnsigned(cpu, destination, OperandSize.Byte, result);
         ApplyPostIncrement(cpu, destination);
         FlagMath.ApplyLogicalByte(cpu.Registers, sourceValue);
+        cpu.InternalWait(InstructionTiming.GetTasCycles(destinationEa));
     }
 
     /// <summary>
@@ -84,6 +85,7 @@ public static class LogicalInstructions
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var value = EffectiveAddressByteAccess.ReadByte(cpu, ea);
         FlagMath.ApplyLogicalByte(cpu.Registers, value);
+        cpu.InternalWait(InstructionTiming.GetUnaryTestCycles(OperandSize.Byte, ea));
     }
 
     /// <summary>
@@ -94,6 +96,7 @@ public static class LogicalInstructions
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var value = EffectiveAddressWordAccess.ReadWord(cpu, ea);
         FlagMath.ApplyLogicalWord(cpu.Registers, value);
+        cpu.InternalWait(InstructionTiming.GetUnaryTestCycles(OperandSize.Word, ea));
     }
 
     /// <summary>
@@ -104,6 +107,7 @@ public static class LogicalInstructions
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var value = EffectiveAddressLongAccess.ReadLong(cpu, ea);
         FlagMath.ApplyLogicalLong(cpu.Registers, value);
+        cpu.InternalWait(InstructionTiming.GetUnaryTestCycles(OperandSize.Long, ea));
     }
 
     /// <summary>
@@ -114,6 +118,7 @@ public static class LogicalInstructions
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         EffectiveAddressByteAccess.WriteByte(cpu, ea, 0);
         FlagMath.ApplyClear(cpu.Registers);
+        cpu.InternalWait(InstructionTiming.GetUnaryModifyCycles(OperandSize.Byte, ea));
     }
 
     /// <summary>
@@ -127,6 +132,7 @@ public static class LogicalInstructions
         WriteUnsigned(cpu, destination, OperandSize.Word, 0);
         ApplyPostIncrement(cpu, destination);
         FlagMath.ApplyClear(cpu.Registers);
+        cpu.InternalWait(InstructionTiming.GetUnaryModifyCycles(OperandSize.Word, ea));
     }
 
     /// <summary>
@@ -140,6 +146,7 @@ public static class LogicalInstructions
         WriteUnsigned(cpu, destination, OperandSize.Long, 0);
         ApplyPostIncrement(cpu, destination);
         FlagMath.ApplyClear(cpu.Registers);
+        cpu.InternalWait(InstructionTiming.GetUnaryModifyCycles(OperandSize.Long, ea));
     }
 
     /// <summary>
@@ -154,6 +161,7 @@ public static class LogicalInstructions
         WriteUnsigned(cpu, destination, OperandSize.Byte, result);
         ApplyPostIncrement(cpu, destination);
         FlagMath.ApplyLogicalByte(cpu.Registers, result);
+        cpu.InternalWait(InstructionTiming.GetUnaryModifyCycles(OperandSize.Byte, ea));
     }
 
     /// <summary>
@@ -168,6 +176,7 @@ public static class LogicalInstructions
         WriteUnsigned(cpu, destination, OperandSize.Word, result);
         ApplyPostIncrement(cpu, destination);
         FlagMath.ApplyLogicalWord(cpu.Registers, result);
+        cpu.InternalWait(InstructionTiming.GetUnaryModifyCycles(OperandSize.Word, ea));
     }
 
     /// <summary>
@@ -182,6 +191,7 @@ public static class LogicalInstructions
         WriteUnsigned(cpu, destination, OperandSize.Long, result);
         ApplyPostIncrement(cpu, destination);
         FlagMath.ApplyLogicalLong(cpu.Registers, result);
+        cpu.InternalWait(InstructionTiming.GetUnaryModifyCycles(OperandSize.Long, ea));
     }
 
     /// <summary>
@@ -314,6 +324,7 @@ public static class LogicalInstructions
         WriteUnsigned(cpu, destination, size, result);
         ApplyPostIncrement(cpu, destination);
         ApplyNegFlags(cpu.Registers, source, result, size, useExtend, extendInput);
+        cpu.InternalWait(InstructionTiming.GetUnaryModifyCycles(size, destinationEa));
     }
 
     private static void ApplyNegFlags(Registers registers, ulong source, ulong result, OperandSize size, bool useExtend, ulong extendInput)

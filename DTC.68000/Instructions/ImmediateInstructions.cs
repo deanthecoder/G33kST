@@ -112,6 +112,7 @@ public static class ImmediateInstructions
         var currentCcr = (ushort)(cpu.Registers.StatusRegister & ConditionCodeRegisterMask);
         var resultCcr = (ushort)(currentCcr | immediate);
         cpu.Registers.StatusRegister = (ushort)((cpu.Registers.StatusRegister & ~ConditionCodeRegisterMask) | resultCcr);
+        cpu.InternalWait(InstructionTiming.GetImmediateStatusCycles(targetsStatusRegister: false));
     }
 
     /// <summary>
@@ -128,6 +129,7 @@ public static class ImmediateInstructions
         var immediate = cpu.FetchPcWord();
         var result = (ushort)((cpu.Registers.StatusRegister | immediate) & ValidStatusRegisterMask);
         cpu.Registers.StatusRegister = result;
+        cpu.InternalWait(InstructionTiming.GetImmediateStatusCycles(targetsStatusRegister: true));
     }
 
     /// <summary>
@@ -139,6 +141,7 @@ public static class ImmediateInstructions
         var currentCcr = (ushort)(cpu.Registers.StatusRegister & ConditionCodeRegisterMask);
         var resultCcr = (ushort)(currentCcr & immediate);
         cpu.Registers.StatusRegister = (ushort)((cpu.Registers.StatusRegister & ~ConditionCodeRegisterMask) | resultCcr);
+        cpu.InternalWait(InstructionTiming.GetImmediateStatusCycles(targetsStatusRegister: false));
     }
 
     /// <summary>
@@ -153,8 +156,9 @@ public static class ImmediateInstructions
         }
 
         var immediate = cpu.FetchPcWord();
-        var result = (ushort)((cpu.Registers.StatusRegister & immediate) & ValidStatusRegisterMask);
+        var result = (ushort)(cpu.Registers.StatusRegister & immediate & ValidStatusRegisterMask);
         cpu.Registers.StatusRegister = result;
+        cpu.InternalWait(InstructionTiming.GetImmediateStatusCycles(targetsStatusRegister: true));
     }
 
     /// <summary>
@@ -166,6 +170,7 @@ public static class ImmediateInstructions
         var currentCcr = (ushort)(cpu.Registers.StatusRegister & ConditionCodeRegisterMask);
         var resultCcr = (ushort)(currentCcr ^ immediate);
         cpu.Registers.StatusRegister = (ushort)((cpu.Registers.StatusRegister & ~ConditionCodeRegisterMask) | resultCcr);
+        cpu.InternalWait(InstructionTiming.GetImmediateStatusCycles(targetsStatusRegister: false));
     }
 
     /// <summary>
@@ -182,6 +187,7 @@ public static class ImmediateInstructions
         var immediate = cpu.FetchPcWord();
         var result = (ushort)((cpu.Registers.StatusRegister ^ immediate) & ValidStatusRegisterMask);
         cpu.Registers.StatusRegister = result;
+        cpu.InternalWait(InstructionTiming.GetImmediateStatusCycles(targetsStatusRegister: true));
     }
 
     /// <summary>
@@ -233,6 +239,7 @@ public static class ImmediateInstructions
         DestinationOperandAccess.ApplyPostIncrement(cpu, destination);
         ApplyArithmeticFlags(cpu.Registers, size, destinationValue, source, result, isAdd);
         cpu.Registers.ExtendFlag = cpu.Registers.CarryFlag;
+        cpu.InternalWait(InstructionTiming.GetAddSubtractImmediateCycles(size, destinationEa));
     }
 
     private static uint ReadImmediate(Cpu cpu, OperandSize size) =>
@@ -299,6 +306,7 @@ public static class ImmediateInstructions
         var destination = EffectiveAddressByteAccess.ReadByte(cpu, destinationEa);
         var result = (byte)(destination - source);
         FlagMath.ApplySubtractByte(cpu.Registers, destination, source, result);
+        cpu.InternalWait(InstructionTiming.GetCompareImmediateCycles(OperandSize.Byte, destinationEa));
     }
 
     /// <summary>
@@ -312,6 +320,7 @@ public static class ImmediateInstructions
         var destination = EffectiveAddressWordAccess.ReadWord(cpu, destinationEa);
         var result = (ushort)(destination - source);
         FlagMath.ApplySubtractWord(cpu.Registers, destination, source, result);
+        cpu.InternalWait(InstructionTiming.GetCompareImmediateCycles(OperandSize.Word, destinationEa));
     }
 
     /// <summary>
@@ -327,5 +336,6 @@ public static class ImmediateInstructions
         var destination = EffectiveAddressLongAccess.ReadLong(cpu, destinationEa);
         var result = destination - source;
         FlagMath.ApplySubtractLong(cpu.Registers, destination, source, result);
+        cpu.InternalWait(InstructionTiming.GetCompareImmediateCycles(OperandSize.Long, destinationEa));
     }
 }

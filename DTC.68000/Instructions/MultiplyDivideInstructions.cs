@@ -83,6 +83,7 @@ public static class MultiplyDivideInstructions
 
         cpu.Registers.SetDataRegister(destinationRegisterIndex, result);
         FlagMath.ApplyLogicalLong(cpu.Registers, result);
+        cpu.InternalWait(InstructionTiming.GetMultiplyCycles(sourceEa));
     }
 
     /// <summary>
@@ -98,6 +99,7 @@ public static class MultiplyDivideInstructions
 
         cpu.Registers.SetDataRegister(destinationRegisterIndex, result);
         FlagMath.ApplyLogicalLong(cpu.Registers, result);
+        cpu.InternalWait(InstructionTiming.GetMultiplyCycles(sourceEa));
     }
 
     /// <summary>
@@ -122,6 +124,7 @@ public static class MultiplyDivideInstructions
             cpu.Registers.ZeroFlag = false;
             cpu.Registers.OverflowFlag = true;
             cpu.Registers.CarryFlag = false;
+            cpu.InternalWait(InstructionTiming.GetDivideCycles(sourceEa));
             return;
         }
 
@@ -132,6 +135,7 @@ public static class MultiplyDivideInstructions
         cpu.Registers.ZeroFlag = (quotient & 0xFFFF) == 0;
         cpu.Registers.OverflowFlag = false;
         cpu.Registers.CarryFlag = false;
+        cpu.InternalWait(InstructionTiming.GetDivideCycles(sourceEa));
     }
 
     /// <summary>
@@ -156,6 +160,7 @@ public static class MultiplyDivideInstructions
             cpu.Registers.ZeroFlag = false;
             cpu.Registers.OverflowFlag = true;
             cpu.Registers.CarryFlag = false;
+            cpu.InternalWait(InstructionTiming.GetDivideCycles(sourceEa));
             return;
         }
 
@@ -166,6 +171,7 @@ public static class MultiplyDivideInstructions
         cpu.Registers.ZeroFlag = quotient == 0;
         cpu.Registers.OverflowFlag = false;
         cpu.Registers.CarryFlag = false;
+        cpu.InternalWait(InstructionTiming.GetDivideCycles(sourceEa));
     }
 
     private static void EnterDivideByZero(Cpu cpu)
@@ -179,5 +185,6 @@ public static class MultiplyDivideInstructions
         cpu.Registers.StatusRegister = (ushort)((oldStatus & ~TraceFlagMask) | SupervisorFlagMask);
         cpu.Registers.ProgramCounter = cpu.Read32(DivideByZeroVectorAddress);
         cpu.RefreshPrefetchQueue();
+        cpu.InternalWait(InstructionTiming.GetDivideByZeroTrapCycles());
     }
 }

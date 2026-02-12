@@ -28,38 +28,38 @@ public sealed class Mc68000OpcodeSuiteTests
     private const int MaxStepsFullSuite = 2_000_000;
     private const int TraceLeftColumnWidth = 44;
 
-    private static readonly Regex LabelRegex = new(
+    private static readonly Regex s_labelRegex = new(
         @"^(?<address>[0-9A-Fa-f]{8})\s+.*?\b(?<label>[A-Za-z_][A-Za-z0-9_]*):",
         RegexOptions.Compiled);
-    private static readonly Regex JsrEntryRegex = new(
+    private static readonly Regex s_jsrEntryRegex = new(
         @"^(?<address>[0-9A-Fa-f]{8})\s+.*?\bjsr\s+(?<label>op_[A-Za-z0-9_]+)\b",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
-    private static readonly Regex TracePlaceholderRegex = new(
+    private static readonly Regex s_tracePlaceholderRegex = new(
         "<(?<token>[^>]+)>",
         RegexOptions.Compiled);
-    private static readonly HashSet<string> m_stateDependentSections = new(
+    private static readonly HashSet<string> s_stateDependentSections = new(
         ["op_BCLR"],
         StringComparer.OrdinalIgnoreCase);
-    private static readonly HashSet<string> m_ignoredOpcodeSuiteSections = new(
+    private static readonly HashSet<string> s_mIgnoredOpcodeSuiteSections = new(
         ["op_SBCD", "op_DIVU", "op_DIVS"],
         StringComparer.OrdinalIgnoreCase);
-    private static readonly Lazy<SuiteAssets> m_suiteAssets = new(LoadSuiteAssets);
+    private static readonly Lazy<SuiteAssets> s_suiteAssets = new(LoadSuiteAssets);
 
     public static IEnumerable<TestCaseData> OpcodeSections =>
-        m_suiteAssets.Value.Listing.TestEntries
+        s_suiteAssets.Value.Listing.TestEntries
             .Select(o => new TestCaseData(o.Name).SetName($"OpcodeSuiteSection_{o.Name}"));
 
     [OneTimeSetUp]
     public void OneTimeSetup()
     {
-        var suiteAssets = m_suiteAssets.Value;
+        var suiteAssets = s_suiteAssets.Value;
         TestContext.Progress.WriteLine($"Loaded external MC68000 opcode suite metadata ({suiteAssets.Listing.TestEntries.Count} sections).");
     }
 
     [TestCaseSource(nameof(OpcodeSections))]
     public void RunsMicroCoreLabsOpcodeSuiteSection(string sectionName)
     {
-        if (m_ignoredOpcodeSuiteSections.Contains(sectionName))
+        if (s_mIgnoredOpcodeSuiteSections.Contains(sectionName))
             Assert.Ignore($"Section '{sectionName}' is currently ignored due to opcode-suite/SingleStep divergence.");
 
         var runResult = RunSuite(sectionName);
@@ -70,7 +70,7 @@ public sealed class Mc68000OpcodeSuiteTests
 
     private static SuiteRunResult RunSuite(string sectionName)
     {
-        var suiteAssets = m_suiteAssets.Value;
+        var suiteAssets = s_suiteAssets.Value;
         var listing = suiteAssets.Listing;
 
         var bus = new Bus(0x1000000);
@@ -220,7 +220,7 @@ public sealed class Mc68000OpcodeSuiteTests
     }
 
     private static bool RequiresSectionWarmup(string sectionName) =>
-        m_stateDependentSections.Contains(sectionName);
+        s_stateDependentSections.Contains(sectionName);
 
     private static void PatchMoveFromStatusRegisterSection(byte[] memory)
     {
@@ -293,7 +293,7 @@ public sealed class Mc68000OpcodeSuiteTests
 
         foreach (var line in lines)
         {
-            var labelMatch = LabelRegex.Match(line);
+            var labelMatch = s_labelRegex.Match(line);
             if (labelMatch.Success)
             {
                 var label = labelMatch.Groups["label"].Value;
@@ -301,7 +301,7 @@ public sealed class Mc68000OpcodeSuiteTests
                     labelToAddress[label] = Convert.ToUInt32(labelMatch.Groups["address"].Value, 16);
             }
 
-            var jsrMatch = JsrEntryRegex.Match(line);
+            var jsrMatch = s_jsrEntryRegex.Match(line);
             if (!jsrMatch.Success)
                 continue;
 
@@ -316,10 +316,8 @@ public sealed class Mc68000OpcodeSuiteTests
         var testEntries = new List<SuiteTestEntry>();
         foreach (var callSite in testCallSites)
         {
-            if (!labelToAddress.TryGetValue(callSite.Label, out var entryAddress))
-                continue;
-
-            testEntries.Add(new SuiteTestEntry(callSite.Label, callSite.Address, entryAddress));
+            if (labelToAddress.TryGetValue(callSite.Label, out _))
+                testEntries.Add(new SuiteTestEntry(callSite.Label, callSite.Address));
         }
 
         var failLabelsByAddress = new Dictionary<uint, string>();
@@ -392,7 +390,7 @@ public sealed class Mc68000OpcodeSuiteTests
     }
 
     private static string SimplifyTraceMnemonic(string mnemonic) =>
-        TracePlaceholderRegex.Replace(mnemonic, "${token}");
+        s_tracePlaceholderRegex.Replace(mnemonic, "${token}");
 
     private sealed record SuiteAssets(
         FileInfo BinaryFile,
@@ -405,8 +403,7 @@ public sealed class Mc68000OpcodeSuiteTests
 
     private sealed record SuiteTestEntry(
         string Name,
-        uint CallAddress,
-        uint EntryAddress);
+        uint CallAddress);
 
     private sealed record SuiteCallSite(
         string Label,

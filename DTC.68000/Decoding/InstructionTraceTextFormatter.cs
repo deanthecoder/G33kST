@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using DTC.M68000.Addressing;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace DTC.M68000.Decoding;
@@ -19,25 +20,13 @@ namespace DTC.M68000.Decoding;
 /// </summary>
 public static class InstructionTraceTextFormatter
 {
-    private static readonly Regex PlaceholderRegex =
+    private static readonly Regex s_placeholderRegex =
         new("<(?<token>[^>]+)>", RegexOptions.Compiled);
-    private static readonly Regex DataRegisterTokenRegex =
-        new(@"\bD(?<index>[0-7])\b", RegexOptions.Compiled);
-    private static readonly Regex AddressRegisterTokenRegex =
-        new(@"\bA(?<index>[0-7])\b", RegexOptions.Compiled);
-    private static readonly Regex GenericDataRegisterTokenRegex =
-        new(@"\bDn\b", RegexOptions.Compiled);
-    private static readonly Regex GenericDataRegisterAltTokenRegex =
-        new(@"\bDm\b", RegexOptions.Compiled);
-    private static readonly Regex GenericAddressRegisterTokenRegex =
-        new(@"\bAn\b", RegexOptions.Compiled);
-    private static readonly Regex GenericAddressRegisterAltTokenRegex =
-        new(@"\bAm\b", RegexOptions.Compiled);
 
     /// <summary>
     /// Returns instruction text suitable for tracing from the decoded instruction + opcode bits.
     /// </summary>
-    public static string Format(ushort opcode, Instruction instruction)
+    private static string Format(ushort opcode, Instruction instruction)
     {
         if (instruction == null)
             return string.Empty;
@@ -102,9 +91,9 @@ public static class InstructionTraceTextFormatter
         };
 
     private static string SimplifyPlaceholders(string instructionText) =>
-        PlaceholderRegex.Replace(instructionText, "${token}");
+        s_placeholderRegex.Replace(instructionText, "${token}");
 
-    private static string ExpandImmediatePlaceholders(ushort opcode, uint opcodeAddress, string instructionText, DTC.Emulation.Bus bus)
+    private static string ExpandImmediatePlaceholders(ushort opcode, uint opcodeAddress, string instructionText, Emulation.Bus bus)
     {
         var text = instructionText;
 
@@ -156,38 +145,115 @@ public static class InstructionTraceTextFormatter
 
         var genericDataIndex = usesLowDataRegister ? lowRegisterIndex : highRegisterIndex;
         var genericAddressIndex = usesLowAddressRegister ? lowRegisterIndex : highRegisterIndex;
+        if (instructionText.IndexOf('D') < 0 && instructionText.IndexOf('A') < 0)
+            return instructionText;
 
-        var text = GenericDataRegisterTokenRegex.Replace(instructionText, $"D{genericDataIndex}");
-        text = GenericDataRegisterAltTokenRegex.Replace(text, $"D{lowRegisterIndex}");
-        text = GenericAddressRegisterTokenRegex.Replace(text, $"A{genericAddressIndex}");
-        text = GenericAddressRegisterAltTokenRegex.Replace(text, $"A{lowRegisterIndex}");
+        var dataValueTokens = new string[8];
+        var addressValueTokens = new string[8];
+        StringBuilder builder = null;
+        var copyStart = 0;
 
-        text = DataRegisterTokenRegex.Replace(
-            text,
-            match =>
+        for (var index = 0; index < instructionText.Length; index++)
+        {
+            if (!TryGetRegisterTokenReplacement(index, out var tokenLength, out var replacement))
+                continue;
+
+            builder ??= new StringBuilder(instructionText.Length + 32);
+            builder.Append(instructionText, copyStart, index - copyStart);
+            builder.Append(replacement);
+            index += tokenLength - 1;
+            copyStart = index + 1;
+        }
+
+        if (builder == null)
+            return instructionText;
+
+        if (copyStart < instructionText.Length)
+            builder.Append(instructionText, copyStart, instructionText.Length - copyStart);
+        return builder.ToString();
+
+        bool TryGetRegisterTokenReplacement(int tokenStart, out int tokenLength, out string replacement)
+        {
+            tokenLength = 0;
+            replacement = string.Empty;
+            if (tokenStart + 1 >= instructionText.Length)
+                return false;
+
+            var prefix = instructionText[tokenStart];
+            if (prefix is not ('D' or 'A'))
+                return false;
+
+            var suffix = instructionText[tokenStart + 1];
+            var registerIndex = ResolveRegisterIndex(prefix, suffix);
+            if (registerIndex < 0)
+                return false;
+            if (!IsWholeWordToken(instructionText, tokenStart, 2))
+                return false;
+
+            tokenLength = 2;
+            replacement = prefix == 'D'
+                ? GetDataValueToken(registerIndex)
+                : GetAddressValueToken(registerIndex);
+            return true;
+        }
+
+        int ResolveRegisterIndex(char prefix, char suffix)
+        {
+            if (suffix is >= '0' and <= '7')
+                return suffix - '0';
+
+            if (prefix == 'D')
             {
-                var index = int.Parse(match.Groups["index"].Value);
-                var value = registers.GetDataRegister(index);
-                return $"D{index}={value:X8}";
-            });
-        text = AddressRegisterTokenRegex.Replace(
-            text,
-            match =>
-            {
-                var index = int.Parse(match.Groups["index"].Value);
-                var value = registers.GetAddressRegister(index);
-                return $"A{index}={value:X8}";
-            });
-        return text;
+                if (suffix == 'n')
+                    return genericDataIndex;
+                if (suffix == 'm')
+                    return lowRegisterIndex;
+                return -1;
+            }
+
+            if (suffix == 'n')
+                return genericAddressIndex;
+            if (suffix == 'm')
+                return lowRegisterIndex;
+            return -1;
+        }
+
+        string GetDataValueToken(int registerIndex)
+        {
+            if (dataValueTokens[registerIndex] == null)
+                dataValueTokens[registerIndex] = $"D{registerIndex}={registers.GetDataRegister(registerIndex):X8}";
+            return dataValueTokens[registerIndex];
+        }
+
+        string GetAddressValueToken(int registerIndex)
+        {
+            if (addressValueTokens[registerIndex] == null)
+                addressValueTokens[registerIndex] = $"A{registerIndex}={registers.GetAddressRegister(registerIndex):X8}";
+            return addressValueTokens[registerIndex];
+        }
     }
 
-    private static ushort ReadWordAt(DTC.Emulation.Bus bus, uint opcodeAddress, uint relativeOffset)
+    private static bool IsWholeWordToken(string text, int tokenStart, int tokenLength)
+    {
+        var hasWordBefore = tokenStart > 0 && IsWordCharacter(text[tokenStart - 1]);
+        if (hasWordBefore)
+            return false;
+
+        var tokenEnd = tokenStart + tokenLength;
+        var hasWordAfter = tokenEnd < text.Length && IsWordCharacter(text[tokenEnd]);
+        return !hasWordAfter;
+    }
+
+    private static bool IsWordCharacter(char value) =>
+        char.IsLetterOrDigit(value) || value == '_';
+
+    private static ushort ReadWordAt(Emulation.Bus bus, uint opcodeAddress, uint relativeOffset)
     {
         var address = EffectiveAddressMath.NormalizeAddress24(opcodeAddress + relativeOffset);
         return bus.Read16BigEndian(address);
     }
 
-    private static uint ReadLongAt(DTC.Emulation.Bus bus, uint opcodeAddress, uint relativeOffset)
+    private static uint ReadLongAt(Emulation.Bus bus, uint opcodeAddress, uint relativeOffset)
     {
         var address = EffectiveAddressMath.NormalizeAddress24(opcodeAddress + relativeOffset);
         return bus.Read32BigEndian(address);

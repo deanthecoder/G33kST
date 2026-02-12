@@ -36,10 +36,7 @@ public static class BitInstructions
             return DecodeBitOperation(opcode, isImmediateBitNumber: false);
 
         // 0000 1000 oo mmm rrr = immediate bit operations (bit number in extension word).
-        if ((opcode & 0xFF00) == 0x0800)
-            return DecodeBitOperation(opcode, isImmediateBitNumber: true);
-
-        return null;
+        return (opcode & 0xFF00) != 0x0800 ? null : DecodeBitOperation(opcode, isImmediateBitNumber: true);
     }
 
     private static Instruction DecodeBitOperation(ushort opcode, bool isImmediateBitNumber)
@@ -48,10 +45,10 @@ public static class BitInstructions
         var destination = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         return operationCode switch
         {
-            0 => SupportsBitTestDestination(destination) ? (isImmediateBitNumber ? InstrBtstImmediate : InstrBtstDynamic) : null,
-            1 => SupportsBitModifyDestination(destination) ? (isImmediateBitNumber ? InstrBchgImmediate : InstrBchgDynamic) : null,
-            2 => SupportsBitModifyDestination(destination) ? (isImmediateBitNumber ? InstrBclrImmediate : InstrBclrDynamic) : null,
-            3 => SupportsBitModifyDestination(destination) ? (isImmediateBitNumber ? InstrBsetImmediate : InstrBsetDynamic) : null,
+            0 => SupportsBitTestDestination(destination) ? isImmediateBitNumber ? InstrBtstImmediate : InstrBtstDynamic : null,
+            1 => SupportsBitModifyDestination(destination) ? isImmediateBitNumber ? InstrBchgImmediate : InstrBchgDynamic : null,
+            2 => SupportsBitModifyDestination(destination) ? isImmediateBitNumber ? InstrBclrImmediate : InstrBclrDynamic : null,
+            3 => SupportsBitModifyDestination(destination) ? isImmediateBitNumber ? InstrBsetImmediate : InstrBsetDynamic : null,
             _ => null
         };
     }
@@ -81,6 +78,7 @@ public static class BitInstructions
         var bitNumber = cpu.Registers.GetDataRegister(bitRegister);
         var destination = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         ApplyBitTest(cpu, destination, (int)bitNumber);
+        cpu.InternalWait(InstructionTiming.GetBitOperationCycles(modifiesDestination: false, immediateBitNumber: false, destination));
     }
 
     /// <summary>
@@ -91,6 +89,7 @@ public static class BitInstructions
         var bitNumber = (byte)cpu.FetchPcWord();
         var destination = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         ApplyBitTest(cpu, destination, bitNumber);
+        cpu.InternalWait(InstructionTiming.GetBitOperationCycles(modifiesDestination: false, immediateBitNumber: true, destination));
     }
 
     /// <summary>
@@ -102,6 +101,7 @@ public static class BitInstructions
         var bitNumber = cpu.Registers.GetDataRegister(bitRegister);
         var destination = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         ApplyBitModify(cpu, destination, (int)bitNumber, BitOperation.Change);
+        cpu.InternalWait(InstructionTiming.GetBitOperationCycles(modifiesDestination: true, immediateBitNumber: false, destination));
     }
 
     /// <summary>
@@ -112,6 +112,7 @@ public static class BitInstructions
         var bitNumber = (byte)cpu.FetchPcWord();
         var destination = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         ApplyBitModify(cpu, destination, bitNumber, BitOperation.Change);
+        cpu.InternalWait(InstructionTiming.GetBitOperationCycles(modifiesDestination: true, immediateBitNumber: true, destination));
     }
 
     /// <summary>
@@ -123,6 +124,7 @@ public static class BitInstructions
         var bitNumber = cpu.Registers.GetDataRegister(bitRegister);
         var destination = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         ApplyBitModify(cpu, destination, (int)bitNumber, BitOperation.Clear);
+        cpu.InternalWait(InstructionTiming.GetBitOperationCycles(modifiesDestination: true, immediateBitNumber: false, destination));
     }
 
     /// <summary>
@@ -133,6 +135,7 @@ public static class BitInstructions
         var bitNumber = (byte)cpu.FetchPcWord();
         var destination = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         ApplyBitModify(cpu, destination, bitNumber, BitOperation.Clear);
+        cpu.InternalWait(InstructionTiming.GetBitOperationCycles(modifiesDestination: true, immediateBitNumber: true, destination));
     }
 
     /// <summary>
@@ -144,6 +147,7 @@ public static class BitInstructions
         var bitNumber = cpu.Registers.GetDataRegister(bitRegister);
         var destination = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         ApplyBitModify(cpu, destination, (int)bitNumber, BitOperation.Set);
+        cpu.InternalWait(InstructionTiming.GetBitOperationCycles(modifiesDestination: true, immediateBitNumber: false, destination));
     }
 
     /// <summary>
@@ -154,6 +158,7 @@ public static class BitInstructions
         var bitNumber = (byte)cpu.FetchPcWord();
         var destination = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         ApplyBitModify(cpu, destination, bitNumber, BitOperation.Set);
+        cpu.InternalWait(InstructionTiming.GetBitOperationCycles(modifiesDestination: true, immediateBitNumber: true, destination));
     }
 
     private static void ApplyBitTest(Cpu cpu, EffectiveAddress destination, int bitNumber)

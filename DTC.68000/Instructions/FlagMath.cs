@@ -55,7 +55,7 @@ public static class FlagMath
     {
         registers.NegativeFlag = (result & 0x80) != 0;
         registers.ZeroFlag = result == 0;
-        registers.OverflowFlag = ((~(destination ^ source) & (destination ^ result)) & 0x80) != 0;
+        registers.OverflowFlag = (~(destination ^ source) & (destination ^ result) & 0x80) != 0;
         registers.CarryFlag = destination + source > 0xFF;
     }
 
@@ -66,7 +66,7 @@ public static class FlagMath
     {
         registers.NegativeFlag = (result & 0x8000) != 0;
         registers.ZeroFlag = result == 0;
-        registers.OverflowFlag = ((~(destination ^ source) & (destination ^ result)) & 0x8000) != 0;
+        registers.OverflowFlag = (~(destination ^ source) & (destination ^ result) & 0x8000) != 0;
         registers.CarryFlag = destination + source > 0xFFFF;
     }
 
@@ -77,8 +77,8 @@ public static class FlagMath
     {
         registers.NegativeFlag = (result & 0x8000_0000) != 0;
         registers.ZeroFlag = result == 0;
-        registers.OverflowFlag = ((~(destination ^ source) & (destination ^ result)) & 0x8000_0000) != 0;
-        registers.CarryFlag = ((ulong)destination + source) > 0xFFFF_FFFF;
+        registers.OverflowFlag = (~(destination ^ source) & (destination ^ result) & 0x8000_0000) != 0;
+        registers.CarryFlag = (ulong)destination + source > 0xFFFF_FFFF;
     }
 
     /// <summary>

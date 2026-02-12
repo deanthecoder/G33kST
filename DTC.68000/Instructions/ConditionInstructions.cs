@@ -47,10 +47,8 @@ public static class ConditionInstructions
     public static Instruction TryDecodeDbcc(ushort opcode)
     {
         // 0101 cccc 1100 1rrr = DBcc Dn,#<disp16>.
-        if ((opcode & 0xF0F8) == 0x50C8)
-            return InstrDecrementAndBranchOnCondition;
-        
-        return null;
+        return (opcode & 0xF0F8) == 0x50C8 ? InstrDecrementAndBranchOnCondition : null;
+
     }
 
     /// <summary>

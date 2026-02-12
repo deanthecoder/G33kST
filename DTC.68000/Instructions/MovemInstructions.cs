@@ -76,23 +76,27 @@ public static class MovemInstructions
     {
         var registerMask = cpu.FetchPcWord();
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+        var registerCount = CountRegistersInMask(registerMask);
         var step = size == OperandSize.Word ? 2u : 4u;
         if (ea.Mode == EffectiveAddressMode.AddressRegisterIndirectPreDecrement)
         {
             ExecuteRegistersToMemoryPredecrement(cpu, ea.Register, size, registerMask, step);
-            return;
         }
-
-        var address = ResolveRegistersToMemoryAddress(cpu, ea);
-        for (var registerCode = 0; registerCode <= 15; registerCode++)
+        else
         {
-            if (!MaskIncludesRegister(registerMask, registerCode))
-                continue;
+            var address = ResolveRegistersToMemoryAddress(cpu, ea);
+            for (var registerCode = 0; registerCode <= 15; registerCode++)
+            {
+                if (!MaskIncludesRegister(registerMask, registerCode))
+                    continue;
 
-            var value = ReadMovemRegister(cpu, registerCode);
-            WriteMemory(cpu, address, size, value);
-            address += step;
+                var value = ReadMovemRegister(cpu, registerCode);
+                WriteMemory(cpu, address, size, value);
+                address += step;
+            }
         }
+
+        cpu.InternalWait(InstructionTiming.GetMovemCycles(size, memoryToRegisters: false, ea, registerCount));
     }
 
     private static void ExecuteRegistersToMemoryPredecrement(Cpu cpu, byte addressRegisterIndex, OperandSize size, ushort registerMask, uint step)
@@ -123,6 +127,7 @@ public static class MovemInstructions
     {
         var registerMask = cpu.FetchPcWord();
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
+        var registerCount = CountRegistersInMask(registerMask);
         var source = ResolveMemoryToRegistersSource(cpu, ea);
         var address = source.Address;
         var step = size == OperandSize.Word ? 2u : 4u;
@@ -143,6 +148,8 @@ public static class MovemInstructions
             cpu.Registers.SetAddressRegister(
                 source.PostIncrementRegisterIndex,
                 unchecked(source.PostIncrementBaseAddress + (transferredRegisterCount * step)));
+
+        cpu.InternalWait(InstructionTiming.GetMovemCycles(size, memoryToRegisters: true, ea, registerCount));
     }
 
     private static uint ResolveRegistersToMemoryAddress(Cpu cpu, EffectiveAddress ea) =>
@@ -340,6 +347,16 @@ public static class MovemInstructions
 
     private static bool MaskIncludesRegisterPredecrement(ushort registerMask, int registerCode) =>
         (registerMask & (1 << (15 - registerCode))) != 0;
+
+    private static int CountRegistersInMask(ushort registerMask)
+    {
+        var count = 0;
+        for (var registerCode = 0; registerCode <= 15; registerCode++)
+            if (MaskIncludesRegister(registerMask, registerCode))
+                count++;
+
+        return count;
+    }
 
     private static uint ReadMovemRegister(Cpu cpu, int registerCode) =>
         registerCode < 8

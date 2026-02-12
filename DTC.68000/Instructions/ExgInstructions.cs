@@ -52,6 +52,7 @@ public static class ExgInstructions
         var secondValue = cpu.Registers.GetDataRegister(secondRegisterIndex);
         cpu.Registers.SetDataRegister(firstRegisterIndex, secondValue);
         cpu.Registers.SetDataRegister(secondRegisterIndex, firstValue);
+        cpu.InternalWait(InstructionTiming.GetExgCycles());
     }
 
     /// <summary>
@@ -65,6 +66,7 @@ public static class ExgInstructions
         var secondValue = cpu.Registers.GetAddressRegister(secondRegisterIndex);
         cpu.Registers.SetAddressRegister(firstRegisterIndex, secondValue);
         cpu.Registers.SetAddressRegister(secondRegisterIndex, firstValue);
+        cpu.InternalWait(InstructionTiming.GetExgCycles());
     }
 
     /// <summary>
@@ -78,5 +80,6 @@ public static class ExgInstructions
         var addressValue = cpu.Registers.GetAddressRegister(addressRegisterIndex);
         cpu.Registers.SetDataRegister(dataRegisterIndex, addressValue);
         cpu.Registers.SetAddressRegister(addressRegisterIndex, dataValue);
+        cpu.InternalWait(InstructionTiming.GetExgCycles());
     }
 }

@@ -73,6 +73,7 @@ public static class AddSubtractWithExtendInstructions
 
         WriteDataRegister(cpu, destinationRegisterIndex, size, result.Result);
         ApplyExtendArithmeticFlags(cpu.Registers, result);
+        cpu.InternalWait(InstructionTiming.GetAddSubtractWithExtendCycles(size, memoryForm: false));
     }
 
     /// <summary>
@@ -91,6 +92,7 @@ public static class AddSubtractWithExtendInstructions
 
         WriteMemoryPredecrement(cpu, destinationOperand.Address, size, result.Result);
         ApplyExtendArithmeticFlags(cpu.Registers, result);
+        cpu.InternalWait(InstructionTiming.GetAddSubtractWithExtendCycles(size, memoryForm: true));
     }
 
     /// <summary>
@@ -108,6 +110,7 @@ public static class AddSubtractWithExtendInstructions
 
         WriteDataRegister(cpu, destinationRegisterIndex, size, result.Result);
         ApplyExtendArithmeticFlags(cpu.Registers, result);
+        cpu.InternalWait(InstructionTiming.GetAddSubtractWithExtendCycles(size, memoryForm: false));
     }
 
     /// <summary>
@@ -126,6 +129,7 @@ public static class AddSubtractWithExtendInstructions
 
         WriteMemoryPredecrement(cpu, destinationOperand.Address, size, result.Result);
         ApplyExtendArithmeticFlags(cpu.Registers, result);
+        cpu.InternalWait(InstructionTiming.GetAddSubtractWithExtendCycles(size, memoryForm: true));
     }
 
     /// <summary>
@@ -201,32 +205,6 @@ public static class AddSubtractWithExtendInstructions
             }
             case OperandSize.Long:
                 cpu.Registers.SetDataRegister(registerIndex, (uint)value);
-                return;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(size), size, null);
-        }
-    }
-
-    private static ulong ReadMemory(Cpu cpu, uint address, OperandSize size) =>
-        size switch
-        {
-            OperandSize.Byte => cpu.Read8(address),
-            OperandSize.Word => cpu.Read16(address),
-            _ => cpu.Read32(address)
-        };
-
-    private static void WriteMemory(Cpu cpu, uint address, OperandSize size, ulong value)
-    {
-        switch (size)
-        {
-            case OperandSize.Byte:
-                cpu.Write8(address, (byte)value);
-                return;
-            case OperandSize.Word:
-                cpu.Write16(address, (ushort)value);
-                return;
-            case OperandSize.Long:
-                cpu.Write32(address, (uint)value);
                 return;
             default:
                 throw new ArgumentOutOfRangeException(nameof(size), size, null);

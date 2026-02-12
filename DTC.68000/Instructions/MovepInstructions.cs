@@ -55,6 +55,7 @@ public static class MovepInstructions
         var existing = cpu.Registers.GetDataRegister(dataRegisterIndex) & 0xFFFF0000u;
         var value = existing | ((uint)byte1 << 8) | byte0;
         cpu.Registers.SetDataRegister(dataRegisterIndex, value);
+        cpu.InternalWait(InstructionTiming.GetMovepCycles(isLong: false));
     }
 
     /// <summary>
@@ -70,6 +71,7 @@ public static class MovepInstructions
         var byte0 = cpu.Read8(OffsetAddress(address, 6));
         var value = ((uint)byte3 << 24) | ((uint)byte2 << 16) | ((uint)byte1 << 8) | byte0;
         cpu.Registers.SetDataRegister(dataRegisterIndex, value);
+        cpu.InternalWait(InstructionTiming.GetMovepCycles(isLong: true));
     }
 
     /// <summary>
@@ -82,6 +84,7 @@ public static class MovepInstructions
         var address = ResolveBaseAddress(cpu, opcode);
         cpu.Write8(address, (byte)(value >> 8));
         cpu.Write8(OffsetAddress(address, 2), (byte)value);
+        cpu.InternalWait(InstructionTiming.GetMovepCycles(isLong: false));
     }
 
     /// <summary>
@@ -96,6 +99,7 @@ public static class MovepInstructions
         cpu.Write8(OffsetAddress(address, 2), (byte)(value >> 16));
         cpu.Write8(OffsetAddress(address, 4), (byte)(value >> 8));
         cpu.Write8(OffsetAddress(address, 6), (byte)value);
+        cpu.InternalWait(InstructionTiming.GetMovepCycles(isLong: true));
     }
 
     /// <summary>

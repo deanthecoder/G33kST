@@ -78,6 +78,7 @@ public static class DecimalInstructions
         DestinationOperandAccess.WriteUnsigned(cpu, destination, DestinationOperandSize.Byte, resultState.Result);
         DestinationOperandAccess.ApplyPostIncrement(cpu, destination);
         ApplyDecimalFlags(cpu.Registers, resultState);
+        cpu.InternalWait(InstructionTiming.GetNegateDecimalCycles(destinationEa));
     }
 
     /// <summary>
@@ -95,6 +96,7 @@ public static class DecimalInstructions
         var destinationValue = cpu.Registers.GetDataRegister(destinationRegisterIndex);
         cpu.Registers.SetDataRegister(destinationRegisterIndex, (destinationValue & 0xFFFF_FF00) | resultState.Result);
         ApplyDecimalFlags(cpu.Registers, resultState);
+        cpu.InternalWait(InstructionTiming.GetDecimalAddSubtractCycles(memoryForm: false));
     }
 
     /// <summary>
@@ -113,6 +115,7 @@ public static class DecimalInstructions
 
         cpu.Write8(destinationAddress, resultState.Result);
         ApplyDecimalFlags(cpu.Registers, resultState);
+        cpu.InternalWait(InstructionTiming.GetDecimalAddSubtractCycles(memoryForm: true));
     }
 
     /// <summary>
@@ -130,6 +133,7 @@ public static class DecimalInstructions
         var destinationValue = cpu.Registers.GetDataRegister(destinationRegisterIndex);
         cpu.Registers.SetDataRegister(destinationRegisterIndex, (destinationValue & 0xFFFF_FF00) | resultState.Result);
         ApplyDecimalFlags(cpu.Registers, resultState);
+        cpu.InternalWait(InstructionTiming.GetDecimalAddSubtractCycles(memoryForm: false));
     }
 
     /// <summary>
@@ -148,6 +152,7 @@ public static class DecimalInstructions
 
         cpu.Write8(destinationAddress, resultState.Result);
         ApplyDecimalFlags(cpu.Registers, resultState);
+        cpu.InternalWait(InstructionTiming.GetDecimalAddSubtractCycles(memoryForm: true));
     }
 
     /// <summary>
@@ -180,7 +185,7 @@ public static class DecimalInstructions
             result -= 0xA0;
 
         result &= 0xFF;
-        var overflow = ((~binaryResult & result) & 0x80) != 0;
+        var overflow = (~binaryResult & result & 0x80) != 0;
         return new BcdResult((byte)result, carry, overflow);
     }
 
@@ -199,7 +204,7 @@ public static class DecimalInstructions
         // Carry/extend follows decimal borrow semantics.
         var carry = binaryResult < (lowNibbleDifference < 0 ? 6 : 0);
         result &= 0xFF;
-        var overflow = ((binaryResult & ~result) & 0x80) != 0;
+        var overflow = (binaryResult & ~result & 0x80) != 0;
         return new BcdResult((byte)result, carry, overflow);
     }
 

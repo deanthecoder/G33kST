@@ -40,7 +40,7 @@ public static class EffectiveAddressMath
     /// <summary>
     /// Resolves index register value from a brief extension word.
     /// </summary>
-    public static int ResolveIndexValue(Cpu cpu, ushort extensionWord)
+    private static int ResolveIndexValue(Cpu cpu, ushort extensionWord)
     {
         var usesAddressRegister = (extensionWord & 0x8000) != 0;
         var registerIndex = (extensionWord >> 12) & 0x07;

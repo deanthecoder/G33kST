@@ -218,7 +218,7 @@ public static class DestinationOperandAccess
     /// Returns address-register increment/decrement step for the given operand size.
     /// Byte uses A7-special handling to preserve stack alignment.
     /// </summary>
-    public static uint AddressStep(DestinationOperandSize size, byte registerIndex) =>
+    private static uint AddressStep(DestinationOperandSize size, byte registerIndex) =>
         size switch
         {
             DestinationOperandSize.Byte => EffectiveAddressMath.ByteAddressStep(registerIndex),

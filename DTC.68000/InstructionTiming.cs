@@ -24,7 +24,7 @@ public static class InstructionTiming
     /// <summary>
     /// Fallback cost for instructions that do not yet provide an explicit timing path.
     /// </summary>
-    public const uint BaselineUntimedInstructionCycles = 4;
+    private const uint BaselineUntimedInstructionCycles = 4;
 
     /// <summary>
     /// Applies baseline timing when an instruction did not account for cycles itself.
@@ -109,4 +109,193 @@ public static class InstructionTiming
 
         return usedExtensionWord ? 12u : 8u;
     }
+
+    /// <summary>
+    /// Returns register-form shift/rotate timing for the given operand size and count source.
+    /// Immediate-count form has a smaller base cost than register-count form on 68000.
+    /// </summary>
+    public static uint GetRegisterShiftRotateCycles(OperandSize size, bool countFromRegister, int count)
+    {
+        var effectiveCount = Math.Clamp(count, 0, 63);
+        var baseCycles = size == OperandSize.Long ? 8u : 6u;
+        if (countFromRegister)
+            baseCycles += 2;
+
+        return baseCycles + ((uint)effectiveCount * 2);
+    }
+
+    /// <summary>
+    /// Returns memory-form shift/rotate timing for 68000 word-sized destination operations.
+    /// The table format is <c>8 + &lt;ea&gt;</c>, where this helper provides the EA component.
+    /// </summary>
+    public static uint GetMemoryShiftRotateCycles(EffectiveAddress effectiveAddress) =>
+        8u + GetControlEffectiveAddressCycles(effectiveAddress);
+
+    /// <summary>
+    /// Returns a coarse MOVE timing estimate based on source/destination EA costs.
+    /// This follows a simple "read + write + base" model suitable for phase-1 software bring-up.
+    /// </summary>
+    public static uint GetMoveCycles(OperandSize size, EffectiveAddress source, EffectiveAddress destination)
+    {
+        const uint baseCycles = 4;
+        return baseCycles
+             + GetDataEffectiveAddressCycles(size, source)
+             + GetDataEffectiveAddressCycles(size, destination);
+    }
+
+    /// <summary>
+    /// Returns a coarse MOVEA timing estimate.
+    /// MOVEA consumes the source EA and writes only an address register destination.
+    /// </summary>
+    public static uint GetMoveAddressCycles(OperandSize size, EffectiveAddress source)
+    {
+        const uint baseCycles = 4;
+        return baseCycles + GetDataEffectiveAddressCycles(size, source);
+    }
+
+    /// <summary>
+    /// Returns a coarse unary-operation timing estimate for CLR/NEG/NEGX/NOT style instructions.
+    /// </summary>
+    public static uint GetUnaryModifyCycles(OperandSize size, EffectiveAddress destination)
+    {
+        var baseCycles = size == OperandSize.Long ? 6u : 4u;
+        return baseCycles + GetDataEffectiveAddressCycles(size, destination);
+    }
+
+    /// <summary>
+    /// Returns a coarse unary-read timing estimate for TST.
+    /// </summary>
+    public static uint GetUnaryTestCycles(OperandSize size, EffectiveAddress source)
+    {
+        var baseCycles = size == OperandSize.Long ? 6u : 4u;
+        return baseCycles + GetDataEffectiveAddressCycles(size, source);
+    }
+
+    /// <summary>
+    /// Returns a coarse TAS timing estimate.
+    /// </summary>
+    public static uint GetTasCycles(EffectiveAddress destination) =>
+        destination.Mode == EffectiveAddressMode.DataRegisterDirect
+            ? 4u
+            : 10u + GetDataEffectiveAddressCycles(OperandSize.Byte, destination);
+
+    /// <summary>
+    /// Returns ADDI/SUBI timing as a simple immediate-overhead plus destination EA model.
+    /// </summary>
+    public static uint GetAddSubtractImmediateCycles(OperandSize size, EffectiveAddress destination)
+    {
+        var baseCycles = size == OperandSize.Long ? 12u : 8u;
+        return baseCycles + GetDataEffectiveAddressCycles(size, destination);
+    }
+
+    /// <summary>
+    /// Returns CMPI timing as compare timing plus immediate extension-word overhead.
+    /// </summary>
+    public static uint GetCompareImmediateCycles(OperandSize size, EffectiveAddress destination)
+    {
+        var baseCycles = size == OperandSize.Long ? 12u : 8u;
+        return baseCycles + GetDataEffectiveAddressCycles(size, destination);
+    }
+
+    /// <summary>
+    /// Returns ORI/ANDI/EORI to CCR/SR timing.
+    /// </summary>
+    public static uint GetImmediateStatusCycles(bool targetsStatusRegister) =>
+        targetsStatusRegister ? 20u : 12u;
+
+    /// <summary>
+    /// Returns coarse BTST/BCHG/BCLR/BSET timing.
+    /// </summary>
+    public static uint GetBitOperationCycles(bool modifiesDestination, bool immediateBitNumber, EffectiveAddress destination)
+    {
+        if (destination.Mode == EffectiveAddressMode.DataRegisterDirect)
+        {
+            var registerBase = modifiesDestination ? 8u : 6u;
+            if (immediateBitNumber)
+                registerBase += 2;
+            return registerBase;
+        }
+
+        var memoryBase = modifiesDestination ? 8u : 6u;
+        if (immediateBitNumber)
+            memoryBase += 4;
+        return memoryBase + GetDataEffectiveAddressCycles(OperandSize.Byte, destination);
+    }
+
+    /// <summary>
+    /// Returns coarse MOVEM timing from register count and addressing mode.
+    /// </summary>
+    public static uint GetMovemCycles(OperandSize size, bool memoryToRegisters, EffectiveAddress effectiveAddress, int registerCount)
+    {
+        var wordsPerRegister = size == OperandSize.Long ? 2u : 1u;
+        var transferCyclesPerRegister = size == OperandSize.Long ? 8u : 4u;
+        var baseCycles = memoryToRegisters ? 8u : 4u;
+        var extensionCycles = GetMovemEaCycles(effectiveAddress, wordsPerRegister);
+        return baseCycles + extensionCycles + (uint)registerCount * transferCyclesPerRegister;
+    }
+
+    /// <summary>
+    /// Returns MOVEP timing.
+    /// </summary>
+    public static uint GetMovepCycles(bool isLong) =>
+        isLong ? 24u : 16u;
+
+    /// <summary>
+    /// Returns EXG timing.
+    /// </summary>
+    public static uint GetExgCycles() => 6u;
+
+    /// <summary>
+    /// Returns ADDX/SUBX timing.
+    /// </summary>
+    public static uint GetAddSubtractWithExtendCycles(OperandSize size, bool memoryForm)
+    {
+        if (memoryForm)
+            return size == OperandSize.Long ? 30u : 18u;
+
+        return size == OperandSize.Long ? 8u : 4u;
+    }
+
+    /// <summary>
+    /// Returns ABCD/SBCD timing.
+    /// </summary>
+    public static uint GetDecimalAddSubtractCycles(bool memoryForm) =>
+        memoryForm ? 18u : 6u;
+
+    /// <summary>
+    /// Returns NBCD timing.
+    /// </summary>
+    public static uint GetNegateDecimalCycles(EffectiveAddress destination) =>
+        6u + GetDataEffectiveAddressCycles(OperandSize.Byte, destination);
+
+    /// <summary>
+    /// Returns coarse MULx timing.
+    /// </summary>
+    public static uint GetMultiplyCycles(EffectiveAddress source) =>
+        38u + GetDataEffectiveAddressCycles(OperandSize.Word, source);
+
+    /// <summary>
+    /// Returns coarse DIVx timing.
+    /// </summary>
+    public static uint GetDivideCycles(EffectiveAddress source) =>
+        76u + GetDataEffectiveAddressCycles(OperandSize.Word, source);
+
+    /// <summary>
+    /// Returns divide-by-zero trap entry timing.
+    /// </summary>
+    public static uint GetDivideByZeroTrapCycles() => 38u;
+
+    private static uint GetMovemEaCycles(EffectiveAddress effectiveAddress, uint wordsPerRegister) =>
+        effectiveAddress.Mode switch
+        {
+            EffectiveAddressMode.AddressRegisterIndirect => 0,
+            EffectiveAddressMode.AddressRegisterIndirectPostIncrement => 0,
+            EffectiveAddressMode.AddressRegisterIndirectPreDecrement => 2 * wordsPerRegister,
+            EffectiveAddressMode.AddressRegisterIndirectDisplacement => 4,
+            EffectiveAddressMode.AddressRegisterIndirectIndex => 6,
+            EffectiveAddressMode.Other when effectiveAddress.Register is 0 or 2 => 4,
+            EffectiveAddressMode.Other when effectiveAddress.Register is 1 => 8,
+            EffectiveAddressMode.Other when effectiveAddress.Register == 3 => 6,
+            _ => 0
+        };
 }
