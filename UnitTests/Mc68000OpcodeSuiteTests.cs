@@ -9,7 +9,9 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using DTC.Emulation;
+using DTC.Emulation.Debuggers;
 using DTC.M68000;
+using DTC.M68000.Decoding;
 using System.Text.RegularExpressions;
 using DTC.Core.Extensions;
 using UnitTests.SingleStep;
@@ -24,6 +26,7 @@ namespace UnitTests;
 public sealed class Mc68000OpcodeSuiteTests
 {
     private const int MaxStepsFullSuite = 2_000_000;
+    private const int TraceLeftColumnWidth = 44;
     
     private static readonly Regex LabelRegex = new(
         @"^(?<address>[0-9A-Fa-f]{8})\s+.*?\b(?<label>[A-Za-z_][A-Za-z0-9_]*):",
@@ -31,6 +34,9 @@ public sealed class Mc68000OpcodeSuiteTests
     private static readonly Regex JsrEntryRegex = new(
         @"^(?<address>[0-9A-Fa-f]{8})\s+.*?\bjsr\s+(?<label>op_[A-Za-z0-9_]+)\b",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex TracePlaceholderRegex = new(
+        "<(?<token>[^>]+)>",
+        RegexOptions.Compiled);
     private static readonly Lazy<SuiteAssets> m_suiteAssets = new(LoadSuiteAssets);
 
     public static IEnumerable<TestCaseData> OpcodeSections =>
@@ -70,6 +76,8 @@ public sealed class Mc68000OpcodeSuiteTests
         var bus = new Bus(0x1000000);
         LoadBinary(bus, suiteAssets.BinaryFile);
         var cpu = new Cpu(bus);
+        var instructionTrace = new InstructionTraceDebugger(1024, FormatTraceLine);
+        cpu.AddDebugger(instructionTrace);
         cpu.Reset();
 
         var isSingleSectionMode = targetSectionName.Length > 0;
@@ -142,7 +150,8 @@ public sealed class Mc68000OpcodeSuiteTests
             failedLabel,
             failureException,
             reachedAllDone,
-            reachedSectionBoundary);
+            reachedSectionBoundary,
+            instructionTrace.GetRecentLines(200));
     }
 
     private static string BuildSummary(SuiteRunResult runResult, string targetSectionName)
@@ -183,7 +192,8 @@ public sealed class Mc68000OpcodeSuiteTests
                         ? "Did not reach ALL_DONE."
                         : $"Did not complete section '{targetSectionName}'.";
 
-        Assert.Fail($"{failureReason}{Environment.NewLine}{summary}");
+        var traceSuffix = BuildTraceSuffix(runResult.InstructionTrace);
+        Assert.Fail($"{failureReason}{Environment.NewLine}{summary}{traceSuffix}");
     }
 
     private static bool IsRunSuccessful(SuiteRunResult runResult, string targetSectionName)
@@ -366,6 +376,38 @@ public sealed class Mc68000OpcodeSuiteTests
         return items.Length == 0 ? "<none>" : items.ToCsv(addSpace: true);
     }
 
+    private static string BuildTraceSuffix(IReadOnlyList<string> traceLines)
+    {
+        if (traceLines == null || traceLines.Count == 0)
+            return string.Empty;
+
+        var prefixed = traceLines.Select(o => $"  {o}");
+        return
+            $"{Environment.NewLine}Recent instruction trace (oldest to newest):{Environment.NewLine}" +
+            string.Join(Environment.NewLine, prefixed);
+    }
+
+    private static string FormatTraceLine(CpuBase cpuBase, uint opcodeAddress, ushort opcode, string instructionText)
+    {
+        var mnemonic = string.IsNullOrWhiteSpace(instructionText)
+            ? InstructionDecoder.Decode(opcode)?.Mnemonic ?? "<unknown>"
+            : instructionText;
+        mnemonic = SimplifyTraceMnemonic(mnemonic);
+        var tracePrefix = $"{(opcodeAddress & 0x00FF_FFFF):X6}: {opcode:X4} {mnemonic}";
+        if (tracePrefix.Length < TraceLeftColumnWidth)
+            tracePrefix = tracePrefix.PadRight(TraceLeftColumnWidth);
+        if (cpuBase is not Cpu cpu)
+            return tracePrefix;
+
+        var currentPc = cpu.Registers.ProgramCounter & 0x00FF_FFFF;
+        var currentSp = cpu.Registers.StackPointer & 0x00FF_FFFF;
+        return
+            $"{tracePrefix} | next={currentPc:X6} SR={cpu.Registers.StatusRegister:X4} SP={currentSp:X6}";
+    }
+
+    private static string SimplifyTraceMnemonic(string mnemonic) =>
+        TracePlaceholderRegex.Replace(mnemonic, "${token}");
+
     private sealed record SuiteAssets(
         FileInfo BinaryFile,
         SuiteListing Listing);
@@ -393,5 +435,6 @@ public sealed class Mc68000OpcodeSuiteTests
         string FailedLabel,
         Exception FailureException,
         bool ReachedAllDone,
-        bool ReachedSectionBoundary);
+        bool ReachedSectionBoundary,
+        IReadOnlyList<string> InstructionTrace);
 }

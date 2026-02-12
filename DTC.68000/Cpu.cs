@@ -268,9 +268,9 @@ public sealed class Cpu : CpuBase
         try
         {
             opcode = FetchPcWord();
-            NotifyBeforeInstruction(opcodeAddress, opcode);
-
             var instruction = InstructionDecoder.Decode(opcode) ?? throw new NotImplementedException($"Opcode 0x{opcode:X4} is not implemented.");
+            var instructionText = InstructionTraceTextFormatter.Format(opcode, instruction, this, opcodeAddress);
+            NotifyBeforeInstruction(opcodeAddress, opcode, instructionText);
             instruction.Execute(this, opcode);
             if (EnableTraceExceptions && traceWasEnabled && Registers.TraceFlag)
                 EnterTraceException();
