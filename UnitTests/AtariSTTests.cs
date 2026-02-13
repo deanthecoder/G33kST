@@ -18,13 +18,15 @@ namespace UnitTests;
 [TestFixture]
 public sealed class AtariSTTests : TestsBase
 {
+    private const uint RealTimeClockRegister = 0x00FFFC21;
+    private const uint RealTimeClockAlarmMinuteLowRegister = 0x00FFFC27;
+    private const uint VideoModeRegister = 0x00FF8260;
+
     [Test]
-    public void Constructor_ShouldInitializeMachineWithDefaultDescriptor()
+    public void ConstructorShouldInitializeMachineWithDefaultDescriptor()
     {
-        // Arrange & Act
         var atariST = new AtariST();
 
-        // Assert
         Assert.That(atariST, Is.Not.Null);
         Assert.That(atariST.Name, Is.EqualTo("Atari ST 1040 STFM"));
         Assert.That(atariST.Descriptor, Is.Not.Null);
@@ -38,12 +40,10 @@ public sealed class AtariSTTests : TestsBase
     }
 
     [Test]
-    public void Constructor_ShouldInitializeCpuAndMemory()
+    public void ConstructorShouldInitializeCpuAndMemory()
     {
-        // Arrange & Act
         var atariST = new AtariST();
 
-        // Assert
         Assert.That(atariST.Cpu, Is.Not.Null);
         Assert.That(atariST.Ram, Is.Not.Null);
         Assert.That(atariST.Rom, Is.Not.Null);
@@ -52,67 +52,171 @@ public sealed class AtariSTTests : TestsBase
     }
 
     [Test]
-    public void Constructor_ShouldInitializeWithZeroCycles()
+    public void ConstructorShouldUseAtariStOptionsRamSize()
     {
-        // Arrange & Act
+        var options = new AtariSTOptions
+        {
+            RamSizeBytes = 512 * 1024
+        };
+        var atariST = new AtariST(options);
+
+        Assert.That(atariST.Ram.Data.Length, Is.EqualTo(512 * 1024));
+    }
+
+    [Test]
+    public void ConstructorDefaultConfigShouldNotExposeRealTimeClockWindow()
+    {
         var atariST = new AtariST();
 
-        // Assert
+        var value = atariST.Cpu.Bus.Read8(RealTimeClockRegister);
+
+        Assert.That(value, Is.EqualTo(0xFF));
+    }
+
+    [Test]
+    public void ConstructorConfigWithRealTimeClockShouldExposeClockWindow()
+    {
+        var options = new AtariSTOptions
+        {
+            HasRealTimeClock = true
+        };
+        var atariST = new AtariST(options);
+
+        var value = atariST.Cpu.Bus.Read8(RealTimeClockRegister);
+
+        Assert.That(value, Is.Not.EqualTo(0xFF));
+    }
+
+    [Test]
+    public void ConstructorDefaultConfigShouldNotLatchRealTimeClockWrites()
+    {
+        var atariST = new AtariST();
+        atariST.Cpu.Bus.Write8(RealTimeClockAlarmMinuteLowRegister, 0x0A);
+
+        var value = atariST.Cpu.Bus.Read8(RealTimeClockAlarmMinuteLowRegister);
+
+        Assert.That(value, Is.EqualTo(0xFF));
+    }
+
+    [Test]
+    public void ConstructorDefaultColorMonitorShouldBootInLowResolutionMode()
+    {
+        var atariST = new AtariST();
+        var shifter = (Shifter)atariST.Video;
+        var oneFrameTicks = (long)Math.Ceiling(atariST.Descriptor.CpuHz / atariST.Descriptor.VideoHz);
+
+        atariST.AdvanceDevices(oneFrameTicks);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(atariST.Cpu.Bus.Read8(VideoModeRegister) & 0x03, Is.EqualTo(0));
+            Assert.That(shifter.ActiveWidth, Is.EqualTo(320));
+            Assert.That(shifter.ActiveHeight, Is.EqualTo(200));
+        });
+    }
+
+    [Test]
+    public void ConstructorMonochromeMonitorShouldBootInHighResolutionMode()
+    {
+        var options = new AtariSTOptions
+        {
+            MonitorType = AtariMonitorType.Monochrome
+        };
+        var atariST = new AtariST(options);
+        var shifter = (Shifter)atariST.Video;
+        var oneFrameTicks = (long)Math.Ceiling(atariST.Descriptor.CpuHz / atariST.Descriptor.VideoHz);
+
+        atariST.AdvanceDevices(oneFrameTicks);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(atariST.Cpu.Bus.Read8(VideoModeRegister) & 0x03, Is.EqualTo(2));
+            Assert.That(shifter.ActiveWidth, Is.EqualTo(640));
+            Assert.That(shifter.ActiveHeight, Is.EqualTo(400));
+        });
+    }
+
+    [Test]
+    public void MemoryWritesAboveConfiguredRamShouldReadBackAsOpenBus()
+    {
+        var atariST = new AtariST();
+        var bus = atariST.Cpu.Bus;
+        var mappedAddresses = new uint[]
+        {
+            0x00000010,
+            0x00080000,
+            0x000FFFFF
+        };
+        var unmappedAddresses = new uint[]
+        {
+            0x00100000,
+            0x00180000,
+            0x00200000
+        };
+
+        foreach (var address in mappedAddresses)
+            bus.Write8(address, 0x5A);
+        foreach (var address in unmappedAddresses)
+            bus.Write8(address, 0x5A);
+
+        Assert.Multiple(() =>
+        {
+            foreach (var address in mappedAddresses)
+                Assert.That(bus.Read8(address), Is.EqualTo(0x5A), $"RAM write should stick at ${address:X6}.");
+            foreach (var address in unmappedAddresses)
+                Assert.That(bus.Read8(address), Is.EqualTo(0xFF), $"Open-bus range should read as 0xFF at ${address:X6}.");
+        });
+    }
+
+    [Test]
+    public void ConstructorShouldInitializeWithZeroCycles()
+    {
+        var atariST = new AtariST();
+
         Assert.That(atariST.CpuTicks, Is.EqualTo(0));
     }
 
     [Test]
-    public void HasLoadedCartridge_ShouldBeFalseInitially()
+    public void HasLoadedCartridgeShouldBeFalseInitially()
     {
-        // Arrange & Act
         var atariST = new AtariST();
 
-        // Assert
         Assert.That(atariST.HasLoadedCartridge, Is.False);
     }
 
     [Test]
-    public void LoadRom_ShouldThrowWhenRomDataIsNull()
+    public void LoadRomShouldThrowWhenRomDataIsNull()
     {
-        // Arrange
         var atariST = new AtariST();
 
-        // Act & Assert
         Assert.That(() => atariST.LoadRom(null, "test.rom"), Throws.TypeOf<ArgumentException>());
     }
 
     [Test]
-    public void LoadRom_ShouldThrowWhenRomDataIsEmpty()
+    public void LoadRomShouldThrowWhenRomDataIsEmpty()
     {
-        // Arrange
         var atariST = new AtariST();
 
-        // Act & Assert
         Assert.That(() => atariST.LoadRom(Array.Empty<byte>(), "test.rom"), Throws.TypeOf<ArgumentException>());
     }
 
     [Test]
-    public void LoadRom_ShouldThrowWhenRomDataIsTooLarge()
+    public void LoadRomShouldThrowWhenRomDataIsTooLarge()
     {
-        // Arrange
         var atariST = new AtariST();
         var tooLargeRom = new byte[200 * 1024]; // 200KB, larger than 192KB max
 
-        // Act & Assert
         Assert.That(() => atariST.LoadRom(tooLargeRom, "test.rom"), Throws.TypeOf<ArgumentException>());
     }
 
     [Test]
-    public void LoadRom_ShouldLoadValidRomData()
+    public void LoadRomShouldLoadValidRomData()
     {
-        // Arrange
         var atariST = new AtariST();
         var romData = CreateMinimalTosRom();
 
-        // Act
         atariST.LoadRom(romData, "tos.img");
 
-        // Assert
         Assert.That(atariST.HasLoadedCartridge, Is.True);
         // Verify ROM data was copied
         for (int i = 0; i < romData.Length; i++)
@@ -122,102 +226,170 @@ public sealed class AtariSTTests : TestsBase
     }
 
     [Test]
-    public void Reset_ShouldResetCpuState()
+    public void ResetShouldResetCpuState()
     {
-        // Arrange
         var atariST = new AtariST();
         var romData = CreateMinimalTosRom();
         atariST.LoadRom(romData, "tos.img");
 
         // Step CPU to change state
         atariST.StepCpu();
-        var ticksAfterStep = atariST.CpuTicks;
 
-        // Act
         atariST.Reset();
 
-        // Assert
         Assert.That(atariST.CpuTicks, Is.EqualTo(0));
         Assert.That(atariST.Cpu.Registers.ProgramCounter, Is.Not.EqualTo(0xFC0000)); // Should have loaded from reset vector
     }
 
     [Test]
-    public void RomDevice_ShouldBeReadOnly()
+    public void RomDeviceShouldBeReadOnly()
     {
-        // Arrange
         var atariST = new AtariST();
         var romData = CreateMinimalTosRom();
         atariST.LoadRom(romData, "tos.img");
 
-        // Act - Try to write to ROM via the device
         var originalValue = atariST.Rom.Data[0];
         atariST.Rom.Write8(0xFC0000, 0xFF);
 
-        // Assert - Value should remain unchanged
         Assert.That(atariST.Rom.Data[0], Is.EqualTo(originalValue));
     }
 
     [Test]
-    public void RomDevice_ShouldBeAccessibleAtCorrectAddress()
+    public void RomDeviceShouldBeAccessibleAtCorrectAddress()
     {
-        // Arrange
         var atariST = new AtariST();
         var romData = CreateMinimalTosRom();
         atariST.LoadRom(romData, "tos.img");
 
-        // Act - Read from ROM address
         var value = atariST.Rom.Read8(0xFC0000);
 
-        // Assert
         Assert.That(value, Is.EqualTo(romData[0]));
     }
 
     [Test]
-    public void StepCpu_ShouldExecuteInstruction()
+    public void StepCpuShouldExecuteInstruction()
     {
-        // Arrange
         var atariST = new AtariST();
         var romData = CreateMinimalTosRom();
         atariST.LoadRom(romData, "tos.img");
 
         var initialTicks = atariST.CpuTicks;
 
-        // Act
         atariST.StepCpu();
 
-        // Assert
         Assert.That(atariST.CpuTicks, Is.GreaterThan(initialTicks), "CPU should have advanced cycles");
     }
 
     [Test]
-    public void RomMirror_ShouldBeAttachedToBus()
+    public void KeyboardAciaStatusShouldReportTransmitReady()
     {
-        // Arrange & Act
         var atariST = new AtariST();
 
-        // Assert
-        Assert.That(atariST.RomMirror, Is.Not.Null);
+        var status = atariST.Cpu.Bus.Read8(0x00FFFC00);
+
+        Assert.That(status & 0x02, Is.Not.Zero);
     }
 
     [Test]
-    public void AdvanceDevices_ShouldScheduleVblankInterrupt()
+    public void KeyboardAciaResetCommandShouldQueueAcknowledgeByte()
     {
-        // Arrange
+        var atariST = new AtariST();
+
+        atariST.Cpu.Bus.Write8(0x00FFFC02, 0x80);
+        atariST.Cpu.Bus.Write8(0x00FFFC02, 0x01);
+        var status = atariST.Cpu.Bus.Read8(0x00FFFC00);
+        var data = atariST.Cpu.Bus.Read8(0x00FFFC02);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(status & 0x01, Is.Not.Zero, "Receive-ready should be set after IKBD reset command.");
+            Assert.That(data, Is.EqualTo(0xF1), "IKBD reset complete code should be returned.");
+        });
+    }
+
+    [Test]
+    public void InjectKeyboardScanCodeShouldQueueLevel6Interrupt()
+    {
         var atariST = new AtariST();
         atariST.Reset();
-        var oneFrameTicks = (long)Math.Ceiling(atariST.Descriptor.CpuHz / atariST.Descriptor.VideoHz);
+        var bus = atariST.Cpu.Bus;
+        const uint interruptEnableBRegister = 0x00FFFA09;
+        const uint interruptMaskBRegister = 0x00FFFA15;
+        const uint keyboardAciaControlRegister = 0x00FFFC00;
+        bus.Write8(interruptEnableBRegister, 0x40);
+        bus.Write8(interruptMaskBRegister, 0x40);
+        bus.Write8(keyboardAciaControlRegister, 0x80);
 
-        // Act
-        atariST.AdvanceDevices(oneFrameTicks);
+        atariST.InjectKeyboardScanCode(0x1C);
 
-        // Assert
+        var hasInterrupt = atariST.TryConsumeInterrupt();
+
+        Assert.That(hasInterrupt, Is.True);
+    }
+
+    [Test]
+    public void MfpTimerInterruptShouldQueueLevel6Interrupt()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        const uint interruptEnableBRegister = 0x00FFFA09;
+        const uint interruptMaskBRegister = 0x00FFFA15;
+        const uint vectorRegister = 0x00FFFA17;
+        const uint timerCdControlRegister = 0x00FFFA1D;
+        const uint timerDDataRegister = 0x00FFFA25;
+        var bus = atariST.Cpu.Bus;
+
+        bus.Write8(vectorRegister, 0x50);
+        bus.Write8(interruptEnableBRegister, 0x10);
+        bus.Write8(interruptMaskBRegister, 0x10);
+        bus.Write8(timerDDataRegister, 0x01);
+        bus.Write8(timerCdControlRegister, 0x01);
+        atariST.AdvanceDevices(4);
+
         Assert.That(atariST.TryConsumeInterrupt(), Is.True);
     }
 
     [Test]
-    public void Video_ShouldRenderLowResolutionBitplanesToFrameBuffer()
+    public void RomMirrorShouldBeAttachedToBus()
     {
-        // Arrange
+        var atariST = new AtariST();
+
+        Assert.That(atariST.RomMirror, Is.Not.Null);
+    }
+
+    [Test]
+    public void WritingMemoryConfigRegisterShouldNotChangeResetVectorMirror()
+    {
+        var atariST = new AtariST();
+        var romData = CreateMinimalTosRom();
+        atariST.LoadRom(romData, "tos.img");
+        var before = atariST.Cpu.Bus.Read8(0x000000);
+        atariST.Cpu.Bus.Write8(0x00FF8001, 0x01);
+        atariST.Ram.Write8(0x000000, 0xFF);
+        var after = atariST.Cpu.Bus.Read8(0x000000);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(before, Is.EqualTo(romData[0]));
+            Assert.That(after, Is.EqualTo(romData[0]));
+        });
+    }
+
+    [Test]
+    public void AdvanceDevicesShouldScheduleVblankInterrupt()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        var oneFrameTicks = (long)Math.Ceiling(atariST.Descriptor.CpuHz / atariST.Descriptor.VideoHz);
+
+        atariST.AdvanceDevices(oneFrameTicks);
+
+        Assert.That(atariST.TryConsumeInterrupt(), Is.True);
+    }
+
+    [Test]
+    public void VideoShouldRenderLowResolutionBitplanesToFrameBuffer()
+    {
         var atariST = new AtariST();
         atariST.Reset();
         var bus = atariST.Cpu.Bus;
@@ -229,6 +401,7 @@ public sealed class AtariSTTests : TestsBase
         var oneFrameTicks = (long)Math.Ceiling(atariST.Descriptor.CpuHz / atariST.Descriptor.VideoHz);
         var frameRendered = false;
         atariST.Video.FrameRendered += (_, _) => frameRendered = true;
+        bus.Write8(0x00FF8001, 0x01);
 
         // Low-res mode.
         bus.Write8(videoModeRegister, 0x00);
@@ -246,12 +419,10 @@ public sealed class AtariSTTests : TestsBase
         bus.Write16BigEndian(screenBaseAddress + 4, 0x0000); // Plane 2
         bus.Write16BigEndian(screenBaseAddress + 6, 0x0000); // Plane 3
 
-        // Act
         atariST.AdvanceDevices(oneFrameTicks);
         var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * 4];
         atariST.Video.CopyToFrameBuffer(frameBuffer);
 
-        // Assert
         Assert.Multiple(() =>
         {
             Assert.That(frameRendered, Is.True);
@@ -277,9 +448,8 @@ public sealed class AtariSTTests : TestsBase
     }
 
     [Test]
-    public void Video_ShouldRenderHighResolutionMonochromeWithZeroAsWhite()
+    public void VideoShouldRenderHighResolutionMonochromeWithZeroAsWhite()
     {
-        // Arrange
         var atariST = new AtariST();
         atariST.Reset();
         var bus = atariST.Cpu.Bus;
@@ -288,6 +458,7 @@ public sealed class AtariSTTests : TestsBase
         const uint videoBaseMidRegister = 0x00FF8203;
         const uint videoModeRegister = 0x00FF8260;
         var oneFrameTicks = (long)Math.Ceiling(atariST.Descriptor.CpuHz / atariST.Descriptor.VideoHz);
+        bus.Write8(0x00FF8001, 0x01);
 
         // High-res mono mode.
         bus.Write8(videoModeRegister, 0x02);
@@ -299,12 +470,10 @@ public sealed class AtariSTTests : TestsBase
         // Bit 15 set (pixel 0 "ink"), remaining bits clear (background).
         bus.Write16BigEndian(screenBaseAddress, 0x8000);
 
-        // Act
         atariST.AdvanceDevices(oneFrameTicks);
         var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * 4];
         atariST.Video.CopyToFrameBuffer(frameBuffer);
 
-        // Assert
         Assert.Multiple(() =>
         {
             // Pixel 0 should be black (set bit).
@@ -322,9 +491,8 @@ public sealed class AtariSTTests : TestsBase
     }
 
     [Test]
-    public void Video_ShouldRenderMediumResolutionWithVerticalScaling()
+    public void VideoShouldRenderMediumResolutionWithVerticalScaling()
     {
-        // Arrange
         var atariST = new AtariST();
         atariST.Reset();
         var bus = atariST.Cpu.Bus;
@@ -334,6 +502,7 @@ public sealed class AtariSTTests : TestsBase
         const uint videoModeRegister = 0x00FF8260;
         const uint paletteBaseRegister = 0x00FF8240;
         var oneFrameTicks = (long)Math.Ceiling(atariST.Descriptor.CpuHz / atariST.Descriptor.VideoHz);
+        bus.Write8(0x00FF8001, 0x01);
 
         // Medium-res mode.
         bus.Write8(videoModeRegister, 0x01);
@@ -349,12 +518,10 @@ public sealed class AtariSTTests : TestsBase
         bus.Write16BigEndian(screenBaseAddress, 0x0000); // Plane 0
         bus.Write16BigEndian(screenBaseAddress + 2, 0x8000); // Plane 1
 
-        // Act
         atariST.AdvanceDevices(oneFrameTicks);
         var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * 4];
         atariST.Video.CopyToFrameBuffer(frameBuffer);
 
-        // Assert
         Assert.Multiple(() =>
         {
             // Pixel (0,0): green.

@@ -15,13 +15,13 @@ namespace UnitTests;
 /// </summary>
 public abstract class TestsBase
 {
-    private static DirectoryInfo s_projectDir;
+    private static DirectoryInfo m_projectDir;
 
     /// <summary>
     /// Gets the project directory for the G33kST solution.
     /// This can be used to locate test files, ROMs, and other resources.
     /// </summary>
-    protected static DirectoryInfo ProjectDir => s_projectDir ??= GetProjectDir();
+    protected static DirectoryInfo ProjectDir => m_projectDir ??= GetProjectDir();
 
     /// <summary>
     /// Gets the project directory for the G33kST solution.
@@ -29,8 +29,8 @@ public abstract class TestsBase
     /// </summary>
     public static DirectoryInfo GetProjectDir()
     {
-        if (s_projectDir != null)
-            return s_projectDir;
+        if (m_projectDir != null)
+            return m_projectDir;
 
         // Start from the test assembly location and walk up to find the solution root
         var dir = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
@@ -40,6 +40,6 @@ public abstract class TestsBase
             dir = dir.Parent;
         }
 
-        return s_projectDir = dir ?? throw new InvalidOperationException("Could not find project root directory (G33kST.sln)");
+        return m_projectDir = dir ?? throw new InvalidOperationException("Could not find project root directory (G33kST.sln)");
     }
 }

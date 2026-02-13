@@ -25,13 +25,27 @@ public sealed class AtariST : IMachine
     // $000000-$0FFFFF: RAM (1MB for ST 1040)
     // Note: ROM is typically mapped at $FC0000 but also appears at $000000 on reset
 
-    private const int RamSize = 1024 * 1024; // 1MB for ST 1040
     internal const uint RomBaseAddress = 0xFC0000;
     private const int RomSize = 192 * 1024; // 192KB ROM
+    private const int FullAddressSpaceSizeBytes = 0x1000000; // 16MB.
+    private const uint BootRomOverlaySize = 8;
+    private const uint VideoModeRegister = 0x00FF8260;
+    private const byte LowResolutionModeValue = 0x00;
+    private const byte HighResolutionModeValue = 0x02;
+    private const uint RealTimeClockFromAddress = 0x00FFFC20;
+    private const uint RealTimeClockToAddress = 0x00FFFC3F;
     private const byte SyntheticVblInterruptLevel = 4;
+    private const byte DefaultKeyboardInterruptVector = 0x48;
+    private readonly AtariSTOptions m_options;
     private readonly Shifter m_video;
-    private int m_pendingVblInterrupts;
+    private readonly AciaIkbdDevice m_aciaIkbd;
+    private readonly SystemControlDevice m_systemControl;
+    private readonly RtcDevice m_rtc;
+    private readonly MfpDevice m_mfp;
+    private readonly List<PendingInterrupt> m_pendingInterrupts = [];
+    private readonly Queue<InterruptAcknowledgeResult>[] m_pendingAcknowledgeByLevel = CreateAcknowledgeQueues();
     private byte m_latchedInterruptLevel;
+    private InterruptAcknowledgeResult m_latchedInterruptAcknowledge;
     private bool m_hasLatchedInterrupt;
 
     public IMachineDescriptor Descriptor { get; } = new AtariSTDescriptor();
@@ -57,29 +71,64 @@ public sealed class AtariST : IMachine
 
     public RomMirrorDevice RomMirror { get; }
 
+    /// <summary>
+    /// Gets or sets the vector number returned for synthetic keyboard interrupts.
+    /// </summary>
+    public byte KeyboardInterruptVector { get; set; } = DefaultKeyboardInterruptVector;
+
     public AtariST()
+        : this(AtariSTOptions.Default)
     {
+    }
+
+    public AtariST(AtariSTOptions options)
+    {
+        m_options = options ?? AtariSTOptions.Default;
+        ValidateOptions(m_options);
+
         // Create main RAM and ROM
-        Ram = new Memory(RamSize);
+        Ram = new Memory(m_options.RamSizeBytes);
         Rom = new RomDevice(RomSize, RomBaseAddress);
 
         // Create ROM mirror for boot-time reset vector access
-        RomMirror = new RomMirrorDevice(Rom);
+        RomMirror = new RomMirrorDevice(Rom, BootRomOverlaySize);
 
         // Create bus with full 24-bit address space (16MB)
-        // The 68000 has a 24-bit address bus, so create a dummy memory device for the full space
-        var fullAddressSpace = new Memory(0x1000000); // 16MB to cover full 24-bit space
+        // The 68000 has a 24-bit address bus, so create a backing device for full space.
+        var fullAddressSpace = new Memory(FullAddressSpaceSizeBytes);
         var bus = new Bus(fullAddressSpace);
+        AttachOpenBusGap(bus, m_options.RamSizeBytes);
 
         // Attach RAM and ROM to the bus (they will override the full address space in their ranges)
         bus.Attach(Ram);
         bus.Attach(Rom);
+        m_systemControl = new SystemControlDevice();
+        bus.Attach(m_systemControl);
+        m_aciaIkbd = new AciaIkbdDevice();
+        m_aciaIkbd.KeyboardInterruptLineChanged += OnKeyboardInterruptLineChanged;
+        bus.Attach(m_aciaIkbd);
+        m_rtc = null;
+        if (m_options.HasRealTimeClock)
+        {
+            m_rtc = new RtcDevice();
+            m_rtc.Reset();
+            bus.Attach(m_rtc);
+        }
+        else
+            bus.Attach(new OpenBusDevice(RealTimeClockFromAddress, RealTimeClockToAddress));
+
+        m_mfp = new MfpDevice();
+        m_mfp.SetMonitorType(m_options.MonitorType);
+        m_mfp.InterruptRequested += OnMfpInterruptRequested;
+        bus.Attach(m_mfp);
 
         // Attach ROM mirror last so it takes priority over RAM at $000000-$000007
         bus.Attach(RomMirror);
+        SetBootVideoMode(bus);
 
         // Create CPU
         Cpu = new Cpu(bus);
+        Cpu.InterruptAcknowledge = ResolveInterruptAcknowledge;
 
         // Create minimal low-resolution video source.
         m_video = new Shifter(bus, Descriptor.CpuHz, Descriptor.VideoHz);
@@ -88,9 +137,19 @@ public sealed class AtariST : IMachine
     public void Reset()
     {
         m_video.Reset();
-        m_pendingVblInterrupts = 0;
+        m_systemControl.Reset();
+        m_aciaIkbd.Reset();
+        if (m_rtc != null)
+            m_rtc.Reset();
+        m_mfp.Reset();
+        m_mfp.SetMonitorType(m_options.MonitorType);
+        SetBootVideoMode(Cpu.Bus);
+        m_pendingInterrupts.Clear();
+        foreach (var queue in m_pendingAcknowledgeByLevel)
+            queue.Clear();
         m_hasLatchedInterrupt = false;
         m_latchedInterruptLevel = 0;
+        m_latchedInterruptAcknowledge = default;
         Cpu.Reset();
     }
 
@@ -117,18 +176,30 @@ public sealed class AtariST : IMachine
     public void AdvanceDevices(long deltaTicks)
     {
         m_video.Advance(deltaTicks, OnHblank, OnVblank);
+        m_mfp.Advance(deltaTicks);
     }
 
     public bool TryConsumeInterrupt()
     {
         if (m_hasLatchedInterrupt)
             return true;
-
-        if (m_pendingVblInterrupts <= 0)
+        if (m_pendingInterrupts.Count == 0)
             return false;
 
-        m_pendingVblInterrupts--;
-        m_latchedInterruptLevel = SyntheticVblInterruptLevel;
+        var selectedIndex = 0;
+        var pendingInterrupt = m_pendingInterrupts[0];
+        for (var index = 1; index < m_pendingInterrupts.Count; index++)
+        {
+            var candidate = m_pendingInterrupts[index];
+            if (candidate.Level <= pendingInterrupt.Level)
+                continue;
+            pendingInterrupt = candidate;
+            selectedIndex = index;
+        }
+
+        m_pendingInterrupts.RemoveAt(selectedIndex);
+        m_latchedInterruptLevel = pendingInterrupt.Level;
+        m_latchedInterruptAcknowledge = pendingInterrupt.AcknowledgeResult;
         m_hasLatchedInterrupt = true;
         return true;
     }
@@ -139,14 +210,22 @@ public sealed class AtariST : IMachine
             return;
 
         Cpu.RequestInterrupt(m_latchedInterruptLevel);
+        m_pendingAcknowledgeByLevel[m_latchedInterruptLevel].Enqueue(m_latchedInterruptAcknowledge);
         m_hasLatchedInterrupt = false;
         m_latchedInterruptLevel = 0;
+        m_latchedInterruptAcknowledge = default;
     }
 
     public void SetInputActive(bool isActive)
     {
         // TODO: Implement input handling
     }
+
+    /// <summary>
+    /// Injects one raw keyboard scan code byte into the emulated keyboard controller receive stream.
+    /// </summary>
+    public void InjectKeyboardScanCode(byte scanCode) =>
+        m_aciaIkbd.QueueKeyboardByte(scanCode);
 
     private void OnHblank()
     {
@@ -155,7 +234,75 @@ public sealed class AtariST : IMachine
 
     private void OnVblank()
     {
-        if (m_pendingVblInterrupts < int.MaxValue)
-            m_pendingVblInterrupts++;
+        EnqueueInterrupt(SyntheticVblInterruptLevel, InterruptAcknowledgeResult.Autovector());
     }
+
+    private void OnKeyboardInterruptLineChanged(bool isActiveLow) =>
+        m_mfp.SetAciaInterruptLine(isActiveLow);
+
+    /// <summary>
+    /// Handles MFP interrupt requests.
+    /// MFP is the ST's Multi-Function Peripheral chip that owns timer and peripheral interrupt sources.
+    /// </summary>
+    private void OnMfpInterruptRequested(byte level, byte vector) =>
+        EnqueueInterrupt(level, InterruptAcknowledgeResult.Vector(vector));
+
+    private void EnqueueInterrupt(byte level, InterruptAcknowledgeResult acknowledgeResult)
+    {
+        if (m_pendingInterrupts.Count >= int.MaxValue)
+            return;
+        m_pendingInterrupts.Add(new PendingInterrupt(level, acknowledgeResult));
+    }
+
+    private InterruptAcknowledgeResult ResolveInterruptAcknowledge(byte level)
+    {
+        if (level >= m_pendingAcknowledgeByLevel.Length)
+            return InterruptAcknowledgeResult.Autovector();
+
+        var acknowledgeQueue = m_pendingAcknowledgeByLevel[level];
+        if (acknowledgeQueue.Count > 0)
+            return acknowledgeQueue.Dequeue();
+
+        return InterruptAcknowledgeResult.Autovector();
+    }
+
+    private static void ValidateOptions(AtariSTOptions options)
+    {
+        if (options.RamSizeBytes <= 0)
+            throw new ArgumentOutOfRangeException(nameof(options), "RAM size must be greater than zero.");
+        if (options.RamSizeBytes > RomBaseAddress)
+            throw new ArgumentOutOfRangeException(nameof(options), $"RAM size must be <= ${RomBaseAddress:X6}.");
+    }
+
+    private static void AttachOpenBusGap(Bus bus, int ramSizeBytes)
+    {
+        if (ramSizeBytes >= RomBaseAddress)
+            return;
+
+        var fromAddress = (uint)ramSizeBytes;
+        var toAddress = RomBaseAddress - 1;
+        bus.Attach(new OpenBusDevice(fromAddress, toAddress));
+    }
+
+    private void SetBootVideoMode(Bus bus)
+    {
+        var mode = m_options.MonitorType == AtariMonitorType.Monochrome
+            ? HighResolutionModeValue
+            : LowResolutionModeValue;
+        bus.Write8(VideoModeRegister, mode);
+    }
+
+    private static Queue<InterruptAcknowledgeResult>[] CreateAcknowledgeQueues() =>
+    [
+        new Queue<InterruptAcknowledgeResult>(),
+        new Queue<InterruptAcknowledgeResult>(),
+        new Queue<InterruptAcknowledgeResult>(),
+        new Queue<InterruptAcknowledgeResult>(),
+        new Queue<InterruptAcknowledgeResult>(),
+        new Queue<InterruptAcknowledgeResult>(),
+        new Queue<InterruptAcknowledgeResult>(),
+        new Queue<InterruptAcknowledgeResult>()
+    ];
+
+    private readonly record struct PendingInterrupt(byte Level, InterruptAcknowledgeResult AcknowledgeResult);
 }

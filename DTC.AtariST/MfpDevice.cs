@@ -1,0 +1,267 @@
+// Code authored by Dean Edis (DeanTheCoder).
+// Anyone is free to copy, modify, use, compile, or distribute this software,
+// either in source code form or as a compiled binary, for any purpose.
+//
+// If you modify the code, please retain this copyright header,
+// and consider contributing back to the repository or letting us know
+// about your modifications. Your contributions are valued!
+//
+// THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
+
+using DTC.Emulation;
+
+namespace DTC.AtariST;
+
+/// <summary>
+/// Minimal Atari ST MFP (Multi-Function Peripheral) implementation.
+/// </summary>
+/// <remarks>
+/// The MFP is the Atari ST's "housekeeping" chip: it provides timers plus interrupt lines for
+/// peripherals like keyboard/serial handshakes, and normally signals CPU interrupt level 6.
+/// This phase models enough register behavior and timer C/D interrupts for early TOS bring-up.
+/// </remarks>
+public sealed class MfpDevice : IMemDevice
+{
+    private const uint BaseAddress = 0x00FFFA00;
+    private const int RegisterSpace = 0x40;
+    private const byte InterruptLevel = 6;
+    private const byte DefaultVectorBase = 0x40;
+    private const byte TimerCInterruptMask = 0x20;
+    private const byte TimerDInterruptMask = 0x10;
+    private const byte TimerCSourceNumber = 5;
+    private const byte TimerDSourceNumber = 4;
+    private const byte Gpip4InterruptMask = 0x40;
+    private const byte Gpip4SourceNumber = 6;
+    private const byte MonitorDetectInputMask = 0x80;
+    private const byte AciaInputMask = 0x10;
+
+    private const int GpipRegister = 0x01;
+    private const int DataDirectionRegister = 0x05;
+    private const int InterruptEnableB = 0x09;
+    private const int InterruptPendingB = 0x0D;
+    private const int InterruptInServiceB = 0x11;
+    private const int InterruptMaskB = 0x15;
+    private const int VectorRegister = 0x17;
+    private const int TimerCdControl = 0x1D;
+    private const int TimerCData = 0x23;
+    private const int TimerDData = 0x25;
+
+    private static readonly int[] s_timerPrescaleDivisors =
+    [
+        0,   // stopped
+        4,
+        10,
+        16,
+        50,
+        64,
+        100,
+        200
+    ];
+
+    private readonly byte[] m_registers = new byte[RegisterSpace];
+    private int m_timerCCurrent;
+    private int m_timerDCurrent;
+    private int m_timerCAccumulator;
+    private int m_timerDAccumulator;
+    private bool m_aciaInterruptLineActiveLow;
+    private byte m_gpipInputState = 0xFF;
+    private byte m_gpipOutputLatch;
+
+    /// <inheritdoc />
+    public uint FromAddr => BaseAddress;
+
+    /// <inheritdoc />
+    public uint ToAddr => BaseAddress + RegisterSpace - 1;
+
+    /// <summary>
+    /// Raised when the MFP requests an interrupt.
+    /// </summary>
+    public event Action<byte, byte> InterruptRequested;
+
+    /// <summary>
+    /// Resets internal MFP state and register defaults.
+    /// </summary>
+    public void Reset()
+    {
+        Array.Clear(m_registers, 0, m_registers.Length);
+        m_gpipInputState = 0xFF;
+        m_gpipOutputLatch = 0;
+        m_registers[VectorRegister] = DefaultVectorBase;
+        m_timerCCurrent = 0;
+        m_timerDCurrent = 0;
+        m_timerCAccumulator = 0;
+        m_timerDAccumulator = 0;
+        m_aciaInterruptLineActiveLow = false;
+    }
+
+    /// <summary>
+    /// Advances timer state by CPU ticks.
+    /// </summary>
+    public void Advance(long deltaTicks)
+    {
+        if (deltaTicks <= 0)
+            return;
+
+        AdvanceTimerC((int)Math.Min(deltaTicks, int.MaxValue));
+        AdvanceTimerD((int)Math.Min(deltaTicks, int.MaxValue));
+    }
+
+    /// <summary>
+    /// Signals a pending interrupt from GPIP4 (the line used by the keyboard ACIA on ST machines).
+    /// Returns <c>true</c> when the interrupt is both enabled and unmasked and therefore raised.
+    /// </summary>
+    public bool RaiseGpip4Interrupt() =>
+        RaiseInterrupt(InterruptEnableB, InterruptMaskB, InterruptPendingB, Gpip4InterruptMask, Gpip4SourceNumber);
+
+    /// <summary>
+    /// Sets the monitor detect input line.
+    /// Color monitor keeps GPIP bit 7 high; monochrome pulls it low.
+    /// </summary>
+    public void SetMonitorType(AtariMonitorType monitorType)
+    {
+        if (monitorType == AtariMonitorType.Monochrome)
+            m_gpipInputState = (byte)(m_gpipInputState & ~MonitorDetectInputMask);
+        else
+            m_gpipInputState = (byte)(m_gpipInputState | MonitorDetectInputMask);
+    }
+
+    /// <summary>
+    /// Updates the ACIA interrupt input line sampled by MFP GPIP4.
+    /// </summary>
+    public void SetAciaInterruptLine(bool isActiveLow)
+    {
+        if (m_aciaInterruptLineActiveLow == isActiveLow)
+            return;
+
+        m_aciaInterruptLineActiveLow = isActiveLow;
+        if (isActiveLow)
+        {
+            m_gpipInputState = (byte)(m_gpipInputState & ~AciaInputMask);
+            RaiseGpip4Interrupt();
+        }
+        else
+            m_gpipInputState = (byte)(m_gpipInputState | AciaInputMask);
+    }
+
+    /// <inheritdoc />
+    public byte Read8(uint address)
+    {
+        var offset = (int)(address - BaseAddress);
+        if (offset < 0 || offset >= RegisterSpace)
+            return 0xFF;
+        if ((offset & 1) == 0)
+            return 0xFF;
+        if (offset == GpipRegister)
+            return ReadGpipState();
+
+        return m_registers[offset];
+    }
+
+    /// <inheritdoc />
+    public void Write8(uint address, byte value)
+    {
+        var offset = (int)(address - BaseAddress);
+        if (offset < 0 || offset >= RegisterSpace)
+            return;
+        if ((offset & 1) == 0)
+            return;
+
+        if (offset is InterruptPendingB or InterruptInServiceB)
+        {
+            // Pending / in-service registers ignore '1' bits; writing 0 clears.
+            m_registers[offset] &= value;
+            return;
+        }
+        if (offset == GpipRegister)
+        {
+            m_gpipOutputLatch = value;
+            return;
+        }
+
+        m_registers[offset] = value;
+        if (offset == TimerCData)
+            m_timerCCurrent = NormalizeTimerData(value);
+        else if (offset == TimerDData)
+            m_timerDCurrent = NormalizeTimerData(value);
+        else if (offset is InterruptEnableB or InterruptMaskB)
+            TryRaiseAciaInterruptIfPending();
+    }
+
+    private void AdvanceTimerC(int deltaTicks)
+    {
+        var timerControl = (byte)((m_registers[TimerCdControl] >> 4) & 0x07);
+        var prescale = s_timerPrescaleDivisors[timerControl];
+        if (prescale == 0)
+            return;
+        if (m_timerCCurrent == 0)
+            m_timerCCurrent = NormalizeTimerData(m_registers[TimerCData]);
+
+        m_timerCAccumulator += deltaTicks;
+        while (m_timerCAccumulator >= prescale)
+        {
+            m_timerCAccumulator -= prescale;
+            m_timerCCurrent--;
+            if (m_timerCCurrent > 0)
+                continue;
+
+            m_timerCCurrent = NormalizeTimerData(m_registers[TimerCData]);
+            RaiseTimerInterrupt(TimerCInterruptMask, TimerCSourceNumber);
+        }
+    }
+
+    private void AdvanceTimerD(int deltaTicks)
+    {
+        var timerControl = (byte)(m_registers[TimerCdControl] & 0x07);
+        var prescale = s_timerPrescaleDivisors[timerControl];
+        if (prescale == 0)
+            return;
+        if (m_timerDCurrent == 0)
+            m_timerDCurrent = NormalizeTimerData(m_registers[TimerDData]);
+
+        m_timerDAccumulator += deltaTicks;
+        while (m_timerDAccumulator >= prescale)
+        {
+            m_timerDAccumulator -= prescale;
+            m_timerDCurrent--;
+            if (m_timerDCurrent > 0)
+                continue;
+
+            m_timerDCurrent = NormalizeTimerData(m_registers[TimerDData]);
+            RaiseTimerInterrupt(TimerDInterruptMask, TimerDSourceNumber);
+        }
+    }
+
+    private void RaiseTimerInterrupt(byte interruptMask, byte sourceNumber) =>
+        RaiseInterrupt(InterruptEnableB, InterruptMaskB, InterruptPendingB, interruptMask, sourceNumber);
+
+    private bool RaiseInterrupt(int interruptEnableRegister, int interruptMaskRegister, int interruptPendingRegister, byte interruptMask, byte sourceNumber)
+    {
+        var interruptEnabled = (m_registers[interruptEnableRegister] & interruptMask) != 0;
+        var interruptUnmasked = (m_registers[interruptMaskRegister] & interruptMask) != 0;
+        if (!interruptEnabled || !interruptUnmasked)
+            return false;
+
+        m_registers[interruptPendingRegister] |= interruptMask;
+        var vectorBase = (byte)(m_registers[VectorRegister] & 0xF0);
+        var vectorNumber = (byte)(vectorBase + sourceNumber);
+        InterruptRequested?.Invoke(InterruptLevel, vectorNumber);
+        return true;
+    }
+
+    private static int NormalizeTimerData(byte value) =>
+        value == 0 ? 256 : value;
+
+    private void TryRaiseAciaInterruptIfPending()
+    {
+        if (!m_aciaInterruptLineActiveLow)
+            return;
+
+        RaiseGpip4Interrupt();
+    }
+
+    private byte ReadGpipState()
+    {
+        var dataDirection = m_registers[DataDirectionRegister];
+        return (byte)((m_gpipOutputLatch & dataDirection) | (m_gpipInputState & ~dataDirection));
+    }
+}

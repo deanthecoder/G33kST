@@ -13,32 +13,33 @@ using DTC.Emulation;
 namespace DTC.AtariST;
 
 /// <summary>
-/// Mirrors the TOS ROM at address $000000 for boot-time reset vector access.
-/// On real hardware, the ROM appears at $000000 during reset, then the memory
-/// controller switches to map RAM there after TOS initializes.
-/// To disable the mirror, simply detach this device from the bus.
+/// Mirrors the first two longwords of TOS ROM at address $000000.
+/// On Atari ST hardware, these 8 bytes stay mapped to ROM so reset vectors remain fetchable there.
 /// </summary>
 public sealed class RomMirrorDevice : IMemDevice
 {
     private readonly IMemDevice m_rom;
+    private readonly uint m_windowSize;
 
     public uint FromAddr => 0x000000;
-    public uint ToAddr => 0x000007; // Only mirror the reset vectors (8 bytes)
+    public uint ToAddr => m_windowSize - 1;
 
-    public RomMirrorDevice(IMemDevice rom)
+    public RomMirrorDevice(IMemDevice rom, uint windowSize)
     {
         m_rom = rom ?? throw new ArgumentNullException(nameof(rom));
+        if (windowSize == 0)
+            throw new ArgumentOutOfRangeException(nameof(windowSize), "ROM mirror window size must be greater than zero.");
+        m_windowSize = windowSize;
     }
 
     public byte Read8(uint address)
     {
-        // Translate $000000-$000007 to $FC0000-$FC0007 in ROM
         var romAddress = address + AtariST.RomBaseAddress;
         return m_rom.Read8(romAddress);
     }
 
     public void Write8(uint address, byte value)
     {
-        // ROM mirror is read-only, ignore writes.
+        // Writes are ignored: these first vectors remain ROM-backed.
     }
 }

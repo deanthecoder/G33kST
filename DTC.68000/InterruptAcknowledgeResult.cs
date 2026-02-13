@@ -28,6 +28,12 @@ public readonly record struct InterruptAcknowledgeResult
         new(InterruptAcknowledgeType.Spurious, 0);
 
     /// <summary>
+    /// Creates an explicit-vector acknowledge result.
+    /// </summary>
+    public static InterruptAcknowledgeResult Vector(byte vectorNumber) =>
+        new(InterruptAcknowledgeType.VectorNumber, vectorNumber);
+
+    /// <summary>
     /// Gets the acknowledge mode.
     /// </summary>
     public InterruptAcknowledgeType Type { get; }

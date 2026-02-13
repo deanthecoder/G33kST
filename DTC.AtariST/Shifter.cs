@@ -51,6 +51,8 @@ public sealed class Shifter : IVideoSource
     private readonly byte[] m_paletteB = new byte[16];
     private double m_lineTickAccumulator;
     private int m_currentRasterLine;
+    private int m_activeWidth = LowResWidth;
+    private int m_activeHeight = LowResHeight;
 
     /// <summary>
     /// Creates an Atari ST video source.
@@ -73,6 +75,16 @@ public sealed class Shifter : IVideoSource
     /// <inheritdoc />
     public int FrameHeight => OutputHeight;
 
+    /// <summary>
+    /// Gets the active source width for the last rendered frame before scaling to output.
+    /// </summary>
+    public int ActiveWidth => m_activeWidth;
+
+    /// <summary>
+    /// Gets the active source height for the last rendered frame before scaling to output.
+    /// </summary>
+    public int ActiveHeight => m_activeHeight;
+
     /// <inheritdoc />
     public event EventHandler<byte[]> FrameRendered;
 
@@ -83,6 +95,8 @@ public sealed class Shifter : IVideoSource
     {
         m_lineTickAccumulator = 0;
         m_currentRasterLine = 0;
+        m_activeWidth = LowResWidth;
+        m_activeHeight = LowResHeight;
     }
 
     /// <summary>
@@ -129,18 +143,26 @@ public sealed class Shifter : IVideoSource
         switch (mode)
         {
             case 0:
+                m_activeWidth = LowResWidth;
+                m_activeHeight = LowResHeight;
                 RenderLowResolution(screenBaseAddress);
                 break;
 
             case 1:
+                m_activeWidth = MediumResWidth;
+                m_activeHeight = MediumResHeight;
                 RenderMediumResolution(screenBaseAddress);
                 break;
 
             case 2:
+                m_activeWidth = HighResWidth;
+                m_activeHeight = HighResHeight;
                 RenderHighResolutionMonochrome(screenBaseAddress);
                 break;
 
             default:
+                m_activeWidth = 0;
+                m_activeHeight = 0;
                 ClearToBlack();
                 break;
         }
@@ -168,7 +190,7 @@ public sealed class Shifter : IVideoSource
                         (((plane1 >> bit) & 1) << 1) |
                         (((plane2 >> bit) & 1) << 2) |
                         (((plane3 >> bit) & 1) << 3);
-                    WriteScaled2x2(x, y, m_paletteR[pixelIndex], m_paletteG[pixelIndex], m_paletteB[pixelIndex]);
+                    WriteScaled2X2(x, y, m_paletteR[pixelIndex], m_paletteG[pixelIndex], m_paletteB[pixelIndex]);
                 }
             }
         }
@@ -216,7 +238,7 @@ public sealed class Shifter : IVideoSource
         }
     }
 
-    private void WriteScaled2x2(int sourceX, int sourceY, byte red, byte green, byte blue)
+    private void WriteScaled2X2(int sourceX, int sourceY, byte red, byte green, byte blue)
     {
         var outX = sourceX * 2;
         var outY = sourceY * 2;

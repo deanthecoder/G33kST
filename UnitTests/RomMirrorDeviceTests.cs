@@ -15,26 +15,35 @@ namespace UnitTests;
 [TestFixture]
 public sealed class RomMirrorDeviceTests : TestsBase
 {
+    private const int RomSize = 192 * 1024;
+    private const uint MirrorWindowSize = 8;
+
     [Test]
     public void CheckConstructorInitializesAddressRange()
     {
-        var rom = new RomDevice(192 * 1024, 0xFC0000);
-        var mirror = new RomMirrorDevice(rom);
+        var rom = new RomDevice(RomSize, 0xFC0000);
+        var mirror = new RomMirrorDevice(rom, MirrorWindowSize);
 
         Assert.That(mirror.FromAddr, Is.EqualTo(0x000000));
-        Assert.That(mirror.ToAddr, Is.EqualTo(0x000007));
+        Assert.That(mirror.ToAddr, Is.EqualTo(MirrorWindowSize - 1));
     }
 
     [Test]
-    public void GivenNullRomCheckConstructionThrows()
+    public void GivenInvalidConstructionArgsCheckConstructionThrows()
     {
-        Assert.That(() => new RomMirrorDevice(null), Throws.TypeOf<ArgumentNullException>());
+        var rom = new RomDevice(RomSize, 0xFC0000);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(() => new RomMirrorDevice(null, MirrorWindowSize), Throws.TypeOf<ArgumentNullException>());
+            Assert.That(() => new RomMirrorDevice(rom, 0), Throws.TypeOf<ArgumentOutOfRangeException>());
+        });
     }
 
     [Test]
     public void CheckReadsFromMirrorReturnRomContent()
     {
-        var rom = new RomDevice(192 * 1024, 0xFC0000)
+        var rom = new RomDevice(RomSize, 0xFC0000)
         {
             Data =
             {
@@ -43,8 +52,7 @@ public sealed class RomMirrorDeviceTests : TestsBase
                 [7] = 0xAB
             }
         };
-
-        var mirror = new RomMirrorDevice(rom);
+        var mirror = new RomMirrorDevice(rom, MirrorWindowSize);
 
         Assert.That(mirror.Read8(0x000000), Is.EqualTo(0x12));
         Assert.That(mirror.Read8(0x000001), Is.EqualTo(0x34));
@@ -54,15 +62,14 @@ public sealed class RomMirrorDeviceTests : TestsBase
     [Test]
     public void CheckWritesToMirrorAreIgnored()
     {
-        var rom = new RomDevice(192 * 1024, 0xFC0000)
+        var rom = new RomDevice(RomSize, 0xFC0000)
         {
             Data =
             {
                 [0] = 0x12
             }
         };
-
-        var mirror = new RomMirrorDevice(rom);
+        var mirror = new RomMirrorDevice(rom, MirrorWindowSize);
         mirror.Write8(0x000000, 0xFF);
 
         Assert.That(rom.Data[0], Is.EqualTo(0x12));
