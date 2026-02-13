@@ -32,6 +32,9 @@ public sealed class AtariSTTests : TestsBase
         Assert.That(atariST.Descriptor.VideoHz, Is.EqualTo(60.0));
         Assert.That(atariST.Descriptor.FrameWidth, Is.EqualTo(320));
         Assert.That(atariST.Descriptor.FrameHeight, Is.EqualTo(200));
+        Assert.That(atariST.Video, Is.Not.Null);
+        Assert.That(atariST.Video.FrameWidth, Is.EqualTo(320));
+        Assert.That(atariST.Video.FrameHeight, Is.EqualTo(200));
     }
 
     [Test]
@@ -194,6 +197,77 @@ public sealed class AtariSTTests : TestsBase
 
         // Assert
         Assert.That(atariST.RomMirror, Is.Not.Null);
+    }
+
+    [Test]
+    public void AdvanceDevices_ShouldScheduleVblankInterrupt()
+    {
+        // Arrange
+        var atariST = new AtariST();
+        atariST.Reset();
+        var oneFrameTicks = (long)Math.Ceiling(atariST.Descriptor.CpuHz / atariST.Descriptor.VideoHz);
+
+        // Act
+        atariST.AdvanceDevices(oneFrameTicks);
+
+        // Assert
+        Assert.That(atariST.TryConsumeInterrupt(), Is.True);
+    }
+
+    [Test]
+    public void Video_ShouldRenderLowResolutionBitplanesToFrameBuffer()
+    {
+        // Arrange
+        var atariST = new AtariST();
+        atariST.Reset();
+        var bus = atariST.Cpu.Bus;
+        const uint screenBaseAddress = 0x00000100;
+        const uint videoBaseHighRegister = 0x00FF8201;
+        const uint videoBaseMidRegister = 0x00FF8203;
+        const uint videoModeRegister = 0x00FF8260;
+        const uint paletteBaseRegister = 0x00FF8240;
+        var oneFrameTicks = (long)Math.Ceiling(atariST.Descriptor.CpuHz / atariST.Descriptor.VideoHz);
+        var frameRendered = false;
+        atariST.Video.FrameRendered += (_, _) => frameRendered = true;
+
+        // Low-res mode.
+        bus.Write8(videoModeRegister, 0x00);
+
+        // Screen base = $000100.
+        bus.Write8(videoBaseHighRegister, 0x00);
+        bus.Write8(videoBaseMidRegister, 0x01);
+
+        // Palette index 1 -> full red (3-bit channel max).
+        bus.Write16BigEndian(paletteBaseRegister + 2, 0x0700);
+
+        // First 16-pixel chunk: pixel 0 has index 1, the rest use index 0.
+        bus.Write16BigEndian(screenBaseAddress, 0x8000); // Plane 0
+        bus.Write16BigEndian(screenBaseAddress + 2, 0x0000); // Plane 1
+        bus.Write16BigEndian(screenBaseAddress + 4, 0x0000); // Plane 2
+        bus.Write16BigEndian(screenBaseAddress + 6, 0x0000); // Plane 3
+
+        // Act
+        atariST.AdvanceDevices(oneFrameTicks);
+        var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * 4];
+        atariST.Video.CopyToFrameBuffer(frameBuffer);
+
+        // Assert
+        Assert.Multiple(() =>
+        {
+            Assert.That(frameRendered, Is.True);
+
+            // Pixel 0: red.
+            Assert.That(frameBuffer[0], Is.EqualTo(255));
+            Assert.That(frameBuffer[1], Is.EqualTo(0));
+            Assert.That(frameBuffer[2], Is.EqualTo(0));
+            Assert.That(frameBuffer[3], Is.EqualTo(255));
+
+            // Pixel 1: palette index 0 -> black.
+            Assert.That(frameBuffer[4], Is.EqualTo(0));
+            Assert.That(frameBuffer[5], Is.EqualTo(0));
+            Assert.That(frameBuffer[6], Is.EqualTo(0));
+            Assert.That(frameBuffer[7], Is.EqualTo(255));
+        });
     }
 
     /// <summary>

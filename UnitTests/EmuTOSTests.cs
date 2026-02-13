@@ -11,6 +11,7 @@
 using System.Diagnostics;
 using DTC.AtariST;
 using DTC.Core.Extensions;
+using DTC.Core.Image;
 using DTC.Emulation.Debuggers;
 
 namespace UnitTests;
@@ -23,6 +24,9 @@ namespace UnitTests;
 public sealed class EmuTOSTests : TestsBase
 {
     private const int StallTraceLineCount = 40;
+    private const uint VideoModeRegister = 0x00FF8260;
+    private const bool SaveFrameSamplesToDesktop = false;
+    private const bool SaveOnlyChangedFrameSamples = true;
 
     [Test]
     [Explicit("Requires EmuTOS ROM file and runs for extended duration")]
@@ -74,6 +78,23 @@ public sealed class EmuTOSTests : TestsBase
         var loggedLikelyStall = false;
         var stallReason = string.Empty;
         var lastCpuTicks = atariST.CpuTicks;
+        var frameSampleIntervalCycles = (long)Math.Round(atariST.Descriptor.CpuHz);
+        var nextFrameSampleCycle = frameSampleIntervalCycles;
+        var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * 4];
+        var blankScreenChecksum = ComputeBlankScreenChecksum(atariST.Video.FrameWidth, atariST.Video.FrameHeight);
+        var sawNonBlankFrame = false;
+        var firstNonBlankSeenAtCycles = 0L;
+        var sampledFrames = 0;
+        var savedFrames = 0;
+        var hasLastSavedChecksum = false;
+        var lastSavedChecksum = 0u;
+        var frameCaptureDir = SaveFrameSamplesToDesktop ? CreateDesktopFrameOutputDir() : null;
+        var sampledModeCounts = new Dictionary<int, int>();
+        var firstSampledMode = -1;
+        var firstSampledModeAtCycles = 0L;
+
+        if (frameCaptureDir != null)
+            TestContext.Out.WriteLine($"Frame capture enabled: {frameCaptureDir.FullName}");
 
         while (atariST.CpuTicks < targetCycles)
         {
@@ -91,10 +112,50 @@ public sealed class EmuTOSTests : TestsBase
                     atariST.RequestInterrupt();
                 instructionCount++;
 
+                while (atariST.CpuTicks >= nextFrameSampleCycle)
+                {
+                    sampledFrames++;
+                    atariST.Video.CopyToFrameBuffer(frameBuffer);
+                    var checksum = ComputeFrameChecksum(frameBuffer);
+                    var mode = atariST.Cpu.Bus.Read8(VideoModeRegister) & 0x03;
+                    if (sampledModeCounts.TryGetValue(mode, out var modeCount))
+                        sampledModeCounts[mode] = modeCount + 1;
+                    else
+                        sampledModeCounts[mode] = 1;
+                    if (firstSampledMode < 0)
+                    {
+                        firstSampledMode = mode;
+                        firstSampledModeAtCycles = nextFrameSampleCycle;
+                    }
+
+                    if (!sawNonBlankFrame && checksum != blankScreenChecksum)
+                    {
+                        sawNonBlankFrame = true;
+                        firstNonBlankSeenAtCycles = nextFrameSampleCycle;
+                    }
+
+                    if (frameCaptureDir != null)
+                    {
+                        var frameChanged = !hasLastSavedChecksum || checksum != lastSavedChecksum;
+                        if (!SaveOnlyChangedFrameSamples || frameChanged)
+                        {
+                            var elapsedSeconds = nextFrameSampleCycle / atariST.Descriptor.CpuHz;
+                            var fileName = $"emutos_{elapsedSeconds:0000.000}s.tga";
+                            var tgaFile = frameCaptureDir.GetFile(fileName);
+                            TgaWriter.Write(tgaFile, frameBuffer, atariST.Video.FrameWidth, atariST.Video.FrameHeight, 4);
+                            savedFrames++;
+                            lastSavedChecksum = checksum;
+                            hasLastSavedChecksum = true;
+                        }
+                    }
+
+                    nextFrameSampleCycle += frameSampleIntervalCycles;
+                }
+
                 // Progress reporting
                 if (atariST.CpuTicks - lastProgressUpdate >= progressInterval)
                 {
-                    var progress = (atariST.CpuTicks * 100.0) / targetCycles;
+                    var progress = atariST.CpuTicks * 100.0 / targetCycles;
                     var elapsed = stopwatch.Elapsed.TotalSeconds;
                     var cyclesPerSecond = atariST.CpuTicks / elapsed;
                     TestContext.Out.WriteLine($"Progress: {progress:F1}% | {atariST.CpuTicks:N0} cycles | " +
@@ -156,6 +217,11 @@ public sealed class EmuTOSTests : TestsBase
         TestContext.Out.WriteLine($"NatFeats calls: {atariST.NatFeats.TotalCalls} (ID={atariST.NatFeats.IdCalls}, CALL={atariST.NatFeats.CallCalls}, Unknown={atariST.NatFeats.UnknownFeatureCalls})");
         TestContext.Out.WriteLine($"Exceptions: {exceptionCount}");
         TestContext.Out.WriteLine($"Top PCs: {executionHealth.FormatTopPcs(8)}");
+        TestContext.Out.WriteLine($"Blank checksum: 0x{blankScreenChecksum:X8}");
+        TestContext.Out.WriteLine($"Frame samples: {sampledFrames} (saved: {savedFrames})");
+        TestContext.Out.WriteLine($"Saw non-blank frame: {sawNonBlankFrame} at {firstNonBlankSeenAtCycles:N0} cycles");
+        TestContext.Out.WriteLine($"Video mode samples: {FormatVideoModeSamples(sampledModeCounts)}");
+        TestContext.Out.WriteLine($"First sampled video mode: {DescribeVideoMode(firstSampledMode)} at {firstSampledModeAtCycles:N0} cycles");
         TestContext.Out.WriteLine();
 
         if (messages.Count > 0)
@@ -175,10 +241,23 @@ public sealed class EmuTOSTests : TestsBase
             loggedLikelyStall,
             Is.False,
             $"Likely deadlock detected: {stallReason}");
+        Assert.That(sampledFrames, Is.GreaterThan(0), "No frame samples were captured.");
+        Assert.That(sawNonBlankFrame, Is.True, "Did not observe a non-blank frame during boot.");
         TestContext.Out.WriteLine();
         if (atariST.NatFeats.TotalCalls == 0)
             TestContext.Out.WriteLine("No NatFeats opcodes were executed during this boot window.");
         TestContext.Out.WriteLine($"Test completed. Check output above for EmuTOS behavior.");
+    }
+
+    private DirectoryInfo CreateDesktopFrameOutputDir()
+    {
+        var desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        var outputDirName = $"G33kST_EmuTOSFrames_{DateTime.Now:yyyyMMdd_HHmmss}";
+        var outputDir = new DirectoryInfo(Path.Combine(desktopPath, outputDirName));
+        if (!outputDir.Exists)
+            outputDir.Create();
+
+        return outputDir;
     }
 
     private FileInfo FindEmuTosRom()
@@ -196,6 +275,47 @@ public sealed class EmuTOSTests : TestsBase
 
         return romFiles.Length > 0 ? romFiles[0] : null;
     }
+
+    private static uint ComputeBlankScreenChecksum(int width, int height)
+    {
+        var blankFrame = new byte[width * height * 4];
+        for (var i = 3; i < blankFrame.Length; i += 4)
+            blankFrame[i] = 255;
+        return ComputeFrameChecksum(blankFrame);
+    }
+
+    private static uint ComputeFrameChecksum(byte[] frameBuffer)
+    {
+        const uint offsetBasis = 2166136261;
+        const uint prime = 16777619;
+        var hash = offsetBasis;
+        foreach (var b in frameBuffer)
+        {
+            hash ^= b;
+            hash *= prime;
+        }
+
+        return hash;
+    }
+
+    private static string FormatVideoModeSamples(Dictionary<int, int> sampledModeCounts)
+    {
+        if (sampledModeCounts.Count == 0)
+            return "none";
+
+        return string.Join(", ", sampledModeCounts
+            .OrderBy(kv => kv.Key)
+            .Select(kv => $"{DescribeVideoMode(kv.Key)}={kv.Value}"));
+    }
+
+    private static string DescribeVideoMode(int mode) =>
+        mode switch
+        {
+            0 => "0 (low 320x200x16)",
+            1 => "1 (medium 640x200x4)",
+            2 => "2 (high mono 640x400)",
+            _ => $"{mode} (unknown)"
+        };
 
     private sealed class ExecutionHealthTracker
     {

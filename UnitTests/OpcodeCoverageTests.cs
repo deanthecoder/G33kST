@@ -26,7 +26,7 @@ public sealed class OpcodeCoverageTests : TestsBase
 
         var totalOpcodes = ushort.MaxValue + 1;
         var implementedCount = totalOpcodes - unimplemented.Count;
-        var implementedPercent = (implementedCount * 100.0) / (ushort.MaxValue + 1);
+        var implementedPercent = implementedCount * 100.0 / (ushort.MaxValue + 1);
         TestContext.Progress.WriteLine($"Opcode decode coverage: {implementedCount}/65536 ({implementedPercent:F2}%).");
         TestContext.Progress.WriteLine($"Unimplemented opcode count: {unimplemented.Count}.");
 
@@ -50,7 +50,7 @@ public sealed class OpcodeCoverageTests : TestsBase
         var counts = new Dictionary<byte, int>();
         for (var nibble = 0; nibble <= 0xF; nibble++)
         {
-            var count = opcodes.Count(opcode => (opcode >> 12) == nibble);
+            var count = opcodes.Count(opcode => opcode >> 12 == nibble);
             if (count == 0)
                 continue;
             counts[(byte)nibble] = count;

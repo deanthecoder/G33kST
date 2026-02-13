@@ -378,7 +378,7 @@ public sealed class Mc68000OpcodeSuiteTests : TestsBase
             ? InstructionDecoder.Decode(opcode)?.Mnemonic ?? "<unknown>"
             : instructionText;
         mnemonic = SimplifyTraceMnemonic(mnemonic);
-        var tracePrefix = $"{(opcodeAddress & 0x00FF_FFFF):X6}: {opcode:X4} {mnemonic}";
+        var tracePrefix = $"{opcodeAddress & 0x00FF_FFFF:X6}: {opcode:X4} {mnemonic}";
         if (tracePrefix.Length < TraceLeftColumnWidth)
             tracePrefix = tracePrefix.PadRight(TraceLeftColumnWidth);
         if (cpuBase is not Cpu cpu)

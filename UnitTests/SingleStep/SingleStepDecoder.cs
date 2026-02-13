@@ -226,7 +226,7 @@ public static class SingleStepDecoder
             var uds = reader.ReadUInt32();
             var lds = reader.ReadUInt32();
 
-            var size = (uds + lds) == 2 ? ".w" : ".b";
+            var size = uds + lds == 2 ? ".w" : ".b";
 
             transactions.Add(new SingleStepTransaction
             {

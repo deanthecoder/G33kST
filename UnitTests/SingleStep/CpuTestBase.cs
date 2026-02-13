@@ -226,7 +226,7 @@ public abstract class CpuTestBase
 
         var binary = Convert.ToString(opcode, 2).PadLeft(16, '0');
         var modeSummary = string.Empty;
-        if ((opcode >> 12) is >= 1 and <= 3)
+        if (opcode >> 12 is >= 1 and <= 3)
         {
             var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
             var mode = ToModeLabel(destination.Mode);

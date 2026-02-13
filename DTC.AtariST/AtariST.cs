@@ -29,8 +29,7 @@ public sealed class AtariST : IMachine
     internal const uint RomBaseAddress = 0xFC0000;
     private const int RomSize = 192 * 1024; // 192KB ROM
     private const byte SyntheticVblInterruptLevel = 4;
-    private readonly double m_ticksPerVbl;
-    private double m_vblTickAccumulator;
+    private readonly Shifter m_video;
     private int m_pendingVblInterrupts;
     private byte m_latchedInterruptLevel;
     private bool m_hasLatchedInterrupt;
@@ -43,8 +42,8 @@ public sealed class AtariST : IMachine
 
     public bool HasLoadedCartridge => Rom.Data.Any(b => b != 0);
 
-    // TODO: Implement proper video and audio devices
-    public IVideoSource Video => null;
+    // Minimal Shifter-backed low-resolution video path.
+    public IVideoSource Video => m_video;
 
     public IAudioSource Audio => null;
 
@@ -62,8 +61,6 @@ public sealed class AtariST : IMachine
 
     public AtariST()
     {
-        m_ticksPerVbl = Descriptor.CpuHz / Descriptor.VideoHz;
-
         // Create main RAM and ROM
         Ram = new Memory(RamSize);
         Rom = new RomDevice(RomSize, RomBaseAddress);
@@ -88,11 +85,14 @@ public sealed class AtariST : IMachine
 
         // Create CPU
         Cpu = new Cpu(bus);
+
+        // Create minimal low-resolution video source.
+        m_video = new Shifter(bus, Descriptor.CpuHz, Descriptor.VideoHz);
     }
 
     public void Reset()
     {
-        m_vblTickAccumulator = 0;
+        m_video.Reset();
         m_pendingVblInterrupts = 0;
         m_hasLatchedInterrupt = false;
         m_latchedInterruptLevel = 0;
@@ -129,16 +129,7 @@ public sealed class AtariST : IMachine
 
     public void AdvanceDevices(long deltaTicks)
     {
-        if (deltaTicks <= 0)
-            return;
-
-        // Synthetic VBL source for early machine bring-up.
-        m_vblTickAccumulator += deltaTicks;
-        while (m_vblTickAccumulator >= m_ticksPerVbl)
-        {
-            m_vblTickAccumulator -= m_ticksPerVbl;
-            m_pendingVblInterrupts++;
-        }
+        m_video.Advance(deltaTicks, OnHblank, OnVblank);
     }
 
     public bool TryConsumeInterrupt()
@@ -168,5 +159,16 @@ public sealed class AtariST : IMachine
     public void SetInputActive(bool isActive)
     {
         // TODO: Implement input handling
+    }
+
+    private void OnHblank()
+    {
+        // Hook point for future HBlank-timed devices.
+    }
+
+    private void OnVblank()
+    {
+        if (m_pendingVblInterrupts < int.MaxValue)
+            m_pendingVblInterrupts++;
     }
 }
