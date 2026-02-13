@@ -53,13 +53,6 @@ public sealed class EmuTOSTests : TestsBase
         var instructionTrace = new InstructionTraceDebugger(1024);
         atariST.Cpu.AddDebugger(instructionTrace);
 
-        // Set up NatFeats message capture
-        var messages = new List<string>();
-        atariST.NatFeats.MessageReceived += (_, e) =>
-        {
-            messages.Add(e.Message);
-            TestContext.Out.WriteLine($"[NatFeats] {e.Message}");
-        };
         var executionHealth = new ExecutionHealthTracker(atariST.Descriptor.CpuHz, atariST.Descriptor.VideoHz, stallFrameCount: 2);
 
         // Act - Run for approximately 10 seconds of emulated time
@@ -160,8 +153,6 @@ public sealed class EmuTOSTests : TestsBase
                     var cyclesPerSecond = atariST.CpuTicks / elapsed;
                     TestContext.Out.WriteLine($"Progress: {progress:F1}% | {atariST.CpuTicks:N0} cycles | " +
                                         $"{cyclesPerSecond / 1_000_000.0:F2} MHz real | " +
-                                        $"{messages.Count} messages | " +
-                                        $"{atariST.NatFeats.TotalCalls} NF calls | " +
                                         $"{instructionCount:N0} steps");
 
                     if (!loggedLikelyStall && executionHealth.TryGetLikelyStallReason(out var reason))
@@ -213,8 +204,6 @@ public sealed class EmuTOSTests : TestsBase
         TestContext.Out.WriteLine($"Average speed: {atariST.CpuTicks / stopwatch.Elapsed.TotalSeconds / 1_000_000.0:F2} MHz");
         TestContext.Out.WriteLine($"Instruction steps: {instructionCount:N0}");
         TestContext.Out.WriteLine($"Longest same-PC run: {executionHealth.LongestSamePcRunLength:N0} steps / {executionHealth.LongestSamePcRunCycles:N0} cycles ({executionHealth.LongestSamePcRunMilliseconds:F2} ms) at ${executionHealth.LongestSamePcRunPc:X6}");
-        TestContext.Out.WriteLine($"NatFeats messages: {messages.Count}");
-        TestContext.Out.WriteLine($"NatFeats calls: {atariST.NatFeats.TotalCalls} (ID={atariST.NatFeats.IdCalls}, CALL={atariST.NatFeats.CallCalls}, Unknown={atariST.NatFeats.UnknownFeatureCalls})");
         TestContext.Out.WriteLine($"Exceptions: {exceptionCount}");
         TestContext.Out.WriteLine($"Top PCs: {executionHealth.FormatTopPcs(8)}");
         TestContext.Out.WriteLine($"Blank checksum: 0x{blankScreenChecksum:X8}");
@@ -223,15 +212,6 @@ public sealed class EmuTOSTests : TestsBase
         TestContext.Out.WriteLine($"Video mode samples: {FormatVideoModeSamples(sampledModeCounts)}");
         TestContext.Out.WriteLine($"First sampled video mode: {DescribeVideoMode(firstSampledMode)} at {firstSampledModeAtCycles:N0} cycles");
         TestContext.Out.WriteLine();
-
-        if (messages.Count > 0)
-        {
-            TestContext.Out.WriteLine("=== NatFeats Messages ===");
-            foreach (var msg in messages)
-            {
-                TestContext.Out.WriteLine(msg);
-            }
-        }
 
         // Basic sanity checks
         Assert.That(atariST.CpuTicks, Is.GreaterThan(0), "CPU should have executed some cycles");
@@ -244,8 +224,6 @@ public sealed class EmuTOSTests : TestsBase
         Assert.That(sampledFrames, Is.GreaterThan(0), "No frame samples were captured.");
         Assert.That(sawNonBlankFrame, Is.True, "Did not observe a non-blank frame during boot.");
         TestContext.Out.WriteLine();
-        if (atariST.NatFeats.TotalCalls == 0)
-            TestContext.Out.WriteLine("No NatFeats opcodes were executed during this boot window.");
         TestContext.Out.WriteLine($"Test completed. Check output above for EmuTOS behavior.");
     }
 

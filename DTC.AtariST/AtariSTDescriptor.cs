@@ -26,9 +26,9 @@ public sealed class AtariSTDescriptor : IMachineDescriptor
     // Standard audio sample rate
     private const int AudioSampleRate = 44100;
 
-    // ST low resolution: 320x200
-    private const int LowResWidth = 320;
-    private const int LowResHeight = 200;
+    // Expose a fixed output surface sized for the largest ST mode.
+    private const int OutputWidth = 640;
+    private const int OutputHeight = 400;
 
     public string Name => "Atari ST 1040 STFM";
 
@@ -38,7 +38,7 @@ public sealed class AtariSTDescriptor : IMachineDescriptor
 
     public int AudioSampleRateHz => AudioSampleRate;
 
-    public int FrameWidth => LowResWidth;
+    public int FrameWidth => OutputWidth;
 
-    public int FrameHeight => LowResHeight;
+    public int FrameHeight => OutputHeight;
 }

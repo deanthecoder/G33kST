@@ -42,7 +42,7 @@ public sealed class AtariST : IMachine
 
     public bool HasLoadedCartridge => Rom.Data.Any(b => b != 0);
 
-    // Minimal Shifter-backed low-resolution video path.
+    // Minimal Shifter-backed video path.
     public IVideoSource Video => m_video;
 
     public IAudioSource Audio => null;
@@ -57,8 +57,6 @@ public sealed class AtariST : IMachine
 
     public RomMirrorDevice RomMirror { get; }
 
-    public NatFeats NatFeats { get; }
-
     public AtariST()
     {
         // Create main RAM and ROM
@@ -67,9 +65,6 @@ public sealed class AtariST : IMachine
 
         // Create ROM mirror for boot-time reset vector access
         RomMirror = new RomMirrorDevice(Rom);
-
-        // Create NatFeats support for debug output
-        NatFeats = new NatFeats();
 
         // Create bus with full 24-bit address space (16MB)
         // The 68000 has a 24-bit address bus, so create a dummy memory device for the full space
@@ -116,14 +111,6 @@ public sealed class AtariST : IMachine
 
     public void StepCpu()
     {
-        var programCounter = Cpu.Registers.ProgramCounter & 0x00FF_FFFF;
-        if ((programCounter & 1) == 0)
-        {
-            var opcode = Cpu.Bus.Read16BigEndian(programCounter);
-            if (NatFeats.TryHandle(Cpu, opcode))
-                return;
-        }
-
         Cpu.Step();
     }
 

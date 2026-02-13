@@ -13,18 +13,30 @@ using DTC.Emulation;
 namespace DTC.AtariST;
 
 /// <summary>
-/// Minimal Atari ST Shifter video source for low-resolution (320x200, 4 bitplanes) output.
+/// Minimal Atari ST Shifter video source with basic low/medium/high mode rendering.
+/// Output is exposed as a fixed 640x400 RGBA surface.
 /// </summary>
 public sealed class Shifter : IVideoSource
 {
     private const int BytesPerPixel = 4;
+    private const int OutputWidth = 640;
+    private const int OutputHeight = 400;
     private const int LowResWidth = 320;
     private const int LowResHeight = 200;
     private const int LowResWordsPerLine = 20;
     private const int LowResBytesPerLine = LowResWordsPerLine * 8;
+    private const int MediumResWidth = 640;
+    private const int MediumResHeight = 200;
+    private const int MediumResWordsPerLine = 40;
+    private const int MediumResBytesPerLine = MediumResWordsPerLine * 4;
+    private const int HighResWidth = 640;
+    private const int HighResHeight = 400;
+    private const int HighResWordsPerLine = 40;
+    private const int HighResBytesPerLine = HighResWordsPerLine * 2;
+    private const int VisibleRasterLines = 200;
     private const int TotalRasterLines = 262; // NTSC model for now.
 
-    // ST Shifter/MMU registers (minimal subset for low-res fetch and palette decode).
+    // ST Shifter/MMU registers (minimal subset for frame base, mode, and palette decode).
     private const uint VideoBaseHighRegister = 0x00FF8201;
     private const uint VideoBaseMidRegister = 0x00FF8203;
     private const uint VideoBaseLowRegister = 0x00FF820D; // STE extension; ignored on plain ST.
@@ -33,7 +45,7 @@ public sealed class Shifter : IVideoSource
 
     private readonly Bus m_bus;
     private readonly double m_ticksPerLine;
-    private readonly byte[] m_frameBuffer = new byte[LowResWidth * LowResHeight * BytesPerPixel];
+    private readonly byte[] m_frameBuffer = new byte[OutputWidth * OutputHeight * BytesPerPixel];
     private readonly byte[] m_paletteR = new byte[16];
     private readonly byte[] m_paletteG = new byte[16];
     private readonly byte[] m_paletteB = new byte[16];
@@ -41,7 +53,7 @@ public sealed class Shifter : IVideoSource
     private int m_currentRasterLine;
 
     /// <summary>
-    /// Creates a low-resolution Atari ST video source.
+    /// Creates an Atari ST video source.
     /// </summary>
     public Shifter(Bus bus, double cpuHz, double videoHz)
     {
@@ -56,10 +68,10 @@ public sealed class Shifter : IVideoSource
     }
 
     /// <inheritdoc />
-    public int FrameWidth => LowResWidth;
+    public int FrameWidth => OutputWidth;
 
     /// <inheritdoc />
-    public int FrameHeight => LowResHeight;
+    public int FrameHeight => OutputHeight;
 
     /// <inheritdoc />
     public event EventHandler<byte[]> FrameRendered;
@@ -88,7 +100,7 @@ public sealed class Shifter : IVideoSource
             hblankCallback?.Invoke();
 
             m_currentRasterLine++;
-            if (m_currentRasterLine == LowResHeight)
+            if (m_currentRasterLine == VisibleRasterLines)
             {
                 RenderFrame();
                 vblankCallback?.Invoke();
@@ -141,7 +153,6 @@ public sealed class Shifter : IVideoSource
         for (var y = 0; y < LowResHeight; y++)
         {
             var lineAddress = unchecked(screenBaseAddress + (uint)(y * LowResBytesPerLine));
-            var outIndex = y * LowResWidth * BytesPerPixel;
             for (var chunk = 0; chunk < LowResWordsPerLine; chunk++)
             {
                 var chunkAddress = unchecked(lineAddress + (uint)(chunk * 8));
@@ -151,13 +162,13 @@ public sealed class Shifter : IVideoSource
                 var plane3 = m_bus.Read16BigEndian(chunkAddress + 6);
                 for (var bit = 15; bit >= 0; bit--)
                 {
+                    var x = (chunk * 16) + (15 - bit);
                     var pixelIndex =
                         ((plane0 >> bit) & 1) |
                         (((plane1 >> bit) & 1) << 1) |
                         (((plane2 >> bit) & 1) << 2) |
                         (((plane3 >> bit) & 1) << 3);
-                    WriteRgbAt(outIndex, m_paletteR[pixelIndex], m_paletteG[pixelIndex], m_paletteB[pixelIndex]);
-                    outIndex += BytesPerPixel;
+                    WriteScaled2x2(x, y, m_paletteR[pixelIndex], m_paletteG[pixelIndex], m_paletteB[pixelIndex]);
                 }
             }
         }
@@ -165,26 +176,22 @@ public sealed class Shifter : IVideoSource
 
     private void RenderMediumResolution(uint screenBaseAddress)
     {
-        const int wordsPerLine = 40; // 640 / 16
-        const int bytesPerLine = wordsPerLine * 4; // 2 planes
-
-        for (var y = 0; y < LowResHeight; y++)
+        for (var y = 0; y < MediumResHeight; y++)
         {
-            var lineAddress = unchecked(screenBaseAddress + (uint)(y * bytesPerLine));
-            var outIndex = y * LowResWidth * BytesPerPixel;
-            for (var chunk = 0; chunk < wordsPerLine; chunk++)
+            var lineAddress = unchecked(screenBaseAddress + (uint)(y * MediumResBytesPerLine));
+            for (var chunk = 0; chunk < MediumResWordsPerLine; chunk++)
             {
                 var chunkAddress = unchecked(lineAddress + (uint)(chunk * 4));
                 var plane0 = m_bus.Read16BigEndian(chunkAddress);
                 var plane1 = m_bus.Read16BigEndian(chunkAddress + 2);
-                for (var outPixel = 0; outPixel < 8; outPixel++)
+                for (var bit = 15; bit >= 0; bit--)
                 {
-                    var bit = 15 - (outPixel * 2);
+                    var x = (chunk * 16) + (15 - bit);
                     var pixelIndex =
                         ((plane0 >> bit) & 1) |
                         (((plane1 >> bit) & 1) << 1);
-                    WriteRgbAt(outIndex, m_paletteR[pixelIndex], m_paletteG[pixelIndex], m_paletteB[pixelIndex]);
-                    outIndex += BytesPerPixel;
+                    WriteRgbAt(x, y * 2, m_paletteR[pixelIndex], m_paletteG[pixelIndex], m_paletteB[pixelIndex]);
+                    WriteRgbAt(x, y * 2 + 1, m_paletteR[pixelIndex], m_paletteG[pixelIndex], m_paletteB[pixelIndex]);
                 }
             }
         }
@@ -192,31 +199,36 @@ public sealed class Shifter : IVideoSource
 
     private void RenderHighResolutionMonochrome(uint screenBaseAddress)
     {
-        const int wordsPerLine = 40; // 640 / 16
-        const int bytesPerLine = wordsPerLine * 2; // 1 plane
-
-        for (var y = 0; y < LowResHeight; y++)
+        for (var y = 0; y < HighResHeight; y++)
         {
-            var sourceY = y * 2;
-            var lineAddress = unchecked(screenBaseAddress + (uint)(sourceY * bytesPerLine));
-            var outIndex = y * LowResWidth * BytesPerPixel;
-            for (var chunk = 0; chunk < wordsPerLine; chunk++)
+            var lineAddress = unchecked(screenBaseAddress + (uint)(y * HighResBytesPerLine));
+            for (var chunk = 0; chunk < HighResWordsPerLine; chunk++)
             {
                 var word = m_bus.Read16BigEndian(unchecked(lineAddress + (uint)(chunk * 2)));
-                for (var outPixel = 0; outPixel < 8; outPixel++)
+                for (var bit = 15; bit >= 0; bit--)
                 {
-                    var bit = 15 - (outPixel * 2);
+                    var x = (chunk * 16) + (15 - bit);
                     var on = ((word >> bit) & 1) != 0;
-                    var value = on ? (byte)255 : (byte)0;
-                    WriteRgbAt(outIndex, value, value, value);
-                    outIndex += BytesPerPixel;
+                    var value = on ? (byte)0 : (byte)255;
+                    WriteRgbAt(x, y, value, value, value);
                 }
             }
         }
     }
 
-    private void WriteRgbAt(int outputIndex, byte red, byte green, byte blue)
+    private void WriteScaled2x2(int sourceX, int sourceY, byte red, byte green, byte blue)
     {
+        var outX = sourceX * 2;
+        var outY = sourceY * 2;
+        WriteRgbAt(outX, outY, red, green, blue);
+        WriteRgbAt(outX + 1, outY, red, green, blue);
+        WriteRgbAt(outX, outY + 1, red, green, blue);
+        WriteRgbAt(outX + 1, outY + 1, red, green, blue);
+    }
+
+    private void WriteRgbAt(int x, int y, byte red, byte green, byte blue)
+    {
+        var outputIndex = ((y * OutputWidth) + x) * BytesPerPixel;
         m_frameBuffer[outputIndex] = red;
         m_frameBuffer[outputIndex + 1] = green;
         m_frameBuffer[outputIndex + 2] = blue;
@@ -249,7 +261,12 @@ public sealed class Shifter : IVideoSource
     private void ClearToBlack()
     {
         for (var i = 0; i < m_frameBuffer.Length; i += BytesPerPixel)
-            WriteRgbAt(i, 0, 0, 0);
+        {
+            m_frameBuffer[i] = 0;
+            m_frameBuffer[i + 1] = 0;
+            m_frameBuffer[i + 2] = 0;
+            m_frameBuffer[i + 3] = 255;
+        }
     }
 
     private static byte ScaleThreeBitToEightBit(int value) =>
