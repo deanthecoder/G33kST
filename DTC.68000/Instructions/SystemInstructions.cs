@@ -143,12 +143,11 @@ public static class SystemInstructions
         if (!EnsureSupervisor(cpu))
             return;
 
-        // TODO: Replace this with a real halted CPU state that resumes on eligible interrupt.
-        // In this prefetch model, tests expect STOP to leave PC on the STOP instruction slot.
-        var haltedProgramCounter = cpu.Registers.ProgramCounter - 2;
         var statusRegister = cpu.FetchPcWord();
         cpu.Registers.StatusRegister = (ushort)(statusRegister & ValidStatusRegisterMask);
-        cpu.Registers.ProgramCounter = haltedProgramCounter;
+        var resumeProgramCounter = cpu.Registers.ProgramCounter;
+        cpu.Registers.ProgramCounter = unchecked(resumeProgramCounter - 4);
+        cpu.EnterStoppedState(resumeProgramCounter);
         cpu.InternalWait(4);
     }
 

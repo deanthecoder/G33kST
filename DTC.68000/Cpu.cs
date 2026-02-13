@@ -30,6 +30,7 @@ public sealed class Cpu : CpuBase
     private const uint PrivilegeViolationVectorAddress = 0x000020;
     private const uint SpuriousInterruptVectorAddress = 0x000060;
     private const uint InterruptAutovectorBaseAddress = 0x000060;
+    private const uint StopIdleCyclesPerStep = 4;
 
     // 0x2700 = supervisor mode with IPL 7, trace off, and XNZVC clear.
     private const ushort InitialStatusRegister = 0x2700;
@@ -37,6 +38,8 @@ public sealed class Cpu : CpuBase
     private ushort m_prefetch0;
     private ushort m_prefetch1;
     private bool m_hasPrefetch;
+    private bool m_isStopped;
+    private uint m_stoppedResumeProgramCounter;
     private byte m_pendingInterruptLevel;
 
     /// <summary>
@@ -48,6 +51,11 @@ public sealed class Cpu : CpuBase
     /// Gets the total number of cycles accumulated since the last reset.
     /// </summary>
     public long CyclesSinceCpuStart { get; private set; }
+
+    /// <summary>
+    /// Gets a value indicating whether the CPU is halted by a <c>STOP</c> instruction.
+    /// </summary>
+    public bool IsStopped => m_isStopped;
 
     /// <summary>
     /// Optional callback for interrupt acknowledge cycles.
@@ -84,6 +92,9 @@ public sealed class Cpu : CpuBase
         Registers.ProgramCounter = Bus.Read32BigEndian(ResetProgramCounterVectorAddress);
         Registers.StatusRegister = InitialStatusRegister;
         m_hasPrefetch = false;
+        m_isStopped = false;
+        m_stoppedResumeProgramCounter = 0;
+        m_pendingInterruptLevel = 0;
     }
 
     /// <summary>
@@ -113,6 +124,12 @@ public sealed class Cpu : CpuBase
         m_prefetch0 = firstWord;
         m_prefetch1 = secondWord;
         m_hasPrefetch = true;
+
+        // Single-step tests reuse a CPU instance across many independent cases.
+        // Seeding a new prefetch pair defines a fresh instruction context, so clear transient latches.
+        m_isStopped = false;
+        m_stoppedResumeProgramCounter = 0;
+        m_pendingInterruptLevel = 0;
     }
 
     /// <summary>
@@ -262,6 +279,14 @@ public sealed class Cpu : CpuBase
             return;
         }
 
+        if (m_isStopped)
+        {
+            // STOP halts instruction execution but machine time still advances.
+            InternalWait(StopIdleCyclesPerStep);
+            NotifyAfterStep();
+            return;
+        }
+
         var opcodeAddress = Registers.ProgramCounter;
         ushort opcode = 0;
         var traceWasEnabled = Registers.TraceFlag;
@@ -298,6 +323,15 @@ public sealed class Cpu : CpuBase
 
         _ = FetchPcWord();
         _ = FetchPcWord();
+    }
+
+    /// <summary>
+    /// Halts instruction execution until an eligible interrupt is accepted.
+    /// </summary>
+    public void EnterStoppedState(uint resumeProgramCounter)
+    {
+        m_isStopped = true;
+        m_stoppedResumeProgramCounter = resumeProgramCounter;
     }
 
     /// <summary>
@@ -358,7 +392,12 @@ public sealed class Cpu : CpuBase
         if (!isAccepted)
             return false;
 
+        var interruptReturnProgramCounter = m_isStopped
+            ? m_stoppedResumeProgramCounter
+            : Registers.ProgramCounter;
         m_pendingInterruptLevel = 0;
+        m_isStopped = false;
+        m_stoppedResumeProgramCounter = 0;
         var acknowledgeResult = InterruptAcknowledge?.Invoke(level) ?? InterruptAcknowledgeResult.Autovector();
         var vectorAddress = acknowledgeResult.Type switch
         {
@@ -368,7 +407,7 @@ public sealed class Cpu : CpuBase
             _ => throw new ArgumentOutOfRangeException(nameof(acknowledgeResult))
         };
 
-        EnterExceptionVector(vectorAddress, Registers.ProgramCounter, level);
+        EnterExceptionVector(vectorAddress, interruptReturnProgramCounter, level);
         return true;
     }
 
