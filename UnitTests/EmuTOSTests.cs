@@ -26,7 +26,7 @@ public sealed class EmuTOSTests : TestsBase
 
     [Test]
     [Explicit("Requires EmuTOS ROM file and runs for extended duration")]
-    public void CheckEmuTOSBootsWithNatFeatsOutput()
+    public void CheckEmuTosRomRunsWithoutDeadlock()
     {
         // Arrange - Find and load EmuTOS ROM
         var romFile = FindEmuTosRom();
@@ -72,6 +72,7 @@ public sealed class EmuTOSTests : TestsBase
         var progressInterval = targetCycles / 10; // Update every 10%
         var instructionCount = 0L;
         var loggedLikelyStall = false;
+        var stallReason = string.Empty;
         var lastCpuTicks = atariST.CpuTicks;
 
         while (atariST.CpuTicks < targetCycles)
@@ -105,6 +106,7 @@ public sealed class EmuTOSTests : TestsBase
                     if (!loggedLikelyStall && executionHealth.TryGetLikelyStallReason(out var reason))
                     {
                         loggedLikelyStall = true;
+                        stallReason = reason;
                         TestContext.Out.WriteLine($"[Health] Likely stall detected: {reason}");
                         var recentTrace = instructionTrace.GetRecentLines(StallTraceLineCount);
                         if (recentTrace.Count > 0)
@@ -167,6 +169,12 @@ public sealed class EmuTOSTests : TestsBase
 
         // Basic sanity checks
         Assert.That(atariST.CpuTicks, Is.GreaterThan(0), "CPU should have executed some cycles");
+        Assert.That(atariST.CpuTicks, Is.GreaterThanOrEqualTo(targetCycles), "Execution ended before reaching target cycles.");
+        Assert.That(exceptionCount, Is.EqualTo(0), "Unexpected exceptions were raised while running the ROM.");
+        Assert.That(
+            loggedLikelyStall,
+            Is.False,
+            $"Likely deadlock detected: {stallReason}");
         TestContext.Out.WriteLine();
         if (atariST.NatFeats.TotalCalls == 0)
             TestContext.Out.WriteLine("No NatFeats opcodes were executed during this boot window.");
