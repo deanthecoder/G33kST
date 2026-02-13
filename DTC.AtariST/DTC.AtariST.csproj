@@ -27,4 +27,10 @@
     <ProjectReference Include="..\DTC.68000\DTC.68000.csproj" />
     <ProjectReference Include="..\DTC.Emulation\DTC.Emulation.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Update="TOS\etos192us.img">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>
