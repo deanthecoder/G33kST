@@ -13,7 +13,7 @@ using DTC.AtariST;
 namespace UnitTests;
 
 [TestFixture]
-public sealed class RomMirrorDeviceTests
+public sealed class RomMirrorDeviceTests : TestsBase
 {
     [Test]
     public void CheckConstructorInitializesAddressRange()

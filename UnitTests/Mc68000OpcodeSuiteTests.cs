@@ -23,7 +23,7 @@ namespace UnitTests;
 /// </summary>
 [TestFixture]
 [Parallelizable(ParallelScope.Children)]
-public sealed class Mc68000OpcodeSuiteTests
+public sealed class Mc68000OpcodeSuiteTests : TestsBase
 {
     private const int MaxStepsFullSuite = 2_000_000;
     private const int TraceLeftColumnWidth = 44;

@@ -13,7 +13,7 @@ using DTC.M68000;
 namespace UnitTests;
 
 [TestFixture]
-public sealed class RegistersTests
+public sealed class RegistersTests : TestsBase
 {
     [Test]
     public void InitialStateIsZero()

@@ -56,7 +56,7 @@ public sealed class EmuTOSTests : TestsBase
             messages.Add(e.Message);
             TestContext.Out.WriteLine($"[NatFeats] {e.Message}");
         };
-        var executionHealth = new ExecutionHealthTracker();
+        var executionHealth = new ExecutionHealthTracker(atariST.Descriptor.CpuHz, atariST.Descriptor.VideoHz, stallFrameCount: 2);
 
         // Act - Run for approximately 10 seconds of emulated time
         var targetCycles = (long)(atariST.Descriptor.CpuHz * 10.0);
@@ -79,10 +79,10 @@ public sealed class EmuTOSTests : TestsBase
             try
             {
                 var pcBeforeStep = atariST.Cpu.Registers.ProgramCounter & 0x00FF_FFFF;
-                executionHealth.Observe(pcBeforeStep);
                 atariST.StepCpu();
                 var currentCpuTicks = atariST.CpuTicks;
                 var deltaTicks = currentCpuTicks - lastCpuTicks;
+                executionHealth.Observe(pcBeforeStep, deltaTicks);
                 if (deltaTicks > 0)
                     atariST.AdvanceDevices(deltaTicks);
                 lastCpuTicks = currentCpuTicks;
@@ -102,7 +102,7 @@ public sealed class EmuTOSTests : TestsBase
                                         $"{atariST.NatFeats.TotalCalls} NF calls | " +
                                         $"{instructionCount:N0} steps");
 
-                    if (!loggedLikelyStall && executionHealth.TryGetLikelyStallReason(instructionCount, out var reason))
+                    if (!loggedLikelyStall && executionHealth.TryGetLikelyStallReason(out var reason))
                     {
                         loggedLikelyStall = true;
                         TestContext.Out.WriteLine($"[Health] Likely stall detected: {reason}");
@@ -149,7 +149,7 @@ public sealed class EmuTOSTests : TestsBase
         TestContext.Out.WriteLine($"Real time: {stopwatch.Elapsed.TotalSeconds:F2}s");
         TestContext.Out.WriteLine($"Average speed: {atariST.CpuTicks / stopwatch.Elapsed.TotalSeconds / 1_000_000.0:F2} MHz");
         TestContext.Out.WriteLine($"Instruction steps: {instructionCount:N0}");
-        TestContext.Out.WriteLine($"Longest same-PC run: {executionHealth.LongestSamePcRunLength:N0} at ${executionHealth.LongestSamePcRunPc:X6}");
+        TestContext.Out.WriteLine($"Longest same-PC run: {executionHealth.LongestSamePcRunLength:N0} steps / {executionHealth.LongestSamePcRunCycles:N0} cycles ({executionHealth.LongestSamePcRunMilliseconds:F2} ms) at ${executionHealth.LongestSamePcRunPc:X6}");
         TestContext.Out.WriteLine($"NatFeats messages: {messages.Count}");
         TestContext.Out.WriteLine($"NatFeats calls: {atariST.NatFeats.TotalCalls} (ID={atariST.NatFeats.IdCalls}, CALL={atariST.NatFeats.CallCalls}, Unknown={atariST.NatFeats.UnknownFeatureCalls})");
         TestContext.Out.WriteLine($"Exceptions: {exceptionCount}");
@@ -191,62 +191,61 @@ public sealed class EmuTOSTests : TestsBase
 
     private sealed class ExecutionHealthTracker
     {
-        private const long SamePcStallThreshold = 500_000;
-        private const long TopPcCheckMinimumInstructions = 2_000_000;
-        private const double TopPcDominanceThreshold = 0.95;
+        private readonly double m_cpuHz;
+        private readonly long m_samePcStallCycleThreshold;
         private readonly Dictionary<uint, long> m_pcHitCounts = [];
         private uint m_lastPc = uint.MaxValue;
         private long m_currentSamePcRunLength;
+        private long m_currentSamePcRunCycles;
 
         public long LongestSamePcRunLength { get; private set; }
+        public long LongestSamePcRunCycles { get; private set; }
+        public double LongestSamePcRunMilliseconds => LongestSamePcRunCycles * 1000.0 / m_cpuHz;
         public uint LongestSamePcRunPc { get; private set; }
 
-        public void Observe(uint pc)
+        public ExecutionHealthTracker(double cpuHz, double videoHz, int stallFrameCount)
         {
+            m_cpuHz = cpuHz;
+            var ticksPerFrame = (long)Math.Round(cpuHz / videoHz);
+            m_samePcStallCycleThreshold = ticksPerFrame * stallFrameCount;
+        }
+
+        public void Observe(uint pc, long deltaCycles)
+        {
+            deltaCycles = Math.Max(deltaCycles, 0);
+
             if (m_pcHitCounts.TryGetValue(pc, out var currentHits))
                 m_pcHitCounts[pc] = currentHits + 1;
             else
                 m_pcHitCounts[pc] = 1;
 
             if (pc == m_lastPc)
+            {
                 m_currentSamePcRunLength++;
+                m_currentSamePcRunCycles += deltaCycles;
+            }
             else
             {
                 m_lastPc = pc;
                 m_currentSamePcRunLength = 1;
+                m_currentSamePcRunCycles = deltaCycles;
             }
 
-            if (m_currentSamePcRunLength > LongestSamePcRunLength)
+            if (m_currentSamePcRunCycles > LongestSamePcRunCycles)
             {
                 LongestSamePcRunLength = m_currentSamePcRunLength;
+                LongestSamePcRunCycles = m_currentSamePcRunCycles;
                 LongestSamePcRunPc = pc;
             }
         }
 
-        public bool TryGetLikelyStallReason(long instructionCount, out string reason)
+        public bool TryGetLikelyStallReason(out string reason)
         {
-            if (LongestSamePcRunLength >= SamePcStallThreshold)
+            if (m_currentSamePcRunCycles >= m_samePcStallCycleThreshold)
             {
-                reason = $"PC ${LongestSamePcRunPc:X6} repeated for {LongestSamePcRunLength:N0} consecutive instructions.";
+                var currentRunMilliseconds = m_currentSamePcRunCycles * 1000.0 / m_cpuHz;
+                reason = $"PC ${m_lastPc:X6} repeated for {m_currentSamePcRunCycles:N0} cycles ({currentRunMilliseconds:F2} ms).";
                 return true;
-            }
-
-            if (instructionCount >= TopPcCheckMinimumInstructions)
-            {
-                var topPcs = m_pcHitCounts
-                    .OrderByDescending(o => o.Value)
-                    .Take(2)
-                    .ToArray();
-                if (topPcs.Length > 0)
-                {
-                    var dominantCount = topPcs.Sum(o => o.Value);
-                    var dominantRatio = dominantCount / (double)instructionCount;
-                    if (dominantRatio >= TopPcDominanceThreshold)
-                    {
-                        reason = $"Top {(topPcs.Length == 1 ? "PC" : "2 PCs")} account for {dominantRatio:P1} of executed instructions.";
-                        return true;
-                    }
-                }
             }
 
             reason = string.Empty;

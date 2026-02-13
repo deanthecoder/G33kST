@@ -13,7 +13,7 @@ using DTC.M68000.Decoding;
 namespace UnitTests;
 
 [TestFixture]
-public sealed class OpcodeCoverageTests
+public sealed class OpcodeCoverageTests : TestsBase
 {
     [Test]
     public void DecoderCoverageAudit()

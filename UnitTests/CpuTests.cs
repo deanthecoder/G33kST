@@ -14,7 +14,7 @@ using DTC.M68000;
 namespace UnitTests;
 
 [TestFixture]
-public sealed class CpuTests
+public sealed class CpuTests : TestsBase
 {
     [Test]
     public void ResetLoadsSupervisorStackPointerAndProgramCounterFromVectors()
@@ -1991,6 +1991,59 @@ public sealed class CpuTests
             Assert.That(bus.Read16BigEndian(0x000FFC), Is.EqualTo(0x0000));
             Assert.That(bus.Read16BigEndian(0x000FFE), Is.EqualTo(0x0100));
             Assert.That(cpu.Registers.InterruptPriorityMask, Is.EqualTo(2));
+        });
+    }
+
+    [Test]
+    public void StopHaltsUntilInterruptAndStacksReturnAddressAfterImmediateWord()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0x4E72); // STOP #$2000.
+        bus.Write16BigEndian(0x000102, 0x2000);
+        bus.Write16BigEndian(0x000104, 0x7001); // MOVEQ #1,D0.
+        bus.Write16BigEndian(0x000070, 0x0000); // Autovector level 4.
+        bus.Write16BigEndian(0x000072, 0x0300);
+
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100,
+                StatusRegister = 0x2000,
+                SupervisorStackPointer = 0x001000,
+                StackPointer = 0x001000
+            }
+        };
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.IsStopped, Is.True);
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000100));
+            Assert.That(cpu.Registers.StatusRegister, Is.EqualTo(0x2000));
+        });
+
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.IsStopped, Is.True);
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000100));
+            Assert.That(cpu.Registers.GetDataRegister(0), Is.Zero);
+        });
+
+        cpu.RequestInterrupt(4);
+        cpu.Step();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.IsStopped, Is.False);
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000300));
+            Assert.That(cpu.Registers.StackPointer, Is.EqualTo(0x000FFA));
+            Assert.That(bus.Read16BigEndian(0x000FFA), Is.EqualTo(0x2000));
+            Assert.That(bus.Read16BigEndian(0x000FFC), Is.EqualTo(0x0000));
+            Assert.That(bus.Read16BigEndian(0x000FFE), Is.EqualTo(0x0104));
         });
     }
 }

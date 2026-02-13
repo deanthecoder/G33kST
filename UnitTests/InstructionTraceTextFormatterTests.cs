@@ -15,7 +15,7 @@ using DTC.M68000.Decoding;
 namespace UnitTests;
 
 [TestFixture]
-public sealed class InstructionTraceTextFormatterTests
+public sealed class InstructionTraceTextFormatterTests : TestsBase
 {
     [Test]
     public void FormatExpandsGenericDataRegistersToResolvedValues()

@@ -16,7 +16,7 @@ namespace UnitTests;
 /// Tests for the Atari ST emulator machine.
 /// </summary>
 [TestFixture]
-public class AtariSTTests
+public sealed class AtariSTTests : TestsBase
 {
     [Test]
     public void Constructor_ShouldInitializeMachineWithDefaultDescriptor()
