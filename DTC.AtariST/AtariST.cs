@@ -28,6 +28,12 @@ public sealed class AtariST : IMachine
     private const int RamSize = 1024 * 1024; // 1MB for ST 1040
     internal const uint RomBaseAddress = 0xFC0000;
     private const int RomSize = 192 * 1024; // 192KB ROM
+    private const byte SyntheticVblInterruptLevel = 4;
+    private readonly double m_ticksPerVbl;
+    private double m_vblTickAccumulator;
+    private int m_pendingVblInterrupts;
+    private byte m_latchedInterruptLevel;
+    private bool m_hasLatchedInterrupt;
 
     public IMachineDescriptor Descriptor { get; } = new AtariSTDescriptor();
 
@@ -52,14 +58,21 @@ public sealed class AtariST : IMachine
 
     public RomMirrorDevice RomMirror { get; }
 
+    public NatFeats NatFeats { get; }
+
     public AtariST()
     {
+        m_ticksPerVbl = Descriptor.CpuHz / Descriptor.VideoHz;
+
         // Create main RAM and ROM
         Ram = new Memory(RamSize);
         Rom = new RomDevice(RomSize, RomBaseAddress);
 
         // Create ROM mirror for boot-time reset vector access
         RomMirror = new RomMirrorDevice(Rom);
+
+        // Create NatFeats support for debug output
+        NatFeats = new NatFeats();
 
         // Create bus with full 24-bit address space (16MB)
         // The 68000 has a 24-bit address bus, so create a dummy memory device for the full space
@@ -79,6 +92,10 @@ public sealed class AtariST : IMachine
 
     public void Reset()
     {
+        m_vblTickAccumulator = 0;
+        m_pendingVblInterrupts = 0;
+        m_hasLatchedInterrupt = false;
+        m_latchedInterruptLevel = 0;
         Cpu.Reset();
     }
 
@@ -97,22 +114,55 @@ public sealed class AtariST : IMachine
         Reset();
     }
 
-    public void StepCpu() => Cpu.Step();
+    public void StepCpu()
+    {
+        var programCounter = Cpu.Registers.ProgramCounter & 0x00FF_FFFF;
+        if ((programCounter & 1) == 0)
+        {
+            var opcode = Cpu.Bus.Read16BigEndian(programCounter);
+            if (NatFeats.TryHandle(Cpu, opcode))
+                return;
+        }
+
+        Cpu.Step();
+    }
 
     public void AdvanceDevices(long deltaTicks)
     {
-        // TODO: Advance video and audio devices
+        if (deltaTicks <= 0)
+            return;
+
+        // Synthetic VBL source for early machine bring-up.
+        m_vblTickAccumulator += deltaTicks;
+        while (m_vblTickAccumulator >= m_ticksPerVbl)
+        {
+            m_vblTickAccumulator -= m_ticksPerVbl;
+            m_pendingVblInterrupts++;
+        }
     }
 
     public bool TryConsumeInterrupt()
     {
-        // TODO: Implement interrupt handling
-        return false;
+        if (m_hasLatchedInterrupt)
+            return true;
+
+        if (m_pendingVblInterrupts <= 0)
+            return false;
+
+        m_pendingVblInterrupts--;
+        m_latchedInterruptLevel = SyntheticVblInterruptLevel;
+        m_hasLatchedInterrupt = true;
+        return true;
     }
 
     public void RequestInterrupt()
     {
-        // TODO: Implement interrupt requests
+        if (!m_hasLatchedInterrupt)
+            return;
+
+        Cpu.RequestInterrupt(m_latchedInterruptLevel);
+        m_hasLatchedInterrupt = false;
+        m_latchedInterruptLevel = 0;
     }
 
     public void SetInputActive(bool isActive)
