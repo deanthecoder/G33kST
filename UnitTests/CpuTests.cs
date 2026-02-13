@@ -97,8 +97,13 @@ public sealed class CpuTests
     {
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x4E71);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
 
         cpu.Step();
 
@@ -110,8 +115,13 @@ public sealed class CpuTests
     {
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x7001);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
 
         cpu.Step();
 
@@ -123,9 +133,14 @@ public sealed class CpuTests
     {
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x6602); // BNE.B +2
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
-        cpu.Registers.ZeroFlag = true;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100,
+                ZeroFlag = true
+            }
+        };
 
         cpu.Step();
 
@@ -138,9 +153,14 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x6600); // BNE.W +2
         bus.Write16BigEndian(0x000102, 0x0002);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
-        cpu.Registers.ZeroFlag = true;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100,
+                ZeroFlag = true
+            }
+        };
 
         cpu.Step();
 
@@ -152,9 +172,14 @@ public sealed class CpuTests
     {
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x6702); // BEQ.B +2
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
-        cpu.Registers.ZeroFlag = true;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100,
+                ZeroFlag = true
+            }
+        };
 
         cpu.Step();
 
@@ -167,9 +192,14 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x57C8); // DBEQ D0,#disp16
         bus.Write16BigEndian(0x000102, 0x0002);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
-        cpu.Registers.ZeroFlag = true;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100,
+                ZeroFlag = true
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x0000_0002);
 
         cpu.Step();
@@ -183,8 +213,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x51C8); // DBF D0,#disp16
         bus.Write16BigEndian(0x000102, 0x0002);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x0000_0001);
 
         cpu.Step();
@@ -198,8 +233,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x51C8); // DBF D0,#disp16
         bus.Write16BigEndian(0x000102, 0x0002);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x0000_0000);
 
         cpu.Step();
@@ -213,10 +253,15 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x4E50); // LINK A0,#-4
         bus.Write16BigEndian(0x000102, 0xFFFC);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
-        cpu.Registers.StatusRegister = 0x2000;
-        cpu.Registers.StackPointer = 0x001000;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100,
+                StatusRegister = 0x2000,
+                StackPointer = 0x001000
+            }
+        };
         cpu.Registers.SetAddressRegister(0, 0x000220);
 
         cpu.Step();
@@ -231,10 +276,15 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000100, 0x4E75);
         bus.Write16BigEndian(0x001000, 0x0000);
         bus.Write16BigEndian(0x001002, 0x0200);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
-        cpu.Registers.StatusRegister = 0x2000;
-        cpu.Registers.StackPointer = 0x001000;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100,
+                StatusRegister = 0x2000,
+                StackPointer = 0x001000
+            }
+        };
 
         cpu.Step();
 
@@ -247,8 +297,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x41F8); // LEA (xxx).W,A0
         bus.Write16BigEndian(0x000102, 0x0200);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
 
         cpu.Step();
 
@@ -262,10 +317,15 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000100, 0x4EB8); // JSR (xxx).W
         bus.Write16BigEndian(0x000102, 0x0200);
         bus.Write16BigEndian(0x000200, 0x4E71);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
-        cpu.Registers.StatusRegister = 0x2000;
-        cpu.Registers.StackPointer = 0x001000;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100,
+                StatusRegister = 0x2000,
+                StackPointer = 0x001000
+            }
+        };
 
         cpu.Step();
 
@@ -278,8 +338,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0xD010); // ADD.B (A0),D0
         bus.Write8(0x000200, 0x01);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(0, 0x000200);
 
         cpu.Step();
@@ -294,8 +359,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000100, 0xD090); // ADD.L (A0),D0
         bus.Write16BigEndian(0x000200, 0x0000);
         bus.Write16BigEndian(0x000202, 0x0001);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(0, 0x000200);
 
         cpu.Step();
@@ -309,8 +379,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x9010); // SUB.B (A0),D0
         bus.Write8(0x000200, 0x01);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(0, 0x000200);
 
         cpu.Step();
@@ -324,8 +399,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0xC010); // AND.B (A0),D0
         bus.Write8(0x000200, 0x01);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(0, 0x000200);
 
         cpu.Step();
@@ -339,8 +419,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x8010); // OR.B (A0),D0
         bus.Write8(0x000200, 0x01);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(0, 0x000200);
 
         cpu.Step();
@@ -354,8 +439,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x0A00); // EORI.B #<imm>,D0
         bus.Write16BigEndian(0x000102, 0x0001);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
 
         cpu.Step();
 
@@ -368,8 +458,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0xB010); // CMP.B (A0),D0
         bus.Write8(0x000200, 0x01);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(0, 0x000200);
 
         cpu.Step();
@@ -384,8 +479,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000100, 0xB090); // CMP.L (A0),D0
         bus.Write16BigEndian(0x000200, 0x0000);
         bus.Write16BigEndian(0x000202, 0x0001);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(0, 0x000200);
 
         cpu.Step();
@@ -398,8 +498,13 @@ public sealed class CpuTests
     {
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0xE300); // ASL.B #1,D0
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x0000_0011);
 
         cpu.Step();
@@ -412,8 +517,13 @@ public sealed class CpuTests
     {
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0xE380); // ASL.L #1,D0
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x0000_0011);
 
         cpu.Step();
@@ -426,8 +536,13 @@ public sealed class CpuTests
     {
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0xE320); // ASL.B D1,D0
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x0000_0011);
         cpu.Registers.SetDataRegister(1, 0x0000_0003);
 
@@ -442,8 +557,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0xE1D0); // ASL.W (A0)
         bus.Write16BigEndian(0x000200, 0x0011);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(0, 0x000200);
 
         cpu.Step();
@@ -458,8 +578,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000100, 0xE1E8); // ASL.W (d16,A0)
         bus.Write16BigEndian(0x000102, 0x0002);
         bus.Write16BigEndian(0x000202, 0x0011);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(0, 0x000200);
 
         cpu.Step();
@@ -472,8 +597,13 @@ public sealed class CpuTests
     {
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x1280); // MOVE.B D0,(A1)
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x00000011);
         cpu.Registers.SetAddressRegister(1, 0x000200);
 
@@ -487,8 +617,13 @@ public sealed class CpuTests
     {
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x2206); // MOVE.L D6,D1
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(6, 0x12345678);
 
         cpu.Step();
@@ -502,8 +637,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x0600); // ADDI.B #<imm>,D0
         bus.Write16BigEndian(0x000102, 0x0001);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
 
         cpu.Step();
 
@@ -516,8 +656,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x0C00); // CMPI.B #<imm>,D0
         bus.Write16BigEndian(0x000102, 0x0001);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
 
         cpu.Step();
 
@@ -530,8 +675,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x003C); // ORI #<imm>,CCR
         bus.Write16BigEndian(0x000102, 0x0001);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
 
         cpu.Step();
 
@@ -543,8 +693,13 @@ public sealed class CpuTests
     {
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x4A00); // TST.B D0
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x11);
 
         cpu.Step();
@@ -557,8 +712,13 @@ public sealed class CpuTests
     {
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x4210); // CLR.B (A0)
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(0, 0x000200);
 
         cpu.Step();
@@ -571,8 +731,13 @@ public sealed class CpuTests
     {
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x0300); // BTST D1,D0
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x08);
         cpu.Registers.SetDataRegister(1, 0x03);
 
@@ -587,8 +752,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x08C0); // BSET #<imm>,D0
         bus.Write16BigEndian(0x000102, 0x0001);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x00);
 
         cpu.Step();
@@ -601,8 +771,13 @@ public sealed class CpuTests
     {
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0xC141); // EXG D0,D1
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x11111111);
         cpu.Registers.SetDataRegister(1, 0x22222222);
 
@@ -619,8 +794,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000102, 0x0000);
         bus.Write8(0x000200, 0x12);
         bus.Write8(0x000202, 0x34);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(0, 0x000200);
 
         cpu.Step();
@@ -634,8 +814,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x4890); // MOVEM.W <list>,(A0)
         bus.Write16BigEndian(0x000102, 0x0001); // D0
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(0, 0x000200);
         cpu.Registers.SetDataRegister(0, 0x00001234);
 
@@ -649,8 +834,13 @@ public sealed class CpuTests
     {
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0xC2C0); // MULU.W D0,D1
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x00000004);
         cpu.Registers.SetDataRegister(1, 0x00000003);
 
@@ -724,8 +914,13 @@ public sealed class CpuTests
     {
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x1234);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
 
         cpu.RefreshPrefetchQueue();
 
@@ -743,8 +938,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x1111);
         bus.Write16BigEndian(0x000102, 0x2222);
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.SeedPrefetch(0xAAAA, 0xBBBB);
 
         cpu.RefreshPrefetchQueue();
@@ -791,8 +991,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x1200); // MOVE.B D0,D1
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x000000A5);
         cpu.Registers.SetDataRegister(1, 0x12345678);
         cpu.Registers.ExtendFlag = true;
@@ -819,8 +1024,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x1280); // MOVE.B D0,(A1)
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x123456A5);
         cpu.Registers.SetAddressRegister(1, 0x000200);
         cpu.Registers.ExtendFlag = true;
@@ -850,8 +1060,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000100, 0x1011); // MOVE.B (A1),D0
         bus.Write8(0x000220, 0x00);
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(1, 0x000220);
         cpu.Registers.SetDataRegister(0, 0x12345678);
         cpu.Registers.ExtendFlag = true;
@@ -881,8 +1096,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000100, 0x1019); // MOVE.B (A1)+,D0
         bus.Write8(0x000220, 0x7E);
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(1, 0x000220);
         cpu.Registers.SetDataRegister(0, 0x12345600);
 
@@ -901,8 +1121,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x1EC0); // MOVE.B D0,(A7)+
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x00000055);
         cpu.Registers.SetAddressRegister(7, 0x000300);
 
@@ -922,8 +1147,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000100, 0x1021); // MOVE.B -(A1),D0
         bus.Write8(0x00021F, 0xC3);
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(1, 0x000220);
         cpu.Registers.SetDataRegister(0, 0x11223344);
 
@@ -943,8 +1173,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000100, 0x1340); // MOVE.B D0,(d16,A1)
         bus.Write16BigEndian(0x000102, 0xFFFE); // -2
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x0000005A);
         cpu.Registers.SetAddressRegister(1, 0x000220);
 
@@ -961,8 +1196,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000102, 0x0200);
         bus.Write8(0x000200, 0x9F);
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0xAABBCC00);
 
         cpu.Step();
@@ -978,8 +1218,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000102, 0x0004);
         bus.Write16BigEndian(0x000104, 0x1234);
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x123456E1);
 
         cpu.Step();
@@ -995,8 +1240,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000102, 0x2004); // D2.w +4
         bus.Write8(0x000214, 0x6B);
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(1, 0x000200);
         cpu.Registers.SetDataRegister(2, 0x00000010);
         cpu.Registers.SetDataRegister(0, 0xABCD1200);
@@ -1013,8 +1263,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000100, 0x1380); // MOVE.B D0,(d8,A1,Xn)
         bus.Write16BigEndian(0x000102, 0x2004); // D2.w +4
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(1, 0x000200);
         cpu.Registers.SetDataRegister(2, 0x00000010);
         cpu.Registers.SetDataRegister(0, 0x556677A2);
@@ -1032,8 +1287,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000102, 0x0006);
         bus.Write8(0x000108, 0x4C);
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x12345600);
 
         cpu.Step();
@@ -1053,8 +1313,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000102, 0x2004); // D2.w +4
         bus.Write8(0x000116, 0x92);
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(2, 0x00000010);
         cpu.Registers.SetDataRegister(0, 0x89ABC000);
 
@@ -1074,8 +1339,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000100, 0x103C); // MOVE.B #<imm8>,D0
         bus.Write16BigEndian(0x000102, 0x00E7);
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0xA1B2C300);
 
         cpu.Step();
@@ -1095,8 +1365,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000102, 0xFFFC); // Sign-extends to 0xFFFFFFFC.
         bus.Write8(0xFFFFFC, 0x66);
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x01020300);
 
         cpu.Step();
@@ -1111,8 +1386,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000100, 0x1011); // MOVE.B (A1),D0
         bus.Write8(0x000220, 0x5D);
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(1, 0x01000220);
         cpu.Registers.SetDataRegister(0, 0x11223300);
 
@@ -1127,8 +1407,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x3200); // MOVE.W D0,D1
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x00008001);
         cpu.Registers.SetDataRegister(1, 0xAABBCCDD);
         cpu.Registers.ExtendFlag = true;
@@ -1154,8 +1439,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x34C9); // MOVE.W A1,(A2)+
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(1, 0x12345678);
         cpu.Registers.SetAddressRegister(2, 0x000220);
 
@@ -1175,8 +1465,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000100, 0x303C); // MOVE.W #<imm16>,D0
         bus.Write16BigEndian(0x000102, 0xE7A5);
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x11223344);
 
         cpu.Step();
@@ -1192,8 +1487,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000102, 0x0006);
         bus.Write16BigEndian(0x000108, 0x4ACE);
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x12340000);
 
         cpu.Step();
@@ -1207,8 +1507,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x2200); // MOVE.L D0,D1
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x8000A5A5);
         cpu.Registers.SetDataRegister(1, 0x11223344);
         cpu.Registers.ExtendFlag = true;
@@ -1234,8 +1539,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x24C9); // MOVE.L A1,(A2)+
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(1, 0x12345678);
         cpu.Registers.SetAddressRegister(2, 0x000220);
 
@@ -1256,8 +1566,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000102, 0xE7A5);
         bus.Write16BigEndian(0x000104, 0x1234);
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x00000000);
 
         cpu.Step();
@@ -1274,8 +1589,13 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000108, 0xA1B2);
         bus.Write16BigEndian(0x00010A, 0xC3D4);
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x12340000);
 
         cpu.Step();
@@ -1289,8 +1609,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x78A3); // MOVEQ #-93,D4
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(4, 0x12345678);
         cpu.Registers.ExtendFlag = true;
         cpu.Registers.ZeroFlag = true;
@@ -1316,8 +1641,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x7000); // MOVEQ #0,D0
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0xFFFFFFFF);
         cpu.Registers.ExtendFlag = true;
         cpu.Registers.NegativeFlag = true;
@@ -1343,8 +1673,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x5240); // ADDQ.W #1,D0
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x1234FFFF);
         cpu.Registers.ExtendFlag = false;
         cpu.Registers.NegativeFlag = true;
@@ -1371,8 +1706,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x5000); // ADDQ.B #8,D0
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0xAABBCC78);
         cpu.Registers.ExtendFlag = true;
         cpu.Registers.NegativeFlag = false;
@@ -1399,8 +1739,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x5300); // SUBQ.B #1,D0
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x11223300);
         cpu.Registers.ExtendFlag = false;
         cpu.Registers.NegativeFlag = false;
@@ -1427,8 +1772,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x5248); // ADDQ.W #1,A0
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(0, 0x0000FFFF);
         cpu.Registers.ExtendFlag = true;
         cpu.Registers.NegativeFlag = true;
@@ -1455,8 +1805,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0x5389); // SUBQ.L #1,A1
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetAddressRegister(1, 0x00001000);
         cpu.Registers.ExtendFlag = false;
         cpu.Registers.NegativeFlag = true;
@@ -1483,8 +1838,13 @@ public sealed class CpuTests
         var bus = new Bus(0x1000000);
         bus.Write16BigEndian(0x000100, 0xC300); // ABCD D0,D1
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100
+            }
+        };
         cpu.Registers.SetDataRegister(0, 0x0000008F);
         cpu.Registers.SetDataRegister(1, 0x00000005);
         cpu.Registers.ExtendFlag = false;
@@ -1510,11 +1870,16 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000010, 0x0000);
         bus.Write16BigEndian(0x000012, 0x0200);
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
-        cpu.Registers.StatusRegister = 0x2000;
-        cpu.Registers.SupervisorStackPointer = 0x001000;
-        cpu.Registers.StackPointer = 0x001000;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100,
+                StatusRegister = 0x2000,
+                SupervisorStackPointer = 0x001000,
+                StackPointer = 0x001000
+            }
+        };
 
         Assert.DoesNotThrow(() => cpu.Step());
         Assert.Multiple(() =>
@@ -1535,12 +1900,17 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000024, 0x0000);
         bus.Write16BigEndian(0x000026, 0x0200);
 
-        var cpu = new Cpu(bus);
-        cpu.EnableTraceExceptions = true;
-        cpu.Registers.ProgramCounter = 0x000100;
-        cpu.Registers.StatusRegister = 0xA000;
-        cpu.Registers.SupervisorStackPointer = 0x001000;
-        cpu.Registers.StackPointer = 0x001000;
+        var cpu = new Cpu(bus)
+        {
+            EnableTraceExceptions = true,
+            Registers =
+            {
+                ProgramCounter = 0x000100,
+                StatusRegister = 0xA000,
+                SupervisorStackPointer = 0x001000,
+                StackPointer = 0x001000
+            }
+        };
 
         cpu.Step();
 
@@ -1564,11 +1934,16 @@ public sealed class CpuTests
         bus.Write16BigEndian(0x000070, 0x0000); // Autovector level 4.
         bus.Write16BigEndian(0x000072, 0x0300);
 
-        var cpu = new Cpu(bus);
-        cpu.Registers.ProgramCounter = 0x000100;
-        cpu.Registers.StatusRegister = 0x2000;
-        cpu.Registers.SupervisorStackPointer = 0x001000;
-        cpu.Registers.StackPointer = 0x001000;
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100,
+                StatusRegister = 0x2000,
+                SupervisorStackPointer = 0x001000,
+                StackPointer = 0x001000
+            }
+        };
         cpu.RequestInterrupt(4);
 
         cpu.Step();
@@ -1594,13 +1969,16 @@ public sealed class CpuTests
 
         var cpu = new Cpu(bus)
         {
-            InterruptAcknowledge = _ => InterruptAcknowledgeResult.Spurious()
+            InterruptAcknowledge = _ => InterruptAcknowledgeResult.Spurious(),
+            Registers =
+            {
+                ProgramCounter = 0x000100,
+                StatusRegister = 0x2000,
+                SupervisorStackPointer = 0x001000,
+                StackPointer = 0x001000
+            }
         };
 
-        cpu.Registers.ProgramCounter = 0x000100;
-        cpu.Registers.StatusRegister = 0x2000;
-        cpu.Registers.SupervisorStackPointer = 0x001000;
-        cpu.Registers.StackPointer = 0x001000;
         cpu.RequestInterrupt(2);
 
         cpu.Step();

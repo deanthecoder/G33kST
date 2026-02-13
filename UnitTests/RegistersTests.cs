@@ -269,11 +269,11 @@ public sealed class RegistersTests
         var registers = new Registers
         {
             ProgramCounter = 0x00123456,
-            SupervisorStackPointer = 0x00112233
+            SupervisorStackPointer = 0x00112233,
+            StatusRegister = 0x2000,
+            UserStackPointer = 0xABCDEF00
         };
 
-        registers.StatusRegister = 0x2000;
-        registers.UserStackPointer = 0xABCDEF00;
         registers.SetDataRegister(0, 0x11112222);
         registers.SetAddressRegister(7, 0xDEADBEEF);
 

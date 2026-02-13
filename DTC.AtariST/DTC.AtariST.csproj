@@ -1,0 +1,30 @@
+<!-- Code authored by Dean Edis (DeanTheCoder).
+     Anyone is free to copy, modify, use, compile, or distribute this software,
+     either in source code form or as a compiled binary, for any purpose.
+
+     If you modify the code, please retain this copyright header,
+     and consider contributing back to the repository or letting us know
+     about your modifications. Your contributions are valued!
+
+     THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AssemblyName>DTC.AtariST</AssemblyName>
+    <RootNamespace>DTC.AtariST</RootNamespace>
+    <Company>Dean Edis (DeanTheCoder)</Company>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DTC.68000\DTC.68000.csproj" />
+    <ProjectReference Include="..\DTC.Emulation\DTC.Emulation.csproj" />
+  </ItemGroup>
+</Project>

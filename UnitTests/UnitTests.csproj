@@ -24,6 +24,7 @@
     <ItemGroup>
         <ProjectReference Include="..\DTC.68000\DTC.68000.csproj" />
         <ProjectReference Include="..\DTC.Emulation\DTC.Emulation.csproj" />
+        <ProjectReference Include="..\DTC.AtariST\DTC.AtariST.csproj" />
     </ItemGroup>
 
 </Project>
