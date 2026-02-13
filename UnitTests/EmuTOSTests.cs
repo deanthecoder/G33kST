@@ -25,8 +25,8 @@ public sealed class EmuTOSTests : TestsBase
 {
     private const int StallTraceLineCount = 40;
     private const uint VideoModeRegister = 0x00FF8260;
-    private const bool SaveFrameSamplesToDesktop = false;
-    private const bool SaveOnlyChangedFrameSamples = true;
+    private const double FrameSampleIntervalSeconds = 0.1;
+    private const bool SaveFrameSamplesToDesktop = true;
 
     [Test]
     [Explicit("Requires EmuTOS ROM file and runs for extended duration")]
@@ -56,10 +56,11 @@ public sealed class EmuTOSTests : TestsBase
         var executionHealth = new ExecutionHealthTracker(atariST.Descriptor.CpuHz, atariST.Descriptor.VideoHz, stallFrameCount: 2);
 
         // Act - Run for approximately 10 seconds of emulated time
-        var targetCycles = (long)(atariST.Descriptor.CpuHz * 10.0);
+        const double durationSecs = 30.0;
+        var targetCycles = (long)(atariST.Descriptor.CpuHz * durationSecs);
         var stopwatch = Stopwatch.StartNew();
 
-        TestContext.Out.WriteLine($"Running EmuTOS for ~10 emulated seconds ({targetCycles:N0} cycles)...");
+        TestContext.Out.WriteLine($"Running EmuTOS for ~{durationSecs} emulated seconds ({targetCycles:N0} cycles)...");
         TestContext.Out.WriteLine($"ROM: {romFile.Name}");
         TestContext.Out.WriteLine($"CPU: {atariST.Descriptor.CpuHz / 1_000_000.0:F1} MHz");
         TestContext.Out.WriteLine();
@@ -67,11 +68,10 @@ public sealed class EmuTOSTests : TestsBase
         var exceptionCount = 0;
         var lastProgressUpdate = 0L;
         var progressInterval = targetCycles / 10; // Update every 10%
-        var instructionCount = 0L;
         var loggedLikelyStall = false;
         var stallReason = string.Empty;
         var lastCpuTicks = atariST.CpuTicks;
-        var frameSampleIntervalCycles = (long)Math.Round(atariST.Descriptor.CpuHz);
+        var frameSampleIntervalCycles = (long)Math.Round(atariST.Descriptor.CpuHz * FrameSampleIntervalSeconds);
         var nextFrameSampleCycle = frameSampleIntervalCycles;
         var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * 4];
         var blankScreenChecksum = ComputeBlankScreenChecksum(atariST.Video.FrameWidth, atariST.Video.FrameHeight);
@@ -79,12 +79,10 @@ public sealed class EmuTOSTests : TestsBase
         var firstNonBlankSeenAtCycles = 0L;
         var sampledFrames = 0;
         var savedFrames = 0;
-        var hasLastSavedChecksum = false;
-        var lastSavedChecksum = 0u;
+        var hasLastSampledChecksum = false;
+        var lastSampledChecksum = 0u;
         var frameCaptureDir = SaveFrameSamplesToDesktop ? CreateDesktopFrameOutputDir() : null;
         var sampledModeCounts = new Dictionary<int, int>();
-        var firstSampledMode = -1;
-        var firstSampledModeAtCycles = 0L;
 
         if (frameCaptureDir != null)
             TestContext.Out.WriteLine($"Frame capture enabled: {frameCaptureDir.FullName}");
@@ -103,7 +101,6 @@ public sealed class EmuTOSTests : TestsBase
                 lastCpuTicks = currentCpuTicks;
                 if (atariST.TryConsumeInterrupt())
                     atariST.RequestInterrupt();
-                instructionCount++;
 
                 while (atariST.CpuTicks >= nextFrameSampleCycle)
                 {
@@ -115,11 +112,6 @@ public sealed class EmuTOSTests : TestsBase
                         sampledModeCounts[mode] = modeCount + 1;
                     else
                         sampledModeCounts[mode] = 1;
-                    if (firstSampledMode < 0)
-                    {
-                        firstSampledMode = mode;
-                        firstSampledModeAtCycles = nextFrameSampleCycle;
-                    }
 
                     if (!sawNonBlankFrame && checksum != blankScreenChecksum)
                     {
@@ -127,56 +119,56 @@ public sealed class EmuTOSTests : TestsBase
                         firstNonBlankSeenAtCycles = nextFrameSampleCycle;
                     }
 
-                    if (frameCaptureDir != null)
+                    var frameChanged = !hasLastSampledChecksum || checksum != lastSampledChecksum;
+                    if (frameChanged)
                     {
-                        var frameChanged = !hasLastSavedChecksum || checksum != lastSavedChecksum;
-                        if (!SaveOnlyChangedFrameSamples || frameChanged)
-                        {
-                            var elapsedSeconds = nextFrameSampleCycle / atariST.Descriptor.CpuHz;
-                            var fileName = $"emutos_{elapsedSeconds:0000.000}s.tga";
-                            var tgaFile = frameCaptureDir.GetFile(fileName);
-                            TgaWriter.Write(tgaFile, frameBuffer, atariST.Video.FrameWidth, atariST.Video.FrameHeight, 4);
-                            savedFrames++;
-                            lastSavedChecksum = checksum;
-                            hasLastSavedChecksum = true;
-                        }
+                        hasLastSampledChecksum = true;
+                        lastSampledChecksum = checksum;
+                        TestContext.Out.WriteLine($"Frame changed: {DescribeVideoMode(mode)}");
+                    }
+
+                    if (frameCaptureDir != null && frameChanged)
+                    {
+                        var elapsedSeconds = nextFrameSampleCycle / atariST.Descriptor.CpuHz;
+                        var fileName = $"emutos_{elapsedSeconds:0000.000}s.tga";
+                        var tgaFile = frameCaptureDir.GetFile(fileName);
+                        TgaWriter.Write(tgaFile, frameBuffer, atariST.Video.FrameWidth, atariST.Video.FrameHeight, 4);
+                        savedFrames++;
                     }
 
                     nextFrameSampleCycle += frameSampleIntervalCycles;
                 }
 
                 // Progress reporting
-                if (atariST.CpuTicks - lastProgressUpdate >= progressInterval)
+                if (atariST.CpuTicks - lastProgressUpdate < progressInterval)
+                    continue; // Not time to update yet.
+                
+                var progress = atariST.CpuTicks * 100.0 / targetCycles;
+                var elapsed = stopwatch.Elapsed.TotalSeconds;
+                var cyclesPerSecond = elapsed > 0 ? atariST.CpuTicks / elapsed : 0;
+                TestContext.Out.WriteLine($"Progress: {progress:F1}% | {cyclesPerSecond / 1_000_000.0:F2} MHz real");
+
+                if (!loggedLikelyStall && executionHealth.TryGetLikelyStallReason(out var reason))
                 {
-                    var progress = atariST.CpuTicks * 100.0 / targetCycles;
-                    var elapsed = stopwatch.Elapsed.TotalSeconds;
-                    var cyclesPerSecond = atariST.CpuTicks / elapsed;
-                    TestContext.Out.WriteLine($"Progress: {progress:F1}% | {atariST.CpuTicks:N0} cycles | " +
-                                        $"{cyclesPerSecond / 1_000_000.0:F2} MHz real | " +
-                                        $"{instructionCount:N0} steps");
-
-                    if (!loggedLikelyStall && executionHealth.TryGetLikelyStallReason(out var reason))
+                    loggedLikelyStall = true;
+                    stallReason = reason;
+                    TestContext.Out.WriteLine($"[Health] Likely stall detected: {reason}");
+                    var recentTrace = instructionTrace.GetRecentLines(StallTraceLineCount);
+                    if (recentTrace.Count > 0)
                     {
-                        loggedLikelyStall = true;
-                        stallReason = reason;
-                        TestContext.Out.WriteLine($"[Health] Likely stall detected: {reason}");
-                        var recentTrace = instructionTrace.GetRecentLines(StallTraceLineCount);
-                        if (recentTrace.Count > 0)
-                        {
-                            TestContext.Out.WriteLine("[Health] Recent instruction trace:");
-                            foreach (var traceLine in recentTrace)
-                                TestContext.Out.WriteLine($"  {traceLine}");
-                        }
+                        TestContext.Out.WriteLine("[Health] Recent instruction trace:");
+                        foreach (var traceLine in recentTrace)
+                            TestContext.Out.WriteLine($"  {traceLine}");
                     }
-
-                    lastProgressUpdate = atariST.CpuTicks;
                 }
+
+                lastProgressUpdate = atariST.CpuTicks;
             }
             catch (Exception ex)
             {
                 exceptionCount++;
                 TestContext.Out.WriteLine($"Exception at PC=${atariST.Cpu.Registers.ProgramCounter:X8}, " +
-                                    $"Cycles={atariST.CpuTicks:N0}: {ex.Message}");
+                                          $"Cycles={atariST.CpuTicks:N0}: {ex.Message}");
                 var recentTrace = instructionTrace.GetRecentLines(StallTraceLineCount);
                 if (recentTrace.Count > 0)
                 {
@@ -202,15 +194,11 @@ public sealed class EmuTOSTests : TestsBase
         TestContext.Out.WriteLine($"Total cycles: {atariST.CpuTicks:N0}");
         TestContext.Out.WriteLine($"Real time: {stopwatch.Elapsed.TotalSeconds:F2}s");
         TestContext.Out.WriteLine($"Average speed: {atariST.CpuTicks / stopwatch.Elapsed.TotalSeconds / 1_000_000.0:F2} MHz");
-        TestContext.Out.WriteLine($"Instruction steps: {instructionCount:N0}");
         TestContext.Out.WriteLine($"Longest same-PC run: {executionHealth.LongestSamePcRunLength:N0} steps / {executionHealth.LongestSamePcRunCycles:N0} cycles ({executionHealth.LongestSamePcRunMilliseconds:F2} ms) at ${executionHealth.LongestSamePcRunPc:X6}");
         TestContext.Out.WriteLine($"Exceptions: {exceptionCount}");
-        TestContext.Out.WriteLine($"Top PCs: {executionHealth.FormatTopPcs(8)}");
-        TestContext.Out.WriteLine($"Blank checksum: 0x{blankScreenChecksum:X8}");
         TestContext.Out.WriteLine($"Frame samples: {sampledFrames} (saved: {savedFrames})");
         TestContext.Out.WriteLine($"Saw non-blank frame: {sawNonBlankFrame} at {firstNonBlankSeenAtCycles:N0} cycles");
         TestContext.Out.WriteLine($"Video mode samples: {FormatVideoModeSamples(sampledModeCounts)}");
-        TestContext.Out.WriteLine($"First sampled video mode: {DescribeVideoMode(firstSampledMode)} at {firstSampledModeAtCycles:N0} cycles");
         TestContext.Out.WriteLine();
 
         // Basic sanity checks
@@ -227,7 +215,7 @@ public sealed class EmuTOSTests : TestsBase
         TestContext.Out.WriteLine($"Test completed. Check output above for EmuTOS behavior.");
     }
 
-    private DirectoryInfo CreateDesktopFrameOutputDir()
+    private static DirectoryInfo CreateDesktopFrameOutputDir()
     {
         var desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
         var outputDirName = $"G33kST_EmuTOSFrames_{DateTime.Now:yyyyMMdd_HHmmss}";
@@ -238,11 +226,10 @@ public sealed class EmuTOSTests : TestsBase
         return outputDir;
     }
 
-    private FileInfo FindEmuTosRom()
+    private static FileInfo FindEmuTosRom()
     {
         // Use ProjectDir to locate the TOS directory
         var tosDir = new DirectoryInfo(Path.Combine(ProjectDir.FullName, "DTC.AtariST", "TOS"));
-
         if (!tosDir.Exists)
             return null;
 
@@ -299,7 +286,6 @@ public sealed class EmuTOSTests : TestsBase
     {
         private readonly double m_cpuHz;
         private readonly long m_samePcStallCycleThreshold;
-        private readonly Dictionary<uint, long> m_pcHitCounts = [];
         private uint m_lastPc = uint.MaxValue;
         private long m_currentSamePcRunLength;
         private long m_currentSamePcRunCycles;
@@ -319,11 +305,6 @@ public sealed class EmuTOSTests : TestsBase
         public void Observe(uint pc, long deltaCycles)
         {
             deltaCycles = Math.Max(deltaCycles, 0);
-
-            if (m_pcHitCounts.TryGetValue(pc, out var currentHits))
-                m_pcHitCounts[pc] = currentHits + 1;
-            else
-                m_pcHitCounts[pc] = 1;
 
             if (pc == m_lastPc)
             {
@@ -356,16 +337,6 @@ public sealed class EmuTOSTests : TestsBase
 
             reason = string.Empty;
             return false;
-        }
-
-        public string FormatTopPcs(int take)
-        {
-            var topPcs = m_pcHitCounts
-                .OrderByDescending(o => o.Value)
-                .Take(take)
-                .Select(o => $"${o.Key:X6}={o.Value:N0}")
-                .ToArray();
-            return topPcs.Length == 0 ? "<none>" : string.Join(", ", topPcs);
         }
     }
 }
