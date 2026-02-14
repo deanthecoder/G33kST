@@ -49,11 +49,20 @@ public sealed class AtariST : IMachine
     private readonly SystemControlDevice m_systemControl;
     private readonly RtcDevice m_rtc;
     private readonly MfpDevice m_mfp;
+    private readonly object m_mouseStateSync = new();
     private readonly List<PendingInterrupt> m_pendingInterrupts = [];
     private readonly Queue<InterruptAcknowledgeResult>[] m_pendingAcknowledgeByLevel = CreateAcknowledgeQueues();
     private byte m_latchedInterruptLevel;
     private InterruptAcknowledgeResult m_latchedInterruptAcknowledge;
     private bool m_hasLatchedInterrupt;
+    private bool m_isInputActive = true;
+    private bool m_wasMouseActive;
+    private int m_lastMouseX = -1;
+    private int m_lastMouseY = -1;
+    private int m_estimatedMouseX = -1;
+    private int m_estimatedMouseY = -1;
+    private bool m_isLeftMouseButtonPressed;
+    private bool m_isRightMouseButtonPressed;
 
     public IMachineDescriptor Descriptor { get; } = new AtariSTDescriptor();
 
@@ -170,6 +179,17 @@ public sealed class AtariST : IMachine
         m_hasLatchedInterrupt = false;
         m_latchedInterruptLevel = 0;
         m_latchedInterruptAcknowledge = default;
+        lock (m_mouseStateSync)
+        {
+            m_isInputActive = true;
+            m_wasMouseActive = false;
+            m_lastMouseX = -1;
+            m_lastMouseY = -1;
+            m_estimatedMouseX = m_video.ActiveWidth / 2;
+            m_estimatedMouseY = m_video.ActiveHeight / 2;
+            m_isLeftMouseButtonPressed = false;
+            m_isRightMouseButtonPressed = false;
+        }
         Cpu.Reset();
     }
 
@@ -238,7 +258,12 @@ public sealed class AtariST : IMachine
 
     public void SetInputActive(bool isActive)
     {
-        // TODO: Implement input handling
+        lock (m_mouseStateSync)
+            m_isInputActive = isActive;
+        if (isActive)
+            return;
+
+        UpdateMouseState(0, 0, false, false, false);
     }
 
     /// <summary>
@@ -246,6 +271,85 @@ public sealed class AtariST : IMachine
     /// </summary>
     public void InjectKeyboardScanCode(byte scanCode) =>
         m_aciaIkbd.QueueKeyboardByte(scanCode);
+
+    /// <summary>
+    /// Updates host mouse state and translates it into IKBD relative mouse packets.
+    /// </summary>
+    public void UpdateMouseState(double normalizedX, double normalizedY, bool isLeftButtonPressed, bool isRightButtonPressed, bool isPointerWithinDisplay)
+    {
+        lock (m_mouseStateSync)
+        {
+            var isMouseActive = m_isInputActive && isPointerWithinDisplay;
+            if (!isMouseActive)
+            {
+                ReleaseMouseButtonsNoLock();
+                m_wasMouseActive = false;
+                return;
+            }
+
+            normalizedX = Math.Clamp(normalizedX, 0.0, 1.0);
+            normalizedY = Math.Clamp(normalizedY, 0.0, 1.0);
+
+            var activeWidth = Math.Max(1, m_video.ActiveWidth);
+            var activeHeight = Math.Max(1, m_video.ActiveHeight);
+            var mouseX = (int)Math.Round(normalizedX * (activeWidth - 1));
+            var mouseY = (int)Math.Round(normalizedY * (activeHeight - 1));
+
+            if (!m_wasMouseActive)
+            {
+                if (m_estimatedMouseX < 0 || m_estimatedMouseY < 0)
+                {
+                    m_estimatedMouseX = activeWidth / 2;
+                    m_estimatedMouseY = activeHeight / 2;
+                }
+
+                var syncDeltaX = mouseX - m_estimatedMouseX;
+                var syncDeltaY = mouseY - m_estimatedMouseY;
+                if (syncDeltaX != 0 || syncDeltaY != 0)
+                {
+                    QueueRelativeMouseDeltas(syncDeltaX, syncDeltaY, isLeftButtonPressed, isRightButtonPressed);
+                    m_estimatedMouseX = mouseX;
+                    m_estimatedMouseY = mouseY;
+                }
+
+                m_wasMouseActive = true;
+                m_lastMouseX = mouseX;
+                m_lastMouseY = mouseY;
+                m_isLeftMouseButtonPressed = isLeftButtonPressed;
+                m_isRightMouseButtonPressed = isRightButtonPressed;
+                return;
+            }
+
+            var hasPreviousPosition = m_lastMouseX >= 0 && m_lastMouseY >= 0;
+            var deltaX = hasPreviousPosition ? mouseX - m_lastMouseX : 0;
+            var deltaY = hasPreviousPosition ? mouseY - m_lastMouseY : 0;
+            var buttonsChanged =
+                isLeftButtonPressed != m_isLeftMouseButtonPressed ||
+                isRightButtonPressed != m_isRightMouseButtonPressed;
+
+            m_lastMouseX = mouseX;
+            m_lastMouseY = mouseY;
+            m_isLeftMouseButtonPressed = isLeftButtonPressed;
+            m_isRightMouseButtonPressed = isRightButtonPressed;
+
+            if (!hasPreviousPosition)
+            {
+                if (buttonsChanged)
+                    m_aciaIkbd.QueueRelativeMousePacket(0, 0, isLeftButtonPressed, isRightButtonPressed);
+                return;
+            }
+            if (deltaX == 0 && deltaY == 0)
+            {
+                if (buttonsChanged)
+                    m_aciaIkbd.QueueRelativeMousePacket(0, 0, isLeftButtonPressed, isRightButtonPressed);
+                return;
+            }
+
+            QueueRelativeMouseDeltas(deltaX, deltaY, isLeftButtonPressed, isRightButtonPressed);
+            m_estimatedMouseX = mouseX;
+            m_estimatedMouseY = mouseY;
+        }
+    }
 
     private void OnHblank()
     {
@@ -331,4 +435,27 @@ public sealed class AtariST : IMachine
     ];
 
     private readonly record struct PendingInterrupt(byte Level, InterruptAcknowledgeResult AcknowledgeResult);
+
+    private void ReleaseMouseButtonsNoLock()
+    {
+        if (!m_isLeftMouseButtonPressed && !m_isRightMouseButtonPressed)
+            return;
+
+        m_isLeftMouseButtonPressed = false;
+        m_isRightMouseButtonPressed = false;
+        m_aciaIkbd.QueueRelativeMousePacket(0, 0, false, false);
+    }
+
+    private void QueueRelativeMouseDeltas(int deltaX, int deltaY, bool isLeftButtonPressed, bool isRightButtonPressed)
+    {
+        while (deltaX != 0 || deltaY != 0)
+        {
+            var stepX = Math.Clamp(deltaX, -127, 127);
+            var stepY = Math.Clamp(deltaY, -127, 127);
+            m_aciaIkbd.QueueRelativeMousePacket((sbyte)stepX, (sbyte)stepY, isLeftButtonPressed, isRightButtonPressed);
+            deltaX -= stepX;
+            deltaY -= stepY;
+        }
+    }
+
 }

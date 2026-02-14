@@ -129,6 +129,67 @@ public sealed class AciaIkbdDeviceTests
     }
 
     [Test]
+    public void QueueRelativeMousePacketShouldExposeHeaderAndSignedDeltas()
+    {
+        var device = new AciaIkbdDevice();
+
+        device.QueueRelativeMousePacket(5, -2, isLeftButtonPressed: true, isRightButtonPressed: false);
+
+        var header = device.Read8(KeyboardDataAddress);
+        var deltaX = device.Read8(KeyboardDataAddress);
+        var deltaY = device.Read8(KeyboardDataAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(header, Is.EqualTo(0xFA));
+            Assert.That(deltaX, Is.EqualTo(0x05));
+            Assert.That(deltaY, Is.EqualTo(0xFE));
+        });
+    }
+
+    [Test]
+    public void DisableMouseReportingCommandShouldSuppressMousePacketsUntilRelativeModeIsSet()
+    {
+        var device = new AciaIkbdDevice();
+
+        device.Write8(KeyboardDataAddress, 0x12);
+        device.QueueRelativeMousePacket(2, 0, isLeftButtonPressed: false, isRightButtonPressed: false);
+        var statusWhileDisabled = device.Read8(KeyboardStatusAddress);
+        device.Write8(KeyboardDataAddress, 0x08);
+        device.QueueRelativeMousePacket(2, 0, isLeftButtonPressed: false, isRightButtonPressed: false);
+        var statusAfterRelativeMode = device.Read8(KeyboardStatusAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(statusWhileDisabled & 0x01, Is.Zero);
+            Assert.That(statusAfterRelativeMode & 0x01, Is.Not.Zero);
+        });
+    }
+
+    [Test]
+    public void RelativeMousePacketShouldIgnoreYOriginCommands()
+    {
+        var device = new AciaIkbdDevice();
+
+        device.Write8(KeyboardDataAddress, 0x0F); // Y=0 at bottom.
+        device.QueueRelativeMousePacket(0, 5, isLeftButtonPressed: false, isRightButtonPressed: false);
+        _ = device.Read8(KeyboardDataAddress); // Header.
+        _ = device.Read8(KeyboardDataAddress); // Delta X.
+        var deltaYAfterBottomOrigin = device.Read8(KeyboardDataAddress);
+        device.Write8(KeyboardDataAddress, 0x10); // Y=0 at top.
+        device.QueueRelativeMousePacket(0, 5, isLeftButtonPressed: false, isRightButtonPressed: false);
+        _ = device.Read8(KeyboardDataAddress); // Header.
+        _ = device.Read8(KeyboardDataAddress); // Delta X.
+        var deltaYAfterTopOrigin = device.Read8(KeyboardDataAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(deltaYAfterBottomOrigin, Is.EqualTo(0x05));
+            Assert.That(deltaYAfterTopOrigin, Is.EqualTo(0x05));
+        });
+    }
+
+    [Test]
     public void KeyboardStatusShouldSetInterruptFlagWhenReceiveDataIsPending()
     {
         var device = new AciaIkbdDevice();

@@ -105,6 +105,12 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public void SetInputActive(bool isActive) =>
         m_machine.SetInputActive(isActive);
 
+    /// <summary>
+    /// Forwards host pointer state to the machine so IKBD mouse packets can be generated.
+    /// </summary>
+    public void UpdateMouseState(double normalizedX, double normalizedY, bool isLeftButtonPressed, bool isRightButtonPressed, bool isPointerWithinDisplay) =>
+        m_machine.UpdateMouseState(normalizedX, normalizedY, isLeftButtonPressed, isRightButtonPressed, isPointerWithinDisplay);
+
     public void Dispose()
     {
         Settings.PropertyChanged -= OnSettingsPropertyChanged;
@@ -173,7 +179,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public void ToggleCrtEmulation() =>
         Settings.IsCrtEmulationEnabled = !Settings.IsCrtEmulationEnabled;
 
-    public static void OpenLog()
+    public void OpenLog()
     {
         var logFile = Logger.Instance.File;
         if (logFile.Exists)
@@ -182,13 +188,13 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             logFile.Directory?.Explore();
     }
 
-    public static void OpenProjectPage() =>
+    public void OpenProjectPage() =>
         new Uri("https://github.com/deanthecoder/G33kST").Open();
 
     public void TrackCpuHistory() =>
         Settings.IsCpuHistoryTracked = !Settings.IsCpuHistoryTracked;
 
-    public static void DumpCpuHistory() =>
+    public void DumpCpuHistory() =>
         Console.WriteLine("CPU history tracking is not wired yet for the Atari ST core.");
 
     public void ReportCpuClockTicks() =>
@@ -205,7 +211,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         Console.WriteLine($"Frame checksum: 0x{m_lastFrameChecksum:X8} @ CPU ticks {m_lastFrameTicks} (current {m_machine.CpuTicks}).");
     }
 
-    public static void CloseCommand() =>
+    public void CloseCommand() =>
         Application.Current?.GetMainWindow()?.Close();
 
     private void LoadRomInternal(FileInfo romFile)

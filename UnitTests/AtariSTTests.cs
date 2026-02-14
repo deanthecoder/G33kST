@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using DTC.AtariST;
+using DTC.Emulation;
 using DTC.M68000;
 
 namespace UnitTests;
@@ -353,6 +354,67 @@ public sealed class AtariSTTests : TestsBase
     }
 
     [Test]
+    public void UpdateMouseStateShouldQueueRelativeIkbdMousePacket()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        var bus = atariST.Cpu.Bus;
+        const uint keyboardStatusAddress = 0x00FFFC00;
+        const uint keyboardDataAddress = 0x00FFFC02;
+        DrainKeyboardReceiveQueue(bus, keyboardStatusAddress, keyboardDataAddress);
+
+        atariST.UpdateMouseState(0.50, 0.50, isLeftButtonPressed: false, isRightButtonPressed: false, isPointerWithinDisplay: true);
+        atariST.UpdateMouseState(0.60, 0.50, isLeftButtonPressed: true, isRightButtonPressed: false, isPointerWithinDisplay: true);
+
+        var header = bus.Read8(keyboardDataAddress);
+        var deltaX = bus.Read8(keyboardDataAddress);
+        var deltaY = bus.Read8(keyboardDataAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(header, Is.EqualTo(0xFA), "Expected relative mouse packet with left-button bit set.");
+            Assert.That((sbyte)deltaX, Is.Not.EqualTo(0), "Expected horizontal mouse delta.");
+            Assert.That((sbyte)deltaY, Is.EqualTo(0), "Expected no vertical mouse delta.");
+        });
+    }
+
+    [Test]
+    public void UpdateMouseStateShouldQueueDeltaOnFirstReEntryMove()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        var bus = atariST.Cpu.Bus;
+        const uint keyboardStatusAddress = 0x00FFFC00;
+        const uint keyboardDataAddress = 0x00FFFC02;
+        DrainKeyboardReceiveQueue(bus, keyboardStatusAddress, keyboardDataAddress);
+
+        atariST.UpdateMouseState(0.45, 0.45, false, false, true);
+        atariST.UpdateMouseState(0.50, 0.45, false, false, true);
+        DrainKeyboardReceiveQueue(bus, keyboardStatusAddress, keyboardDataAddress);
+        atariST.UpdateMouseState(0.00, 0.00, false, false, false);
+        atariST.UpdateMouseState(0.70, 0.45, false, false, true);
+
+        var status = bus.Read8(keyboardStatusAddress);
+        Assert.That(status & 0x01, Is.Not.Zero, "Expected a relative mouse packet on first move after pointer re-entry.");
+    }
+
+    [Test]
+    public void UpdateMouseStateShouldResyncToEntryPositionFromBoot()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        var bus = atariST.Cpu.Bus;
+        const uint keyboardStatusAddress = 0x00FFFC00;
+        const uint keyboardDataAddress = 0x00FFFC02;
+        DrainKeyboardReceiveQueue(bus, keyboardStatusAddress, keyboardDataAddress);
+
+        atariST.UpdateMouseState(0.90, 0.90, false, false, true);
+
+        var status = bus.Read8(keyboardStatusAddress);
+        Assert.That(status & 0x01, Is.Not.Zero, "Expected initial entry to queue a sync delta from boot cursor position.");
+    }
+
+    [Test]
     public void MfpTimerInterruptShouldQueueLevel6Interrupt()
     {
         var atariST = new AtariST();
@@ -596,5 +658,11 @@ public sealed class AtariSTTests : TestsBase
         rom[0x101] = 0x71;
 
         return rom;
+    }
+
+    private static void DrainKeyboardReceiveQueue(Bus bus, uint statusAddress, uint dataAddress)
+    {
+        while ((bus.Read8(statusAddress) & 0x01) != 0)
+            _ = bus.Read8(dataAddress);
     }
 }

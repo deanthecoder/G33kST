@@ -148,7 +148,13 @@
                 </Image>
 
                 <Image x:Name="MainDisplay"
+                       IsHitTestVisible="True"
                        Source="{Binding Display}"
+                       PointerEntered="OnDisplayPointerEntered"
+                       PointerMoved="OnDisplayPointerMoved"
+                       PointerPressed="OnDisplayPointerPressed"
+                       PointerReleased="OnDisplayPointerReleased"
+                       PointerExited="OnDisplayPointerExited"
                        Stretch="Uniform" />
 
                 <Border Width="16"
