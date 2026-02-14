@@ -34,6 +34,10 @@ public sealed class EmuTOSTests : TestsBase
     private const uint LowMemoryProbeFromAddress = 0x000008;
     private const uint LowMemoryProbeToAddress = 0x0002FFFF;
     private const double FrameSampleIntervalSeconds = 0.1;
+    private const int MenuBarScanTop = 2;
+    private const int MenuBarScanHeight = 10;
+    private const int MenuBarScanMarginX = 8;
+    private const int MenuBarInkThreshold = 96;
     private static readonly uint[] PanicCandidateProgramCounters = [0x00FC5104, 0x00FCD042];
 
     [Test]
@@ -172,6 +176,8 @@ public sealed class EmuTOSTests : TestsBase
         var blankScreenChecksum = ComputeBlankScreenChecksum(atariST.Video.FrameWidth, atariST.Video.FrameHeight);
         var sawNonBlankFrame = false;
         var firstNonBlankSeenAtCycles = 0L;
+        var sawMenuBarInk = false;
+        var firstMenuBarInkSeenAtCycles = 0L;
         var sampledFrames = 0;
         var savedFrames = 0;
         var hasLastSampledChecksum = false;
@@ -226,6 +232,11 @@ public sealed class EmuTOSTests : TestsBase
                     {
                         sawNonBlankFrame = true;
                         firstNonBlankSeenAtCycles = nextFrameSampleCycle;
+                    }
+                    if (!sawMenuBarInk && HasMenuBarInk(frameBuffer, atariST.Video.FrameWidth, atariST.Video.FrameHeight))
+                    {
+                        sawMenuBarInk = true;
+                        firstMenuBarInkSeenAtCycles = nextFrameSampleCycle;
                     }
 
                     panicFrameDetector.Observe(frameBuffer, checksum, mode, nextFrameSampleCycle);
@@ -323,6 +334,7 @@ public sealed class EmuTOSTests : TestsBase
         TestContext.Out.WriteLine($"Exceptions: {exceptionCount}");
         TestContext.Out.WriteLine($"Frame samples: {sampledFrames} (saved: {savedFrames})");
         TestContext.Out.WriteLine($"Saw non-blank frame: {sawNonBlankFrame} at {firstNonBlankSeenAtCycles:N0} cycles");
+        TestContext.Out.WriteLine($"Saw menu bar ink: {sawMenuBarInk} at {firstMenuBarInkSeenAtCycles:N0} cycles");
         TestContext.Out.WriteLine($"Video mode samples: {FormatVideoModeSamples(sampledModeCounts)}");
         TestContext.Out.WriteLine($"IKBD access: status reads={keyboardStatusReads:N0}, data reads={keyboardDataReads:N0}, data writes={keyboardDataWrites:N0}");
         TestContext.Out.WriteLine($"Top I/O reads: {ioAccess.FormatTopReads(8)}");
@@ -344,6 +356,7 @@ public sealed class EmuTOSTests : TestsBase
             $"Likely deadlock detected: {stallReason}");
         Assert.That(sampledFrames, Is.GreaterThan(0), "No frame samples were captured.");
         Assert.That(sawNonBlankFrame, Is.True, "Did not observe a non-blank frame during boot.");
+        Assert.That(sawMenuBarInk, Is.True, "Did not observe non-background menu bar text pixels.");
 
         TestContext.Out.WriteLine();
         TestContext.Out.WriteLine("Test completed. Check output above for EmuTOS behavior.");
@@ -414,6 +427,39 @@ public sealed class EmuTOSTests : TestsBase
         }
 
         return hash;
+    }
+
+    private static bool HasMenuBarInk(byte[] frameBuffer, int width, int height)
+    {
+        if (frameBuffer == null || frameBuffer.Length < width * height * 4)
+            return false;
+        if (width <= (MenuBarScanMarginX * 2) || height <= MenuBarScanTop)
+            return false;
+
+        var startX = MenuBarScanMarginX;
+        var endX = width - MenuBarScanMarginX;
+        var startY = MenuBarScanTop;
+        var endY = Math.Min(height, startY + MenuBarScanHeight);
+        var inkPixels = 0;
+
+        for (var y = startY; y < endY; y++)
+        {
+            var rowOffset = y * width * 4;
+            for (var x = startX; x < endX; x++)
+            {
+                var pixelOffset = rowOffset + (x * 4);
+                var red = frameBuffer[pixelOffset];
+                var green = frameBuffer[pixelOffset + 1];
+                var blue = frameBuffer[pixelOffset + 2];
+                if (red >= 224 && green >= 224 && blue >= 224)
+                    continue;
+                inkPixels++;
+                if (inkPixels >= MenuBarInkThreshold)
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     private static string FormatVideoModeSamples(Dictionary<int, int> sampledModeCounts)
