@@ -47,7 +47,7 @@ public sealed class MfpDevice : IMemDevice
     private const int TimerCData = 0x23;
     private const int TimerDData = 0x25;
 
-    private static readonly int[] s_timerPrescaleDivisors =
+    private static readonly int[] TimerPrescaleDivisors =
     [
         0,   // stopped
         4,
@@ -203,7 +203,7 @@ public sealed class MfpDevice : IMemDevice
     private void AdvanceTimerC(int deltaTicks)
     {
         var timerControl = (byte)((m_registers[TimerCdControl] >> 4) & 0x07);
-        var prescale = s_timerPrescaleDivisors[timerControl];
+        var prescale = TimerPrescaleDivisors[timerControl];
         if (prescale == 0)
             return;
         if (m_timerCCurrent == 0)
@@ -225,7 +225,7 @@ public sealed class MfpDevice : IMemDevice
     private void AdvanceTimerD(int deltaTicks)
     {
         var timerControl = (byte)(m_registers[TimerCdControl] & 0x07);
-        var prescale = s_timerPrescaleDivisors[timerControl];
+        var prescale = TimerPrescaleDivisors[timerControl];
         if (prescale == 0)
             return;
         if (m_timerDCurrent == 0)

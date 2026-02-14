@@ -31,7 +31,6 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
     private const ushort DmaScReg = 0x0010;
     private const ushort DmaCsAcsi = 0x0008;
     private const ushort DmaDrqFloppy = 0x0080;
-    private const ushort DmaWriteBit = 0x0100;
     private const byte FdcTrackZeroMask = 0x04;
     private const byte FdcRecordNotFoundMask = 0x10;
     private const byte FdcWriteProtectMask = 0x40;

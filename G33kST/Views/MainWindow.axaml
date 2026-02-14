@@ -1,0 +1,166 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:viewModels="clr-namespace:G33kST.ViewModels"
+        xmlns:dialogHostAvalonia="clr-namespace:DialogHostAvalonia;assembly=DialogHost.Avalonia"
+        xmlns:icons="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
+        xmlns:ui="clr-namespace:DTC.Core.UI;assembly=DTC.Core"
+        mc:Ignorable="d"
+        d:DesignWidth="1280"
+        d:DesignHeight="840"
+        x:Class="G33kST.Views.MainWindow"
+        x:DataType="viewModels:MainWindowViewModel"
+        Width="1280"
+        Height="840"
+        MinWidth="960"
+        MinHeight="600"
+        Title="{Binding WindowTitle}">
+    <Design.DataContext>
+        <viewModels:MainWindowViewModel />
+    </Design.DataContext>
+
+    <Window.Styles>
+        <Style Selector="Button">
+            <Setter Property="Focusable" Value="False" />
+        </Style>
+        <Style Selector="Image">
+            <Setter Property="IsHitTestVisible" Value="False" />
+        </Style>
+    </Window.Styles>
+
+    <Window.KeyBindings>
+        <KeyBinding Command="{Binding ResetMachine}" Gesture="{OnPlatform 'ctrl+r', macOS='⌘+r'}" />
+        <KeyBinding Command="{Binding SaveScreenshotCommand}" Gesture="{OnPlatform 'ctrl+s', macOS='⌘+s'}" />
+        <KeyBinding Command="{Binding ToggleRecordingCommand}" Gesture="{OnPlatform 'ctrl+m', macOS='⌘+m'}" />
+        <KeyBinding Command="{Binding CloseCommand}" Gesture="{OnPlatform 'ctrl+q', macOS='⌘+q'}" />
+    </Window.KeyBindings>
+
+    <dialogHostAvalonia:DialogHost x:Name="Host" OverlayBackground="Black">
+        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,*">
+            <Menu>
+                <MenuItem Header="_File">
+                    <MenuItem Header="Save _Screenshot..."
+                              Command="{Binding SaveScreenshotCommand}"
+                              InputGesture="{OnPlatform 'ctrl+s', macOS='⌘+s'}" />
+                    <MenuItem Header="Start _Recording"
+                              Command="{Binding StartRecordingCommand}"
+                              InputGesture="{OnPlatform 'ctrl+m', macOS='⌘+m'}"
+                              IsVisible="{Binding !IsRecording}" />
+                    <MenuItem Header="Stop _Recording..."
+                              Command="{Binding StopRecordingCommand}"
+                              InputGesture="{OnPlatform 'ctrl+m', macOS='⌘+m'}"
+                              IsVisible="{Binding IsRecording}" />
+                    <Separator />
+                    <MenuItem Header="_Exit"
+                              Command="{Binding CloseCommand}"
+                              InputGesture="{OnPlatform 'ctrl+q', macOS='⌘+q'}" />
+                </MenuItem>
+
+                <MenuItem Header="_Emulation">
+                    <MenuItem Header="_Reset"
+                              Command="{Binding ResetMachine}"
+                              InputGesture="{OnPlatform 'ctrl+r', macOS='⌘+r'}" />
+                </MenuItem>
+
+                <MenuItem Header="_Display">
+                    <MenuItem Header="Emulate CRT" Command="{Binding ToggleCrtEmulation}">
+                        <MenuItem.Icon>
+                            <icons:MaterialIcon Kind="Tick" IsVisible="{Binding Settings.IsCrtEmulationEnabled}" />
+                        </MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="Ambient Blur" Command="{Binding ToggleAmbientBlur}">
+                        <MenuItem.Effect>
+                            <BlurEffect Radius="2" />
+                        </MenuItem.Effect>
+                        <MenuItem.Icon>
+                            <icons:MaterialIcon Kind="Tick" IsVisible="{Binding Settings.IsAmbientBlurred}" />
+                        </MenuItem.Icon>
+                    </MenuItem>
+                    <Separator />
+                    <MenuItem Header="Video Mode">
+                        <MenuItem Header="Low (320x200, 16 colors)" IsEnabled="False" />
+                        <MenuItem Header="Medium (640x200, 4 colors)" IsEnabled="False" />
+                        <MenuItem Header="High (640x400 mono)" IsEnabled="False" />
+                    </MenuItem>
+                </MenuItem>
+
+                <MenuItem Header="_Debug" IsVisible="{Binding IsDebugBuild}">
+                    <MenuItem Header="Track CPU History" Command="{Binding TrackCpuHistory}">
+                        <MenuItem.Icon>
+                            <icons:MaterialIcon Kind="Tick" IsVisible="{Binding Settings.IsCpuHistoryTracked}" />
+                        </MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="Dump CPU History"
+                              Command="{Binding DumpCpuHistory}"
+                              IsEnabled="{Binding Settings.IsCpuHistoryTracked}" />
+                    <Separator />
+                    <MenuItem Header="Report CPU Clock Ticks" Command="{Binding ReportCpuClockTicks}" />
+                    <MenuItem Header="Report Frame Checksum + Ticks" Command="{Binding ReportFrameChecksum}" />
+                </MenuItem>
+
+                <MenuItem Header="_Help">
+                    <MenuItem Header="_Open Project Page..." Command="{Binding OpenProjectPage}" />
+                    <MenuItem Header="_Open Log..." Command="{Binding OpenLog}" />
+                    <MenuItem Header="_About..."
+                              Command="{Binding OpenDialogCommand, ElementName=Host}">
+                        <MenuItem.CommandParameter>
+                            <ui:AboutDialogContent AboutInfo="{Binding AboutInfo}" PointerPressed="OnAboutDialogClicked" />
+                        </MenuItem.CommandParameter>
+                    </MenuItem>
+                </MenuItem>
+            </Menu>
+
+            <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Margin="8,0,8,0">
+                <StackPanel.Styles>
+                    <Style Selector="TextBlock">
+                        <Setter Property="FontWeight" Value="Normal" />
+                    </Style>
+                </StackPanel.Styles>
+
+                <ToggleButton IsChecked="{Binding IsSoundEnabled, Mode=OneWay}"
+                              Command="{Binding ToggleSound}"
+                              ToolTip.Tip="Sound">
+                    <icons:MaterialIcon Width="24" Height="24"
+                                        Tag="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=ToggleButton}}">
+                        <icons:MaterialIcon.Styles>
+                            <Style Selector="icons|MaterialIcon[Tag=True]">
+                                <Setter Property="Kind" Value="VolumeHigh" />
+                            </Style>
+                            <Style Selector="icons|MaterialIcon[Tag=False]">
+                                <Setter Property="Kind" Value="VolumeOff" />
+                            </Style>
+                        </icons:MaterialIcon.Styles>
+                    </icons:MaterialIcon>
+                </ToggleButton>
+            </StackPanel>
+
+            <Grid Grid.Row="1" Grid.ColumnSpan="2" Grid.Column="0" Background="Black">
+                <Image x:Name="AmbientDisplay"
+                       Source="{Binding Display}"
+                       Margin="-200,0"
+                       Stretch="UniformToFill"
+                       Opacity="0.6"
+                       IsVisible="{Binding Settings.IsAmbientBlurred}">
+                    <Image.Effect>
+                        <BlurEffect Radius="200" />
+                    </Image.Effect>
+                </Image>
+
+                <Image x:Name="MainDisplay"
+                       Source="{Binding Display}"
+                       Stretch="Uniform" />
+
+                <Border Width="16"
+                        Height="16"
+                        CornerRadius="8"
+                        Background="#E53935"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Top"
+                        Margin="0,8,8,0"
+                        IsHitTestVisible="False"
+                        IsVisible="{Binding IsRecordingIndicatorOn}" />
+            </Grid>
+        </Grid>
+    </dialogHostAvalonia:DialogHost>
+</Window>

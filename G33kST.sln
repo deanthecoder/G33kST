@@ -10,6 +10,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnitTests", "UnitTests\Unit
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DTC.AtariST", "DTC.AtariST\DTC.AtariST.csproj", "{CC520834-1415-4A45-8B00-AD39C552800D}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "G33kST", "G33kST\G33kST.csproj", "{2460E463-BBEA-4001-9448-879E739916BB}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -80,6 +82,18 @@ Global
 		{CC520834-1415-4A45-8B00-AD39C552800D}.Release|x64.Build.0 = Release|Any CPU
 		{CC520834-1415-4A45-8B00-AD39C552800D}.Release|x86.ActiveCfg = Release|Any CPU
 		{CC520834-1415-4A45-8B00-AD39C552800D}.Release|x86.Build.0 = Release|Any CPU
+		{2460E463-BBEA-4001-9448-879E739916BB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2460E463-BBEA-4001-9448-879E739916BB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2460E463-BBEA-4001-9448-879E739916BB}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{2460E463-BBEA-4001-9448-879E739916BB}.Debug|x64.Build.0 = Debug|Any CPU
+		{2460E463-BBEA-4001-9448-879E739916BB}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{2460E463-BBEA-4001-9448-879E739916BB}.Debug|x86.Build.0 = Debug|Any CPU
+		{2460E463-BBEA-4001-9448-879E739916BB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2460E463-BBEA-4001-9448-879E739916BB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2460E463-BBEA-4001-9448-879E739916BB}.Release|x64.ActiveCfg = Release|Any CPU
+		{2460E463-BBEA-4001-9448-879E739916BB}.Release|x64.Build.0 = Release|Any CPU
+		{2460E463-BBEA-4001-9448-879E739916BB}.Release|x86.ActiveCfg = Release|Any CPU
+		{2460E463-BBEA-4001-9448-879E739916BB}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
