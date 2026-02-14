@@ -28,6 +28,8 @@ public sealed class EmuTOSTests : TestsBase
     private const uint VideoModeRegister = 0x00FF8260;
     private const uint KeyboardAciaStatusRegister = 0x00FFFC00;
     private const uint KeyboardAciaDataRegister = 0x00FFFC02;
+    private const uint NumberOfFloppyDrivesVariableAddress = 0x000004A6;
+    private const uint DriveMapVariableAddress = 0x000004C2;
     private const uint PhysicalTopOfRamVariableAddress = 0x0000042E;
     private const uint LowMemoryProbeFromAddress = 0x000008;
     private const uint LowMemoryProbeToAddress = 0x0002FFFF;
@@ -82,6 +84,8 @@ public sealed class EmuTOSTests : TestsBase
         }
 
         var detectedStramTop = atariST.Cpu.Bus.Read32BigEndian(PhysicalTopOfRamVariableAddress);
+        var detectedFloppyCount = atariST.Cpu.Bus.Read16BigEndian(NumberOfFloppyDrivesVariableAddress);
+        var detectedDriveMap = atariST.Cpu.Bus.Read32BigEndian(DriveMapVariableAddress);
 
         Assert.Multiple(() =>
         {
@@ -90,6 +94,8 @@ public sealed class EmuTOSTests : TestsBase
             Assert.That(firstSampledWidth, Is.EqualTo(320), "Expected initial active screen width to be 320.");
             Assert.That(firstSampledHeight, Is.EqualTo(200), "Expected initial active screen height to be 200.");
             Assert.That(detectedStramTop, Is.EqualTo(0x00100000), "Expected EmuTOS to detect 1MB ST-RAM.");
+            Assert.That(detectedFloppyCount, Is.GreaterThanOrEqualTo(1), "Expected EmuTOS to detect at least one floppy drive.");
+            Assert.That((detectedDriveMap & 0x00000001) != 0, Is.True, "Expected drive map to include floppy A:.");
         });
     }
 

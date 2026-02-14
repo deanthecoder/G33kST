@@ -39,6 +39,8 @@ public sealed class AtariST : IMachine
     private readonly AtariSTOptions m_options;
     private readonly Shifter m_video;
     private readonly AciaIkbdDevice m_aciaIkbd;
+    private readonly PsgDevice m_psg;
+    private readonly FloppyDmaFdcDevice m_floppyController;
     private readonly SystemControlDevice m_systemControl;
     private readonly RtcDevice m_rtc;
     private readonly MfpDevice m_mfp;
@@ -107,6 +109,12 @@ public sealed class AtariST : IMachine
         m_aciaIkbd = new AciaIkbdDevice();
         m_aciaIkbd.KeyboardInterruptLineChanged += OnKeyboardInterruptLineChanged;
         bus.Attach(m_aciaIkbd);
+        m_psg = new PsgDevice();
+        m_psg.PortAChanged += OnPsgPortAChanged;
+        bus.Attach(m_psg);
+        m_floppyController = new FloppyDmaFdcDevice(driveAPresent: true, driveBPresent: false);
+        m_floppyController.InterruptLineChanged += OnFloppyInterruptLineChanged;
+        bus.Attach(m_floppyController);
         m_rtc = null;
         if (m_options.HasRealTimeClock)
         {
@@ -139,6 +147,8 @@ public sealed class AtariST : IMachine
         m_video.Reset();
         m_systemControl.Reset();
         m_aciaIkbd.Reset();
+        m_psg.Reset();
+        m_floppyController.Reset();
         if (m_rtc != null)
             m_rtc.Reset();
         m_mfp.Reset();
@@ -239,6 +249,12 @@ public sealed class AtariST : IMachine
 
     private void OnKeyboardInterruptLineChanged(bool isActiveLow) =>
         m_mfp.SetAciaInterruptLine(isActiveLow);
+
+    private void OnFloppyInterruptLineChanged(bool isActiveLow) =>
+        m_mfp.SetFloppyInterruptLine(isActiveLow);
+
+    private void OnPsgPortAChanged(byte value) =>
+        m_floppyController.ApplyPortA(value);
 
     /// <summary>
     /// Handles MFP interrupt requests.

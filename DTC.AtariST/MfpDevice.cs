@@ -33,6 +33,7 @@ public sealed class MfpDevice : IMemDevice
     private const byte Gpip4InterruptMask = 0x40;
     private const byte Gpip4SourceNumber = 6;
     private const byte MonitorDetectInputMask = 0x80;
+    private const byte FloppyInputMask = 0x20;
     private const byte AciaInputMask = 0x10;
 
     private const int GpipRegister = 0x01;
@@ -141,6 +142,18 @@ public sealed class MfpDevice : IMemDevice
         }
         else
             m_gpipInputState = (byte)(m_gpipInputState | AciaInputMask);
+    }
+
+    /// <summary>
+    /// Updates the FDC completion/IRQ line sampled on GPIP5.
+    /// This is used by TOS floppy polling loops that wait for GPIP5 to go low.
+    /// </summary>
+    public void SetFloppyInterruptLine(bool isActiveLow)
+    {
+        if (isActiveLow)
+            m_gpipInputState = (byte)(m_gpipInputState & ~FloppyInputMask);
+        else
+            m_gpipInputState = (byte)(m_gpipInputState | FloppyInputMask);
     }
 
     /// <inheritdoc />
