@@ -178,8 +178,6 @@ public sealed class EmuTOSTests : TestsBase
 #pragma warning restore CS0162 // Unreachable code detected
 
         var sampledModeCounts = new Dictionary<int, int>();
-        var nextInjectedKeyCycle = (long)Math.Round(atariST.Descriptor.CpuHz * 5.0);
-        var injectedKeyCount = 0;
         var panicDetected = false;
         var panicProgramCounter = 0u;
         var panicDetectedAtCycles = 0L;
@@ -213,13 +211,6 @@ public sealed class EmuTOSTests : TestsBase
                 lastCpuTicks = currentCpuTicks;
                 if (atariST.TryConsumeInterrupt())
                     atariST.RequestInterrupt();
-
-                if (atariST.CpuTicks >= nextInjectedKeyCycle && injectedKeyCount < 4)
-                {
-                    InjectReturnKey(atariST);
-                    injectedKeyCount++;
-                    nextInjectedKeyCycle += (long)Math.Round(atariST.Descriptor.CpuHz * 5.0);
-                }
 
                 while (atariST.CpuTicks >= nextFrameSampleCycle)
                 {
@@ -334,7 +325,6 @@ public sealed class EmuTOSTests : TestsBase
         TestContext.Out.WriteLine($"Frame samples: {sampledFrames} (saved: {savedFrames})");
         TestContext.Out.WriteLine($"Saw non-blank frame: {sawNonBlankFrame} at {firstNonBlankSeenAtCycles:N0} cycles");
         TestContext.Out.WriteLine($"Video mode samples: {FormatVideoModeSamples(sampledModeCounts)}");
-        TestContext.Out.WriteLine($"Injected keys: {injectedKeyCount}");
         TestContext.Out.WriteLine($"IKBD access: status reads={keyboardStatusReads:N0}, data reads={keyboardDataReads:N0}, data writes={keyboardDataWrites:N0}");
         TestContext.Out.WriteLine($"Top I/O reads: {ioAccess.FormatTopReads(8)}");
         TestContext.Out.WriteLine($"Top I/O writes: {ioAccess.FormatTopWrites(8)}");
@@ -356,7 +346,7 @@ public sealed class EmuTOSTests : TestsBase
         Assert.That(sampledFrames, Is.GreaterThan(0), "No frame samples were captured.");
         Assert.That(sawNonBlankFrame, Is.True, "Did not observe a non-blank frame during boot.");
         TestContext.Out.WriteLine();
-        TestContext.Out.WriteLine($"Test completed. Check output above for EmuTOS behavior.");
+        TestContext.Out.WriteLine("Test completed. Check output above for EmuTOS behavior.");
     }
 
     [Test]
@@ -444,16 +434,7 @@ public sealed class EmuTOSTests : TestsBase
             2 => "2 (high mono 640x400)",
             _ => $"{mode} (unknown)"
         };
-
-    private static void InjectReturnKey(AtariST atariST)
-    {
-        const byte returnMake = 0x1C;
-        const byte returnBreak = 0x9C;
-        atariST.InjectKeyboardScanCode(returnMake);
-        atariST.InjectKeyboardScanCode(returnBreak);
-        TestContext.Out.WriteLine("Injected keyboard: Return.");
-    }
-
+    
     private static ProbeResult RunVectorProbe(byte[] romData, string romName, byte vector)
     {
         var atariST = new AtariST
