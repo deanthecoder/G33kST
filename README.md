@@ -26,12 +26,15 @@ G33kST is my way of learning its hardware properly, starting from a pragmatic an
 - Full 68000 address-error/bus-error stack frame behavior is still to be modeled.
 
 ## CPU roadmap (toward full 68000 support)
-- [x] Add an opcode-completeness audit (ideally as an automated unit test) so legal opcodes are implemented and illegal ones route to the correct exception path.
-- [ ] Complete exception and interrupt behavior: trace (`T`) flow, interrupt acknowledge/autovector paths, spurious interrupts, and bus-error handling.
-- [ ] Complete execution-state behavior for `STOP`/halt/wake and reset/vector startup semantics expected by real software.
-- [ ] Add cycle accounting with instruction + EA + exception timing, then tighten timing only where software compatibility needs it.
-- [ ] Improve prefetch fidelity where software depends on refill/flush edge cases.
-- [ ] Validate at software level by booting TOS and running a practical app/game/demo smoke set.
+- [x] Add an opcode-completeness audit so legal opcodes are implemented and illegal ones route to the exception path.
+- [x] Implement broad instruction coverage and status-flag behavior validated by single-step suites.
+- [x] Add baseline cycle accounting (`Cpu.CyclesSinceCpuStart`) with pragmatic per-instruction timing.
+- [x] Boot EmuTOS to desktop as a software-level smoke test.
+- [ ] Complete remaining exception/interrupt edge behavior (detailed bus/address error frames, precise trace flow, and full interrupt edge cases).
+- [ ] Complete execution-state edge behavior for `STOP`/halt/wake and full reset side effects.
+- [ ] Tighten timing accuracy (EA + exception timing, and only then case-by-case cycle tuning where compatibility needs it).
+- [ ] Improve prefetch fidelity where software depends on queue refill/flush details.
+- [ ] Expand platform bring-up for ST peripherals (floppy path, DMA/FDC behavior, GEM-visible device behavior).
 
 Current note for exception/interrupt work:
 - Basic interrupt request + acknowledge plumbing is in place (`RequestInterrupt`, autovector/spurious/explicit vector result support, and interrupt mask update on entry).
@@ -51,6 +54,20 @@ https://github.com/SingleStepTests/m68000
 The MC68000 opcode test suite by **Ted Fried / MicroCore Labs** is included under:
 `external/MC68000_Test_Code`
 Source: https://github.com/MicroCoreLabs/Projects/tree/master/MCL68/MC68000_Test_Code
+
+## EmuTOS ROM usage
+For integration/boot tests this repository currently uses an EmuTOS ROM image:
+- `DTC.AtariST/TOS/etos192us.img`
+
+References:
+- EmuTOS project: https://github.com/emutos/emutos
+- EmuTOS manual (license section): https://emutos.github.io/manual/#license
+
+Licensing note:
+- EmuTOS is GPL-licensed (GNU GPL v2, per EmuTOS documentation).
+- G33kST source code remains MIT-licensed.
+- The bundled EmuTOS ROM is third-party software under its own license terms and attribution requirements.
+- If/when redistributing binaries or source bundles, keep EmuTOS attribution and GPL materials alongside that ROM artifact.
 
 ## Useful links
 - [Motorola 68000 Programmer's Reference Manual](https://www.nxp.com/docs/en/reference-manual/M68000PRM.pdf)
