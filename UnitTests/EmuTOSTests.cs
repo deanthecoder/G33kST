@@ -23,7 +23,7 @@ namespace UnitTests;
 [TestFixture]
 public sealed class EmuTOSTests : TestsBase
 {
-    private const bool SaveFrameSamplesToDesktop = false;
+    private static bool SaveFrameSamplesToDesktop => false;
     private const int StallTraceLineCount = 40;
     private const uint VideoModeRegister = 0x00FF8260;
     private const uint KeyboardAciaStatusRegister = 0x00FFFC00;
@@ -176,12 +176,7 @@ public sealed class EmuTOSTests : TestsBase
         var savedFrames = 0;
         var hasLastSampledChecksum = false;
         var lastSampledChecksum = 0u;
-
-        // ReSharper disable once ExpressionIsAlwaysNull
-        // ReSharper disable once HeuristicUnreachableCode
-#pragma warning disable CS0162 // Unreachable code detected
         var frameCaptureDir = SaveFrameSamplesToDesktop ? CreateDesktopFrameOutputDir() : null;
-#pragma warning restore CS0162 // Unreachable code detected
 
         var sampledModeCounts = new Dictionary<int, int>();
         var panicDetected = false;
@@ -190,8 +185,6 @@ public sealed class EmuTOSTests : TestsBase
         var panicReason = string.Empty;
         var panicCandidateLogged = false;
 
-        // ReSharper disable once ConditionIsAlwaysTrueOrFalse
-        // ReSharper disable once HeuristicUnreachableCode
         if (frameCaptureDir != null)
             TestContext.Out.WriteLine($"Frame capture enabled: {frameCaptureDir.FullName}");
 
@@ -351,6 +344,7 @@ public sealed class EmuTOSTests : TestsBase
             $"Likely deadlock detected: {stallReason}");
         Assert.That(sampledFrames, Is.GreaterThan(0), "No frame samples were captured.");
         Assert.That(sawNonBlankFrame, Is.True, "Did not observe a non-blank frame during boot.");
+
         TestContext.Out.WriteLine();
         TestContext.Out.WriteLine("Test completed. Check output above for EmuTOS behavior.");
     }

@@ -25,6 +25,7 @@ public sealed class Cpu : CpuBase
     private const ushort SupervisorFlagMask = 0x2000;
     private const ushort TraceFlagMask = 0x8000;
     private const ushort InterruptPriorityMaskBits = 0x0700;
+    private const uint BusErrorVectorAddress = 0x000008;
     private const uint AddressErrorVectorAddress = 0x00000C;
     private const uint TraceVectorAddress = 0x000024;
     private const uint PrivilegeViolationVectorAddress = 0x000020;
@@ -309,6 +310,10 @@ public sealed class Cpu : CpuBase
         {
             EnterAddressError(ex, opcode);
         }
+        catch (BusErrorException ex)
+        {
+            EnterBusError(ex, opcode);
+        }
 
         NotifyAfterStep();
     }
@@ -470,6 +475,31 @@ public sealed class Cpu : CpuBase
 
         Registers.StatusRegister = (ushort)((oldStatus & ~TraceFlagMask) | SupervisorFlagMask);
         Registers.ProgramCounter = Read32(AddressErrorVectorAddress);
+        RefreshPrefetchQueue();
+    }
+
+    private void EnterBusError(BusErrorException error, ushort opcode)
+    {
+        var oldStatus = (ushort)(Registers.StatusRegister & ValidStatusRegisterMask);
+        var frameProgramCounter = GetPcRelativeBaseAddress();
+        if (!error.IsRead)
+            frameProgramCounter += 2;
+
+        var instructionRegister = opcode != 0 ? opcode : m_prefetch0;
+        var functionCode = GetFunctionCode(error.IsProgramAccess);
+        var specialStatusWord = BuildSpecialStatusWord(instructionRegister, functionCode, error.IsRead);
+        var faultAddress = error.Address & 0x00FF_FFFF;
+
+        // Bus-error exception entry always stacks to supervisor mode.
+        Registers.IsSupervisor = true;
+        Push32(frameProgramCounter);
+        Push16(oldStatus);
+        Push16(instructionRegister);
+        Push32(faultAddress);
+        Push16(specialStatusWord);
+
+        Registers.StatusRegister = (ushort)((oldStatus & ~TraceFlagMask) | SupervisorFlagMask);
+        Registers.ProgramCounter = Read32(BusErrorVectorAddress);
         RefreshPrefetchQueue();
     }
 

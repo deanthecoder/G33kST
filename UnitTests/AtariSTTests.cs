@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using DTC.AtariST;
+using DTC.M68000;
 
 namespace UnitTests;
 
@@ -20,6 +21,8 @@ public sealed class AtariSTTests : TestsBase
 {
     private const uint RealTimeClockRegister = 0x00FFFC21;
     private const uint RealTimeClockAlarmMinuteLowRegister = 0x00FFFC27;
+    private const uint UnmappedIoHoleAddress = 0x00FF9001;
+    private const uint BlitterConfigRegister = 0x00FF8A3C;
     private const uint VideoModeRegister = 0x00FF8260;
 
     [Test]
@@ -96,6 +99,28 @@ public sealed class AtariSTTests : TestsBase
         var value = atariST.Cpu.Bus.Read8(RealTimeClockAlarmMinuteLowRegister);
 
         Assert.That(value, Is.EqualTo(0xFF));
+    }
+
+    [Test]
+    public void ConstructorShouldTreatUnmappedIoAsOpenBus()
+    {
+        var atariST = new AtariST();
+        var bus = atariST.Cpu.Bus;
+
+        bus.Write8(UnmappedIoHoleAddress, 0x34);
+        var value = bus.Read8(UnmappedIoHoleAddress);
+
+        Assert.That(value, Is.EqualTo(0xFF));
+    }
+
+    [Test]
+    public void ConstructorShouldRaiseBusErrorWhenReadingBlitterRegisterOnStfm()
+    {
+        var atariST = new AtariST();
+
+        Assert.That(
+            () => atariST.Cpu.Read8(BlitterConfigRegister),
+            Throws.TypeOf<BusErrorException>());
     }
 
     [Test]

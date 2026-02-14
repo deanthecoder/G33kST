@@ -30,6 +30,10 @@ public sealed class AtariST : IMachine
     private const int FullAddressSpaceSizeBytes = 0x1000000; // 16MB.
     private const uint BootRomOverlaySize = 8;
     private const uint VideoModeRegister = 0x00FF8260;
+    private const uint BlitterRegisterFromAddress = 0x00FF8A00;
+    private const uint BlitterRegisterToAddress = 0x00FF8A3F;
+    private const uint IoRegionFromAddress = 0x00FF0000;
+    private const uint IoRegionToAddress = 0x00FFFFFF;
     private const byte LowResolutionModeValue = 0x00;
     private const byte HighResolutionModeValue = 0x02;
     private const uint RealTimeClockFromAddress = 0x00FFFC20;
@@ -39,6 +43,7 @@ public sealed class AtariST : IMachine
     private readonly AtariSTOptions m_options;
     private readonly Shifter m_video;
     private readonly AciaIkbdDevice m_aciaIkbd;
+    private readonly ShifterRegistersDevice m_shifterRegisters;
     private readonly PsgDevice m_psg;
     private readonly FloppyDmaFdcDevice m_floppyController;
     private readonly SystemControlDevice m_systemControl;
@@ -100,6 +105,8 @@ public sealed class AtariST : IMachine
         var fullAddressSpace = new Memory(FullAddressSpaceSizeBytes);
         var bus = new Bus(fullAddressSpace);
         AttachOpenBusGap(bus, m_options.RamSizeBytes);
+        bus.Attach(new OpenBusDevice(IoRegionFromAddress, IoRegionToAddress));
+        bus.Attach(new BusErrorDevice(BlitterRegisterFromAddress, BlitterRegisterToAddress));
 
         // Attach RAM and ROM to the bus (they will override the full address space in their ranges)
         bus.Attach(Ram);
@@ -109,6 +116,8 @@ public sealed class AtariST : IMachine
         m_aciaIkbd = new AciaIkbdDevice();
         m_aciaIkbd.KeyboardInterruptLineChanged += OnKeyboardInterruptLineChanged;
         bus.Attach(m_aciaIkbd);
+        m_shifterRegisters = new ShifterRegistersDevice();
+        bus.Attach(m_shifterRegisters);
         m_psg = new PsgDevice();
         m_psg.PortAChanged += OnPsgPortAChanged;
         bus.Attach(m_psg);
@@ -147,6 +156,7 @@ public sealed class AtariST : IMachine
         m_video.Reset();
         m_systemControl.Reset();
         m_aciaIkbd.Reset();
+        m_shifterRegisters.Reset();
         m_psg.Reset();
         m_floppyController.Reset();
         if (m_rtc != null)
