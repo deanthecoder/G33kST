@@ -36,10 +36,12 @@ public sealed class AtariST : IMachine
     private const uint IoRegionToAddress = 0x00FFFFFF;
     private const byte LowResolutionModeValue = 0x00;
     private const byte HighResolutionModeValue = 0x02;
+    private const int MouseDragActivationThresholdPixels = 2;
     private const uint RealTimeClockFromAddress = 0x00FFFC20;
     private const uint RealTimeClockToAddress = 0x00FFFC3F;
     private const byte SyntheticVblInterruptLevel = 4;
     private const byte DefaultKeyboardInterruptVector = 0x48;
+    private const long MfpInputClockHz = 2_457_600;
     private readonly AtariSTOptions m_options;
     private readonly Shifter m_video;
     private readonly AciaIkbdDevice m_aciaIkbd;
@@ -56,11 +58,16 @@ public sealed class AtariST : IMachine
     private InterruptAcknowledgeResult m_latchedInterruptAcknowledge;
     private bool m_hasLatchedInterrupt;
     private bool m_isInputActive = true;
+    private readonly long m_cpuClockHz;
+    private long m_mfpTickRemainder;
     private bool m_wasMouseActive;
     private int m_lastMouseX = -1;
     private int m_lastMouseY = -1;
     private int m_estimatedMouseX = -1;
     private int m_estimatedMouseY = -1;
+    private bool m_isMouseDragPending;
+    private int m_mouseDownX = -1;
+    private int m_mouseDownY = -1;
     private bool m_isLeftMouseButtonPressed;
     private bool m_isRightMouseButtonPressed;
 
@@ -101,6 +108,7 @@ public sealed class AtariST : IMachine
     {
         m_options = options ?? AtariSTOptions.Default;
         ValidateOptions(m_options);
+        m_cpuClockHz = Math.Max(1, (long)Math.Round(Descriptor.CpuHz));
 
         // Create main RAM and ROM
         Ram = new Memory(m_options.RamSizeBytes);
@@ -181,6 +189,7 @@ public sealed class AtariST : IMachine
         m_hasLatchedInterrupt = false;
         m_latchedInterruptLevel = 0;
         m_latchedInterruptAcknowledge = default;
+        m_mfpTickRemainder = 0;
         lock (m_mouseStateSync)
         {
             m_isInputActive = true;
@@ -189,6 +198,9 @@ public sealed class AtariST : IMachine
             m_lastMouseY = -1;
             m_estimatedMouseX = m_video.ActiveWidth / 2;
             m_estimatedMouseY = m_video.ActiveHeight / 2;
+            m_isMouseDragPending = false;
+            m_mouseDownX = -1;
+            m_mouseDownY = -1;
             m_isLeftMouseButtonPressed = false;
             m_isRightMouseButtonPressed = false;
         }
@@ -218,7 +230,9 @@ public sealed class AtariST : IMachine
     public void AdvanceDevices(long deltaTicks)
     {
         m_video.Advance(deltaTicks, OnHblank, OnVblank);
-        m_mfp.Advance(deltaTicks);
+        var mfpTicks = ScaleCpuTicksForMfp(deltaTicks);
+        if (mfpTicks > 0)
+            m_mfp.Advance(mfpTicks);
     }
 
     public bool TryConsumeInterrupt()
@@ -373,9 +387,36 @@ public sealed class AtariST : IMachine
             var hasPreviousPosition = m_lastMouseX >= 0 && m_lastMouseY >= 0;
             var deltaX = hasPreviousPosition ? mouseX - m_lastMouseX : 0;
             var deltaY = hasPreviousPosition ? mouseY - m_lastMouseY : 0;
+            var wasAnyButtonPressed = m_isLeftMouseButtonPressed || m_isRightMouseButtonPressed;
+            var isAnyButtonPressed = isLeftButtonPressed || isRightButtonPressed;
             var buttonsChanged =
                 isLeftButtonPressed != m_isLeftMouseButtonPressed ||
                 isRightButtonPressed != m_isRightMouseButtonPressed;
+
+            if (buttonsChanged && !wasAnyButtonPressed && isAnyButtonPressed)
+            {
+                m_isMouseDragPending = true;
+                m_mouseDownX = m_lastMouseX >= 0 ? m_lastMouseX : mouseX;
+                m_mouseDownY = m_lastMouseY >= 0 ? m_lastMouseY : mouseY;
+            }
+
+            if (!isAnyButtonPressed)
+                m_isMouseDragPending = false;
+
+            if (isAnyButtonPressed && m_isMouseDragPending)
+            {
+                var distanceX = Math.Abs(mouseX - m_mouseDownX);
+                var distanceY = Math.Abs(mouseY - m_mouseDownY);
+                if (distanceX <= MouseDragActivationThresholdPixels && distanceY <= MouseDragActivationThresholdPixels)
+                {
+                    mouseX = m_mouseDownX;
+                    mouseY = m_mouseDownY;
+                    deltaX = hasPreviousPosition ? mouseX - m_lastMouseX : 0;
+                    deltaY = hasPreviousPosition ? mouseY - m_lastMouseY : 0;
+                }
+                else
+                    m_isMouseDragPending = false;
+            }
 
             m_lastMouseX = mouseX;
             m_lastMouseY = mouseY;
@@ -493,6 +534,7 @@ public sealed class AtariST : IMachine
 
         m_isLeftMouseButtonPressed = false;
         m_isRightMouseButtonPressed = false;
+        m_isMouseDragPending = false;
         m_aciaIkbd.QueueRelativeMousePacket(0, 0, false, false);
     }
 
@@ -506,6 +548,21 @@ public sealed class AtariST : IMachine
             deltaX -= stepX;
             deltaY -= stepY;
         }
+    }
+
+    /// <summary>
+    /// Converts CPU ticks into MFP input-clock ticks.
+    /// The ST MFP timers are clocked from ~2.4576 MHz, not directly from the 68000 clock.
+    /// </summary>
+    private int ScaleCpuTicksForMfp(long cpuTicks)
+    {
+        if (cpuTicks <= 0)
+            return 0;
+
+        var numerator = (cpuTicks * MfpInputClockHz) + m_mfpTickRemainder;
+        var scaledTicks = numerator / m_cpuClockHz;
+        m_mfpTickRemainder = numerator % m_cpuClockHz;
+        return scaledTicks <= 0 ? 0 : (int)Math.Min(scaledTicks, int.MaxValue);
     }
 
 }

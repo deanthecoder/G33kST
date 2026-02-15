@@ -148,6 +148,20 @@ public sealed class AciaIkbdDeviceTests
     }
 
     [Test]
+    public void QueueRelativeMousePacketShouldSetRightButtonBit()
+    {
+        var device = new AciaIkbdDevice();
+
+        device.QueueRelativeMousePacket(0, 0, isLeftButtonPressed: false, isRightButtonPressed: true);
+
+        var header = device.Read8(KeyboardDataAddress);
+        _ = device.Read8(KeyboardDataAddress);
+        _ = device.Read8(KeyboardDataAddress);
+
+        Assert.That(header, Is.EqualTo(0xF9));
+    }
+
+    [Test]
     public void DisableMouseReportingCommandShouldSuppressMousePacketsUntilRelativeModeIsSet()
     {
         var device = new AciaIkbdDevice();

@@ -260,7 +260,7 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
                 m_selectedDrive = 0;
             else if (driveBSelected && !driveASelected)
                 m_selectedDrive = 1;
-            else if (driveASelected && driveBSelected)
+            else if (driveASelected)
                 m_selectedDrive = 0;
             else
                 m_selectedDrive = -1;

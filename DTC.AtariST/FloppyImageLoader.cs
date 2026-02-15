@@ -11,6 +11,7 @@
 using System.IO.Compression;
 using System.Buffers.Binary;
 using System.Text;
+using JetBrains.Annotations;
 
 namespace DTC.AtariST;
 
@@ -390,7 +391,7 @@ public static class FloppyImageLoader
     private readonly record struct FloppyGeometry(int Tracks, int Sides, int SectorsPerTrack);
 
     private readonly record struct FatBootSector(
-        ushort BytesPerSector,
+        [UsedImplicitly] ushort BytesPerSector,
         byte SectorsPerCluster,
         ushort ReservedSectorCount,
         byte FatCount,

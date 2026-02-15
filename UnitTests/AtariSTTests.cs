@@ -497,7 +497,8 @@ public sealed class AtariSTTests : TestsBase
         bus.Write8(interruptMaskBRegister, 0x10);
         bus.Write8(timerDDataRegister, 0x01);
         bus.Write8(timerCdControlRegister, 0x01);
-        atariST.AdvanceDevices(4);
+        var cpuTicksForOneTimerDStep = (long)Math.Ceiling(4.0 * atariST.Descriptor.CpuHz / 2_457_600.0);
+        atariST.AdvanceDevices(cpuTicksForOneTimerDStep);
 
         Assert.That(atariST.TryConsumeInterrupt(), Is.True);
     }

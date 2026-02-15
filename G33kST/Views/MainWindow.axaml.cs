@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     private const int KeyHoldDelayMs = 300;
     private bool m_isLoaded;
     private bool m_isPointerInsideDisplay;
+    private bool m_isLeftMouseButtonPressed;
     private readonly Dictionary<Key, HeldKeyState> m_pressedMachineKeys = [];
     private readonly DispatcherTimer m_keyHoldTimer;
     private static readonly Cursor HiddenCursor = new(StandardCursorType.None);
@@ -50,6 +51,8 @@ public partial class MainWindow : Window
     private void OnDisplayPointerEntered(object sender, PointerEventArgs e)
     {
         m_isPointerInsideDisplay = true;
+        var point = e.GetCurrentPoint(MainDisplay);
+        m_isLeftMouseButtonPressed = point.Properties.IsLeftButtonPressed;
         MainDisplay.Cursor = HiddenCursor;
         ForwardPointerStateToMachine(e);
     }
@@ -58,12 +61,27 @@ public partial class MainWindow : Window
     {
         if (sender is InputElement element)
             e.Pointer.Capture(element);
-        ForwardPointerStateToMachine(e);
+
+        var point = e.GetCurrentPoint(MainDisplay);
+        var isLeftButtonPressed = point.Properties.IsLeftButtonPressed;
+        var isRightButtonPressed = point.Properties.IsRightButtonPressed;
+
+        // If we missed a release edge, force one so the emulated side still sees a fresh click.
+        if (isLeftButtonPressed && m_isLeftMouseButtonPressed)
+            ForwardPointerStateToMachine(e, isLeftButtonPressed: false, isRightButtonPressed: isRightButtonPressed);
+
+        m_isLeftMouseButtonPressed = isLeftButtonPressed;
+        ForwardPointerStateToMachine(e, isLeftButtonPressed: isLeftButtonPressed, isRightButtonPressed: isRightButtonPressed);
     }
 
     private void OnDisplayPointerReleased(object sender, PointerReleasedEventArgs e)
     {
-        ForwardPointerStateToMachine(e);
+        var point = e.GetCurrentPoint(MainDisplay);
+        var isLeftButtonPressed = point.Properties.IsLeftButtonPressed;
+        var isRightButtonPressed = point.Properties.IsRightButtonPressed;
+
+        m_isLeftMouseButtonPressed = isLeftButtonPressed;
+        ForwardPointerStateToMachine(e, isLeftButtonPressed: isLeftButtonPressed, isRightButtonPressed: isRightButtonPressed);
 
         var properties = e.GetCurrentPoint(MainDisplay).Properties;
         if (!properties.IsLeftButtonPressed && !properties.IsRightButtonPressed && sender is InputElement)
@@ -103,31 +121,32 @@ public partial class MainWindow : Window
         };
     }
 
-    private void ForwardPointerStateToMachine(PointerEventArgs e, bool? isPointerWithinDisplay = null)
+    private void ForwardPointerStateToMachine(PointerEventArgs e, bool? isPointerWithinDisplay = null, bool? isLeftButtonPressed = null, bool? isRightButtonPressed = null)
     {
         var pointerPoint = e.GetCurrentPoint(MainDisplay);
-        var isLeftButtonPressed = pointerPoint.Properties.IsLeftButtonPressed;
-        var isRightButtonPressed = pointerPoint.Properties.IsRightButtonPressed;
+        var leftButtonPressed = isLeftButtonPressed ?? pointerPoint.Properties.IsLeftButtonPressed;
+        var rightButtonPressed = isRightButtonPressed ?? pointerPoint.Properties.IsRightButtonPressed;
 
         if (isPointerWithinDisplay.HasValue)
         {
-            ViewModel.UpdateMouseState(0, 0, isLeftButtonPressed, isRightButtonPressed, isPointerWithinDisplay.Value);
+            ViewModel.UpdateMouseState(0, 0, leftButtonPressed, rightButtonPressed, isPointerWithinDisplay.Value);
             return;
         }
 
         var pointerPosition = e.GetPosition(MainDisplay);
         if (!TryMapPointerToNormalized(pointerPosition, out var normalizedX, out var normalizedY))
         {
-            ViewModel.UpdateMouseState(0, 0, isLeftButtonPressed, isRightButtonPressed, false);
+            ViewModel.UpdateMouseState(0, 0, leftButtonPressed, rightButtonPressed, false);
             return;
         }
 
-        ViewModel.UpdateMouseState(normalizedX, normalizedY, isLeftButtonPressed, isRightButtonPressed, true);
+        ViewModel.UpdateMouseState(normalizedX, normalizedY, leftButtonPressed, rightButtonPressed, true);
     }
 
     private void HandleDisplayPointerExit(PointerEventArgs e)
     {
         m_isPointerInsideDisplay = false;
+        m_isLeftMouseButtonPressed = false;
         MainDisplay.Cursor = ArrowCursor;
         ForwardPointerStateToMachine(e, isPointerWithinDisplay: false);
         ReleaseAllPressedMachineKeys();
