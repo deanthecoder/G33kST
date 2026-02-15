@@ -13,6 +13,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using G33kST.ViewModels;
 
@@ -24,6 +25,7 @@ namespace G33kST.Views;
 public partial class MainWindow : Window
 {
     private const int KeyHoldDelayMs = 300;
+    private static readonly string[] SupportedDroppedFileExtensions = [".st", ".stx", ".zip"];
     private bool m_isLoaded;
     private bool m_isPointerInsideDisplay;
     private bool m_isLeftMouseButtonPressed;
@@ -40,6 +42,8 @@ public partial class MainWindow : Window
         m_keyHoldTimer.Tick += OnKeyHoldTick;
         AddHandler(KeyDownEvent, OnPreviewKeyDown, RoutingStrategies.Tunnel);
         AddHandler(KeyUpEvent, OnPreviewKeyUp, RoutingStrategies.Tunnel);
+        AddHandler(DragDrop.DragOverEvent, OnWindowDragOver);
+        AddHandler(DragDrop.DropEvent, OnWindowDrop);
     }
 
     private void OnAboutDialogClicked(object sender, PointerPressedEventArgs e) =>
@@ -90,6 +94,26 @@ public partial class MainWindow : Window
 
     private void OnDisplayPointerExited(object sender, PointerEventArgs e) =>
         HandleDisplayPointerExit(e);
+
+    private void OnWindowDragOver(object sender, DragEventArgs e)
+    {
+        e.DragEffects = TryGetFirstSupportedDroppedFile(e, out _)
+            ? DragDropEffects.Copy
+            : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void OnWindowDrop(object sender, DragEventArgs e)
+    {
+        if (!TryGetFirstSupportedDroppedFile(e, out var file))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        _ = ViewModel.MountFloppyImageFromFile(file, addToMru: true);
+        e.Handled = true;
+    }
 
     protected override void OnOpened(EventArgs e)
     {
@@ -290,4 +314,34 @@ public partial class MainWindow : Window
 
         public bool IsHeld { get; set; }
     }
+
+    private static bool TryGetFirstSupportedDroppedFile(DragEventArgs e, out FileInfo file)
+    {
+        file = null;
+        if (e?.Data == null)
+            return false;
+
+        var storageItems = e.Data.GetFiles();
+        if (storageItems != null)
+        {
+            foreach (var storageItem in storageItems)
+            {
+                var localPath = storageItem.TryGetLocalPath();
+                if (string.IsNullOrWhiteSpace(localPath))
+                    continue;
+                var droppedFile = new FileInfo(localPath);
+                if (!IsSupportedDroppedFile(droppedFile))
+                    continue;
+                file = droppedFile;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsSupportedDroppedFile(FileInfo file) =>
+        file != null &&
+        file.Exists &&
+        SupportedDroppedFileExtensions.Contains(file.Extension, StringComparer.OrdinalIgnoreCase);
 }

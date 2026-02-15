@@ -11,6 +11,7 @@
         x:DataType="viewModels:MainWindowViewModel"
         Width="1066" Height="768"
         MinWidth="520" MinHeight="320"
+        DragDrop.AllowDrop="True"
         Title="{Binding WindowTitle}">
     <Design.DataContext>
         <viewModels:MainWindowViewModel />
@@ -27,6 +28,7 @@
 
     <Window.KeyBindings>
         <KeyBinding Command="{Binding ResetMachine}" Gesture="{OnPlatform 'ctrl+r', macOS='⌘+r'}" />
+        <KeyBinding Command="{Binding MountFloppyImage}" Gesture="{OnPlatform 'ctrl+o', macOS='⌘+o'}" />
         <KeyBinding Command="{Binding SaveScreenshotCommand}" Gesture="{OnPlatform 'ctrl+s', macOS='⌘+s'}" />
         <KeyBinding Command="{Binding ToggleRecordingCommand}" Gesture="{OnPlatform 'ctrl+m', macOS='⌘+m'}" />
         <KeyBinding Command="{Binding CloseCommand}" Gesture="{OnPlatform 'ctrl+q', macOS='⌘+q'}" />
@@ -37,7 +39,8 @@
             <Menu>
                 <MenuItem Header="_File">
                     <MenuItem Header="Mount Floppy A..."
-                              Command="{Binding MountFloppyImage}" />
+                              Command="{Binding MountFloppyImage}"
+                              InputGesture="{OnPlatform 'ctrl+o', macOS='⌘+o'}" />
                     <MenuItem Header="Mount Recent Floppy">
                         <MenuItem Header="Empty" IsVisible="{Binding FloppyMru.IsEmpty}" IsEnabled="False" />
                         <MenuItem Header="{Binding FloppyMru.Item1}" ToolTip.Tip="{Binding FloppyMru.Item1.FullName}" IsVisible="{Binding FloppyMru.Item1.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="1" />
