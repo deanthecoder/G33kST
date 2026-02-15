@@ -273,6 +273,17 @@ public sealed class AtariST : IMachine
         m_aciaIkbd.QueueKeyboardByte(scanCode);
 
     /// <summary>
+    /// Injects one keyboard key state transition as an IKBD make/break scan code.
+    /// </summary>
+    public void InjectKeyboardKeyState(byte scanCode, bool isPressed)
+    {
+        var keyCode = (byte)(scanCode & 0x7F);
+        if (!isPressed)
+            keyCode |= 0x80;
+        m_aciaIkbd.QueueKeyboardByte(keyCode);
+    }
+
+    /// <summary>
     /// Updates host mouse state and translates it into IKBD relative mouse packets.
     /// </summary>
     public void UpdateMouseState(double normalizedX, double normalizedY, bool isLeftButtonPressed, bool isRightButtonPressed, bool isPointerWithinDisplay)

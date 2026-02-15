@@ -354,6 +354,28 @@ public sealed class AtariSTTests : TestsBase
     }
 
     [Test]
+    public void InjectKeyboardKeyStateShouldQueueMakeAndBreakCodes()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        var bus = atariST.Cpu.Bus;
+        const uint keyboardStatusAddress = 0x00FFFC00;
+        const uint keyboardDataAddress = 0x00FFFC02;
+        DrainKeyboardReceiveQueue(bus, keyboardStatusAddress, keyboardDataAddress);
+
+        atariST.InjectKeyboardKeyState(0x1E, isPressed: true);
+        atariST.InjectKeyboardKeyState(0x1E, isPressed: false);
+        var make = bus.Read8(keyboardDataAddress);
+        var breakCode = bus.Read8(keyboardDataAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(make, Is.EqualTo(0x1E));
+            Assert.That(breakCode, Is.EqualTo(0x9E));
+        });
+    }
+
+    [Test]
     public void UpdateMouseStateShouldQueueRelativeIkbdMousePacket()
     {
         var atariST = new AtariST();

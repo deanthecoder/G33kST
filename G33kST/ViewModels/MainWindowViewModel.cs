@@ -111,6 +111,12 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public void UpdateMouseState(double normalizedX, double normalizedY, bool isLeftButtonPressed, bool isRightButtonPressed, bool isPointerWithinDisplay) =>
         m_machine.UpdateMouseState(normalizedX, normalizedY, isLeftButtonPressed, isRightButtonPressed, isPointerWithinDisplay);
 
+    /// <summary>
+    /// Forwards one keyboard key transition into the IKBD stream.
+    /// </summary>
+    public void UpdateKeyboardState(byte scanCode, bool isPressed) =>
+        m_machine.InjectKeyboardKeyState(scanCode, isPressed);
+
     public void Dispose()
     {
         Settings.PropertyChanged -= OnSettingsPropertyChanged;

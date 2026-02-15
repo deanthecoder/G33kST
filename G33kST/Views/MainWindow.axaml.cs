@@ -8,11 +8,12 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
+using System.Diagnostics;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
-using Avalonia;
 using G33kST.ViewModels;
 
 namespace G33kST.Views;
@@ -22,13 +23,23 @@ namespace G33kST.Views;
 /// </summary>
 public partial class MainWindow : Window
 {
+    private const int KeyHoldDelayMs = 300;
     private bool m_isLoaded;
+    private bool m_isPointerInsideDisplay;
+    private readonly Dictionary<Key, HeldKeyState> m_pressedMachineKeys = [];
+    private readonly DispatcherTimer m_keyHoldTimer;
     private static readonly Cursor HiddenCursor = new(StandardCursorType.None);
     private static readonly Cursor ArrowCursor = new(StandardCursorType.Arrow);
     private MainWindowViewModel ViewModel => (MainWindowViewModel)DataContext;
 
-    public MainWindow() =>
+    public MainWindow()
+    {
         InitializeComponent();
+        m_keyHoldTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(10) };
+        m_keyHoldTimer.Tick += OnKeyHoldTick;
+        AddHandler(KeyDownEvent, OnPreviewKeyDown, RoutingStrategies.Tunnel);
+        AddHandler(KeyUpEvent, OnPreviewKeyUp, RoutingStrategies.Tunnel);
+    }
 
     private void OnAboutDialogClicked(object sender, PointerPressedEventArgs e) =>
         Host.CloseDialogCommand.Execute(sender);
@@ -38,6 +49,7 @@ public partial class MainWindow : Window
 
     private void OnDisplayPointerEntered(object sender, PointerEventArgs e)
     {
+        m_isPointerInsideDisplay = true;
         MainDisplay.Cursor = HiddenCursor;
         ForwardPointerStateToMachine(e);
     }
@@ -65,7 +77,11 @@ public partial class MainWindow : Window
     {
         base.OnOpened(e);
         Activated += (_, _) => ViewModel?.SetInputActive(true);
-        Deactivated += (_, _) => ViewModel?.SetInputActive(false);
+        Deactivated += (_, _) =>
+        {
+            ViewModel?.SetInputActive(false);
+            ReleaseAllPressedMachineKeys();
+        };
         ViewModel?.SetInputActive(IsActive);
     }
 
@@ -111,8 +127,10 @@ public partial class MainWindow : Window
 
     private void HandleDisplayPointerExit(PointerEventArgs e)
     {
+        m_isPointerInsideDisplay = false;
         MainDisplay.Cursor = ArrowCursor;
         ForwardPointerStateToMachine(e, isPointerWithinDisplay: false);
+        ReleaseAllPressedMachineKeys();
     }
 
     private bool TryMapPointerToNormalized(Point pointerPosition, out double normalizedX, out double normalizedY)
@@ -157,5 +175,100 @@ public partial class MainWindow : Window
         normalizedX = Math.Clamp(normalizedX, 0, 1);
         normalizedY = Math.Clamp(normalizedY, 0, 1);
         return true;
+    }
+
+    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (!m_isPointerInsideDisplay)
+            return;
+        if (ShouldTreatAsHostShortcut(e))
+            return;
+        if (!AtariStKeyMapper.TryGetScanCode(e.Key, out var scanCode))
+            return;
+        if (m_pressedMachineKeys.ContainsKey(e.Key))
+            return;
+
+        // Immediate press/release gives one clean character.
+        ViewModel.UpdateKeyboardState(scanCode, isPressed: true);
+        ViewModel.UpdateKeyboardState(scanCode, isPressed: false);
+
+        // If still held after a short delay, treat it as a held key.
+        var now = Stopwatch.GetTimestamp();
+        m_pressedMachineKeys[e.Key] = new HeldKeyState(scanCode, now + MsToTicks(KeyHoldDelayMs));
+        if (!m_keyHoldTimer.IsEnabled)
+            m_keyHoldTimer.Start();
+        e.Handled = true;
+    }
+
+    private void OnPreviewKeyUp(object sender, KeyEventArgs e)
+    {
+        if (!m_pressedMachineKeys.Remove(e.Key, out var state))
+            return;
+
+        if (state.IsHeld)
+            ViewModel.UpdateKeyboardState(state.ScanCode, isPressed: false);
+        if (m_pressedMachineKeys.Count == 0)
+            m_keyHoldTimer.Stop();
+        e.Handled = true;
+    }
+
+    private void OnKeyHoldTick(object sender, EventArgs e)
+    {
+        if (!m_isPointerInsideDisplay || m_pressedMachineKeys.Count == 0)
+            return;
+
+        var now = Stopwatch.GetTimestamp();
+        foreach (var state in m_pressedMachineKeys.Values)
+        {
+            if (state.IsHeld || now < state.HoldActivationTick)
+                continue;
+
+            ViewModel.UpdateKeyboardState(state.ScanCode, isPressed: true);
+            state.IsHeld = true;
+        }
+    }
+
+    private void ReleaseAllPressedMachineKeys()
+    {
+        if (m_pressedMachineKeys.Count == 0)
+            return;
+
+        foreach (var state in m_pressedMachineKeys.Values)
+        {
+            if (state.IsHeld)
+                ViewModel.UpdateKeyboardState(state.ScanCode, isPressed: false);
+        }
+
+        m_pressedMachineKeys.Clear();
+        m_keyHoldTimer.Stop();
+    }
+
+    private static long MsToTicks(int milliseconds) =>
+        milliseconds * Stopwatch.Frequency / 1000;
+
+    private static bool ShouldTreatAsHostShortcut(KeyEventArgs e)
+    {
+        var modifiers = e.KeyModifiers;
+        var usesHostShortcutModifier = (modifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0;
+        if (!usesHostShortcutModifier)
+            return false;
+
+        // Allow raw modifier keys to pass through to the emulated machine.
+        return e.Key is not Key.LeftCtrl and not Key.RightCtrl and not Key.LeftAlt and not Key.RightAlt and not Key.LWin and not Key.RWin;
+    }
+
+    private sealed class HeldKeyState
+    {
+        public HeldKeyState(byte scanCode, long holdActivationTick)
+        {
+            ScanCode = scanCode;
+            HoldActivationTick = holdActivationTick;
+        }
+
+        public byte ScanCode { get; }
+
+        public long HoldActivationTick { get; }
+
+        public bool IsHeld { get; set; }
     }
 }

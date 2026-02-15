@@ -7,14 +7,10 @@
         xmlns:icons="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
         xmlns:ui="clr-namespace:DTC.Core.UI;assembly=DTC.Core"
         mc:Ignorable="d"
-        d:DesignWidth="1280"
-        d:DesignHeight="840"
         x:Class="G33kST.Views.MainWindow"
         x:DataType="viewModels:MainWindowViewModel"
-        Width="1280"
-        Height="840"
-        MinWidth="960"
-        MinHeight="600"
+        Width="1066" Height="768"
+        MinWidth="520" MinHeight="320"
         Title="{Binding WindowTitle}">
     <Design.DataContext>
         <viewModels:MainWindowViewModel />
