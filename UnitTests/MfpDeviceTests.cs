@@ -145,4 +145,55 @@ public sealed class MfpDeviceTests
             Assert.That(interruptVector, Is.EqualTo(0x56));
         });
     }
+
+    [Test]
+    public void SetFloppyInterruptLineShouldRaiseVectorWhenEnabledAndUnmasked()
+    {
+        var mfp = new MfpDevice();
+        mfp.Reset();
+        var interruptCount = 0;
+        var interruptVector = (byte)0;
+        mfp.InterruptRequested += (_, vector) =>
+        {
+            interruptCount++;
+            interruptVector = vector;
+        };
+
+        mfp.Write8(VectorRegister, 0x50);
+        mfp.Write8(InterruptEnableBRegister, 0x80);
+        mfp.Write8(InterruptMaskBRegister, 0x80);
+        mfp.SetFloppyInterruptLine(isActiveLow: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(interruptCount, Is.EqualTo(1));
+            Assert.That(interruptVector, Is.EqualTo(0x57));
+        });
+    }
+
+    [Test]
+    public void EnablingFloppyInterruptShouldRaiseWhenLineIsAlreadyActive()
+    {
+        var mfp = new MfpDevice();
+        mfp.Reset();
+        var interruptCount = 0;
+        var interruptVector = (byte)0;
+        mfp.InterruptRequested += (_, vector) =>
+        {
+            interruptCount++;
+            interruptVector = vector;
+        };
+
+        mfp.Write8(VectorRegister, 0x50);
+        mfp.SetFloppyInterruptLine(isActiveLow: true);
+        mfp.Write8(InterruptEnableBRegister, 0x80);
+        mfp.Write8(InterruptMaskBRegister, 0x80);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(interruptCount, Is.EqualTo(1));
+            Assert.That(interruptVector, Is.EqualTo(0x57));
+        });
+    }
+
 }

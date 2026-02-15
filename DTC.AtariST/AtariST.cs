@@ -131,6 +131,8 @@ public sealed class AtariST : IMachine
         m_psg.PortAChanged += OnPsgPortAChanged;
         bus.Attach(m_psg);
         m_floppyController = new FloppyDmaFdcDevice(driveAPresent: true, driveBPresent: false);
+        m_floppyController.ConfigureDmaAddressLimit((uint)m_options.RamSizeBytes);
+        m_floppyController.DmaWrite8 = (address, value) => bus.Write8(address, value);
         m_floppyController.InterruptLineChanged += OnFloppyInterruptLineChanged;
         bus.Attach(m_floppyController);
         m_rtc = null;
@@ -282,6 +284,43 @@ public sealed class AtariST : IMachine
             keyCode |= 0x80;
         m_aciaIkbd.QueueKeyboardByte(keyCode);
     }
+
+    /// <summary>
+    /// Tries to mount one floppy image into drive A: (0) or B: (1).
+    /// A newly mounted image replaces any previous image in that drive.
+    /// </summary>
+    public bool TryMountFloppyImage(int driveIndex, byte[] imageData, string imageName) =>
+        m_floppyController.TryMountImage(driveIndex, imageData, imageName);
+
+    /// <summary>
+    /// Unmounts the floppy image currently inserted in the selected drive.
+    /// </summary>
+    public void UnmountFloppyImage(int driveIndex) =>
+        m_floppyController.UnmountImage(driveIndex);
+
+    /// <summary>
+    /// Reports whether the selected drive currently has a mounted image.
+    /// </summary>
+    public bool IsFloppyImageMounted(int driveIndex) =>
+        m_floppyController.IsImageMounted(driveIndex);
+
+    /// <summary>
+    /// Returns the mounted image display name for the selected drive.
+    /// </summary>
+    public string GetMountedFloppyImageName(int driveIndex) =>
+        m_floppyController.GetMountedImageName(driveIndex);
+
+    /// <summary>
+    /// Returns a snapshot of recent floppy activity counters for hang diagnostics.
+    /// </summary>
+    public FloppyDebugStats GetFloppyDebugStats() =>
+        m_floppyController.GetDebugStats();
+
+    /// <summary>
+    /// Returns recent floppy trace lines, newest last, to help pinpoint freeze points.
+    /// </summary>
+    public IReadOnlyList<string> GetRecentFloppyTraceLines(int maxLines) =>
+        m_floppyController.GetRecentTraceLines(maxLines);
 
     /// <summary>
     /// Updates host mouse state and translates it into IKBD relative mouse packets.

@@ -31,16 +31,17 @@ public sealed class BusErrorException : Exception
     public bool IsProgramAccess { get; }
 
     public BusErrorException(uint address, bool isRead, bool isProgramAccess = false)
-        : base(FormatMessage(address, isRead))
+        : base(FormatMessage(address, isRead, isProgramAccess))
     {
         Address = address & 0x00FF_FFFF;
         IsRead = isRead;
         IsProgramAccess = isProgramAccess;
     }
 
-    private static string FormatMessage(uint address, bool isRead)
+    private static string FormatMessage(uint address, bool isRead, bool isProgramAccess)
     {
         var operation = isRead ? "read" : "write";
-        return $"Bus error during {operation} at 0x{(address & 0x00FF_FFFF):X6}.";
+        var accessSpace = isProgramAccess ? "program" : "data";
+        return $"Bus error during {operation} at 0x{(address & 0x00FF_FFFF):X6} ({accessSpace} space).";
     }
 }

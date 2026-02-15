@@ -334,6 +334,50 @@ public sealed class AtariSTTests : TestsBase
     }
 
     [Test]
+    public void TryMountFloppyImageShouldMountInDriveA()
+    {
+        var atariST = new AtariST();
+        var mounted = atariST.TryMountFloppyImage(0, new byte[] { 0x01, 0x02 }, "disk-a");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(mounted, Is.True);
+            Assert.That(atariST.IsFloppyImageMounted(0), Is.True);
+            Assert.That(atariST.GetMountedFloppyImageName(0), Is.EqualTo("disk-a"));
+        });
+    }
+
+    [Test]
+    public void UnmountFloppyImageShouldClearDriveAImage()
+    {
+        var atariST = new AtariST();
+        _ = atariST.TryMountFloppyImage(0, new byte[] { 0x01, 0x02 }, "disk-a");
+
+        atariST.UnmountFloppyImage(0);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(atariST.IsFloppyImageMounted(0), Is.False);
+            Assert.That(atariST.GetMountedFloppyImageName(0), Is.Null);
+        });
+    }
+
+    [Test]
+    public void ResetShouldKeepMountedDriveAFloppyImage()
+    {
+        var atariST = new AtariST();
+        _ = atariST.TryMountFloppyImage(0, new byte[] { 0x01, 0x02 }, "disk-a");
+
+        atariST.Reset();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(atariST.IsFloppyImageMounted(0), Is.True);
+            Assert.That(atariST.GetMountedFloppyImageName(0), Is.EqualTo("disk-a"));
+        });
+    }
+
+    [Test]
     public void InjectKeyboardScanCodeShouldQueueLevel6Interrupt()
     {
         var atariST = new AtariST();

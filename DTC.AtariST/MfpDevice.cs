@@ -30,6 +30,8 @@ public sealed class MfpDevice : IMemDevice
     private const byte TimerDInterruptMask = 0x10;
     private const byte TimerCSourceNumber = 5;
     private const byte TimerDSourceNumber = 4;
+    private const byte Gpip5InterruptMask = 0x80;
+    private const byte Gpip5SourceNumber = 7;
     private const byte Gpip4InterruptMask = 0x40;
     private const byte Gpip4SourceNumber = 6;
     private const byte MonitorDetectInputMask = 0x80;
@@ -65,6 +67,7 @@ public sealed class MfpDevice : IMemDevice
     private int m_timerCAccumulator;
     private int m_timerDAccumulator;
     private bool m_aciaInterruptLineActiveLow;
+    private bool m_floppyInterruptLineActiveLow;
     private byte m_gpipInputState = 0xFF;
     private byte m_gpipOutputLatch;
 
@@ -93,6 +96,7 @@ public sealed class MfpDevice : IMemDevice
         m_timerCAccumulator = 0;
         m_timerDAccumulator = 0;
         m_aciaInterruptLineActiveLow = false;
+        m_floppyInterruptLineActiveLow = false;
     }
 
     /// <summary>
@@ -113,6 +117,13 @@ public sealed class MfpDevice : IMemDevice
     /// </summary>
     public bool RaiseGpip4Interrupt() =>
         RaiseInterrupt(InterruptEnableB, InterruptMaskB, InterruptPendingB, Gpip4InterruptMask, Gpip4SourceNumber);
+
+    /// <summary>
+    /// Signals a pending interrupt from GPIP5 (the line used by floppy FDC completion on ST machines).
+    /// Returns <c>true</c> when the interrupt is both enabled and unmasked and therefore raised.
+    /// </summary>
+    public bool RaiseGpip5Interrupt() =>
+        RaiseInterrupt(InterruptEnableB, InterruptMaskB, InterruptPendingB, Gpip5InterruptMask, Gpip5SourceNumber);
 
     /// <summary>
     /// Sets the monitor detect input line.
@@ -150,8 +161,15 @@ public sealed class MfpDevice : IMemDevice
     /// </summary>
     public void SetFloppyInterruptLine(bool isActiveLow)
     {
+        if (m_floppyInterruptLineActiveLow == isActiveLow)
+            return;
+
+        m_floppyInterruptLineActiveLow = isActiveLow;
         if (isActiveLow)
+        {
             m_gpipInputState = (byte)(m_gpipInputState & ~FloppyInputMask);
+            RaiseGpip5Interrupt();
+        }
         else
             m_gpipInputState = (byte)(m_gpipInputState | FloppyInputMask);
     }
@@ -197,7 +215,10 @@ public sealed class MfpDevice : IMemDevice
         else if (offset == TimerDData)
             m_timerDCurrent = NormalizeTimerData(value);
         else if (offset is InterruptEnableB or InterruptMaskB)
+        {
             TryRaiseAciaInterruptIfPending();
+            TryRaiseFloppyInterruptIfPending();
+        }
     }
 
     private void AdvanceTimerC(int deltaTicks)
@@ -270,6 +291,14 @@ public sealed class MfpDevice : IMemDevice
             return;
 
         RaiseGpip4Interrupt();
+    }
+
+    private void TryRaiseFloppyInterruptIfPending()
+    {
+        if (!m_floppyInterruptLineActiveLow)
+            return;
+
+        RaiseGpip5Interrupt();
     }
 
     private byte ReadGpipState()

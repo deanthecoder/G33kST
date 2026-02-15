@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using DTC.Emulation;
+using DTC.AtariST;
 using DTC.M68000;
 
 namespace UnitTests;
@@ -986,6 +987,35 @@ public sealed class CpuTests : TestsBase
     }
 
     [Test]
+    public void AddressErrorExceptionEntryShouldFallbackWhenSupervisorStackIsOnBusErrorRegion()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Attach(new BusErrorDevice(0x00FF8A00, 0x00FF8A3F));
+        WriteLong(bus, 0x000000, 0x00FF8A3E); // SSP points into bus-error region.
+        WriteLong(bus, 0x000004, 0x00000101); // Odd PC triggers address error on fetch.
+        WriteLong(bus, 0x00000C, 0x00000200); // Address-error vector target.
+        bus.Write16BigEndian(0x000200, 0x4E71); // NOP
+        var cpu = new Cpu(bus);
+
+        cpu.Reset();
+
+        Assert.That(() => cpu.Step(), Throws.Nothing);
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000200));
+            Assert.That(cpu.Registers.StackPointer, Is.Not.InRange(0x00FF8A00, 0x00FF8A3F));
+        });
+
+        static void WriteLong(Bus localBus, uint address, uint value)
+        {
+            localBus.Write8(address, (byte)(value >> 24));
+            localBus.Write8(address + 1, (byte)((value >> 16) & 0xFF));
+            localBus.Write8(address + 2, (byte)((value >> 8) & 0xFF));
+            localBus.Write8(address + 3, (byte)(value & 0xFF));
+        }
+    }
+
+    [Test]
     public void MoveByteDataToDataCopiesLowByteAndSetsFlags()
     {
         var bus = new Bus(0x1000000);
@@ -1882,6 +1912,37 @@ public sealed class CpuTests : TestsBase
         };
 
         Assert.DoesNotThrow(() => cpu.Step());
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000200));
+            Assert.That(cpu.Registers.StackPointer, Is.EqualTo(0x000FFA));
+            Assert.That(bus.Read16BigEndian(0x000FFA), Is.EqualTo(0x2000));
+            Assert.That(bus.Read16BigEndian(0x000FFC), Is.EqualTo(0x0000));
+            Assert.That(bus.Read16BigEndian(0x000FFE), Is.EqualTo(0x0100));
+        });
+    }
+
+    [Test]
+    public void LineFInstructionEntersLineFVectorAndStacksInstructionAddress()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Write16BigEndian(0x000100, 0xFFFF); // LINEF.
+        bus.Write16BigEndian(0x00002C, 0x0000); // Line-F emulator vector.
+        bus.Write16BigEndian(0x00002E, 0x0200);
+
+        var cpu = new Cpu(bus)
+        {
+            Registers =
+            {
+                ProgramCounter = 0x000100,
+                StatusRegister = 0x2000,
+                SupervisorStackPointer = 0x001000,
+                StackPointer = 0x001000
+            }
+        };
+
+        cpu.Step();
+
         Assert.Multiple(() =>
         {
             Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000200));

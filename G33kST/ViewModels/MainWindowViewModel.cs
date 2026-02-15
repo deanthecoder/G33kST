@@ -14,6 +14,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using DTC.AtariST;
 using DTC.Core;
+using DTC.Core.Commands;
 using DTC.Core.Extensions;
 using DTC.Core.Image;
 using DTC.Core.UI;
@@ -29,6 +30,7 @@ namespace G33kST.ViewModels;
 public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 {
     private const string AppTitle = "G33kST";
+    private const int DriveAIndex = 0;
     private readonly Lock m_frameUpdateLock = new();
     private readonly AtariST m_machine;
     private readonly MachineRunner m_runner;
@@ -41,11 +43,12 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private uint m_lastFrameChecksum;
     private long m_lastFrameTicks;
     private bool m_hasFrameChecksum;
+    private static readonly string[] FloppyFileExtensions = [".st", ".stx", ".zip"];
 
     public MainWindowViewModel()
     {
         m_machine = new AtariST(AtariSTOptions.Default);
-        m_runner = new MachineRunner(m_machine, () => m_machine.Descriptor.CpuHz, e => Logger.Instance.Exception("Machine runner error.", e));
+        m_runner = new MachineRunner(m_machine, () => m_machine.Descriptor.CpuHz, OnMachineRunnerError);
         m_screen = new LcdScreen(m_machine.Video.FrameWidth, m_machine.Video.FrameHeight);
         m_audioDevice = new NullAudioOutputDevice(m_machine.Descriptor.AudioSampleRateHz);
         m_recorder = new DisplayRecorder();
@@ -60,6 +63,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         };
 
         Settings.PropertyChanged += OnSettingsPropertyChanged;
+        FloppyMru = new MruFiles().InitFromString(Settings.FloppyImageMru);
+        FloppyMru.OpenRequested += (_, file) => MountFloppyImageFromFile(file, addToMru: false);
         ApplySettingState();
         AboutInfo = AboutInfoProvider.Info;
         LoadRomInternal(FindBundledRom());
@@ -70,6 +75,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public IImage Display => m_screen.Display;
 
     public AboutInfo AboutInfo { get; }
+
+    public MruFiles FloppyMru { get; }
 
     public bool IsDebugBuild =>
 #if DEBUG
@@ -121,6 +128,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     {
         Settings.PropertyChanged -= OnSettingsPropertyChanged;
         m_machine.Video.FrameRendered -= OnFrameRendered;
+        Settings.FloppyImageMru = FloppyMru.AsString();
         m_recorder.Dispose();
         m_runner.Dispose();
         m_audioDevice.Dispose();
@@ -136,7 +144,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     public void SaveScreenshotCommand()
     {
-        var command = new DTC.Core.Commands.FileSaveCommand(
+        var command = new FileSaveCommand(
             "Save Screenshot",
             "TGA Files",
             ["*.tga"],
@@ -182,6 +190,13 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public void ToggleAmbientBlur() =>
         Settings.IsAmbientBlurred = !Settings.IsAmbientBlurred;
 
+    public void MountFloppyImage()
+    {
+        var command = new FileOpenCommand("Mount Floppy Image", "Atari ST Floppy Images", ["*.st", "*.stx", "*.zip"]);
+        command.FileSelected += (_, info) => MountFloppyImageFromFile(info, addToMru: true);
+        command.Execute(null);
+    }
+
     public void ToggleCrtEmulation() =>
         Settings.IsCrtEmulationEnabled = !Settings.IsCrtEmulationEnabled;
 
@@ -219,6 +234,50 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     public void CloseCommand() =>
         Application.Current?.GetMainWindow()?.Close();
+
+    internal bool MountFloppyImageFromFile(FileInfo imageFile, bool addToMru)
+    {
+        if (imageFile == null)
+            return false;
+        if (!imageFile.Exists())
+        {
+            Logger.Instance.Warn($"Unable to mount floppy image '{imageFile.FullName}': File not found.");
+            return false;
+        }
+
+        var extension = imageFile.Extension;
+        if (!FloppyFileExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
+        {
+            Logger.Instance.Warn($"Unable to mount floppy image '{imageFile.FullName}': Unsupported extension.");
+            return false;
+        }
+
+        var (imageName, imageData) = FloppyImageLoader.ReadImageData(imageFile);
+        if (imageData == null || imageData.Length == 0)
+        {
+            Logger.Instance.Warn($"Unable to mount floppy image '{imageFile.FullName}': No supported floppy image data found.");
+            return false;
+        }
+        var imageSummary = FloppyImageLoader.DescribeImage(imageData);
+
+        var wasMounted = m_machine.IsFloppyImageMounted(DriveAIndex);
+        if (!m_machine.TryMountFloppyImage(DriveAIndex, imageData, imageName))
+        {
+            Logger.Instance.Warn($"Unable to mount floppy image '{imageFile.FullName}' into drive A.");
+            return false;
+        }
+
+        if (addToMru)
+            FloppyMru.Add(imageFile);
+        Settings.LastFloppyImagePath = imageFile.FullName;
+
+        if (wasMounted)
+            Logger.Instance.Info($"Drive A: floppy image replaced with '{imageFile.Name}'.");
+        else
+            Logger.Instance.Info($"Drive A: mounted floppy image '{imageFile.Name}'.");
+        Logger.Instance.Info($"Drive A image details: {imageSummary}.");
+        return true;
+    }
 
     private void LoadRomInternal(FileInfo romFile)
     {
@@ -294,6 +353,20 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     {
         m_audioDevice.SetEnabled(Settings.IsSoundEnabled);
         m_screen.FrameBuffer.IsCrt = Settings.IsCrtEmulationEnabled;
+    }
+
+    private void OnMachineRunnerError(Exception exception)
+    {
+        Logger.Instance.Exception("Machine runner error.", exception);
+        var stats = m_machine.GetFloppyDebugStats();
+        Logger.Instance.Info($"Floppy stats: commands={stats.CommandCount}, reads={stats.ReadSectorCommandCount}, readsOk={stats.SuccessfulReadSectorCommandCount}, dmaBytes={stats.DmaBytesWritten}, lastCmd=0x{stats.LastCommand:X2}, lastStatus=0x{stats.LastStatus:X2}, lastDma=0x{stats.LastDmaStatusWord:X4}.");
+        var traceLines = m_machine.GetRecentFloppyTraceLines(40);
+        if (traceLines.Count == 0)
+            return;
+
+        Logger.Instance.Info("Recent floppy trace:");
+        foreach (var line in traceLines)
+            Logger.Instance.Info($"  {line}");
     }
 
     private static FileInfo FindBundledRom()

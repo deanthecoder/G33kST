@@ -38,6 +38,7 @@ public sealed class EmuTOSTests : TestsBase
     private const int MenuBarScanHeight = 10;
     private const int MenuBarScanMarginX = 8;
     private const int MenuBarInkThreshold = 96;
+    private const int FloppyTraceLineCount = 80;
     private static readonly uint[] PanicCandidateProgramCounters = [0x00FC5104, 0x00FCD042];
 
     [Test]
@@ -100,6 +101,42 @@ public sealed class EmuTOSTests : TestsBase
             Assert.That(detectedStramTop, Is.EqualTo(0x00100000), "Expected EmuTOS to detect 1MB ST-RAM.");
             Assert.That(detectedFloppyCount, Is.GreaterThanOrEqualTo(1), "Expected EmuTOS to detect at least one floppy drive.");
             Assert.That((detectedDriveMap & 0x00000001) != 0, Is.True, "Expected drive map to include floppy A:.");
+        });
+    }
+
+    [Test]
+    [Explicit("Requires EmuTOS ROM file and validates floppy BIOS read-sector flow.")]
+    public void CheckEmuTosMountedFloppyTriggersBiosReadSectorFlow()
+    {
+        var romFile = FindEmuTosRom();
+        if (romFile == null || !romFile.Exists)
+            Assert.Ignore("EmuTOS ROM not found.");
+
+        var atariST = new AtariST();
+        atariST.LoadRom(romFile.ReadAllBytes(), romFile.Name);
+        var mounted = atariST.TryMountFloppyImage(0, CreateTestFloppyImage(), "integration");
+        Assert.That(mounted, Is.True, "Expected drive A image to mount.");
+
+        try
+        {
+            RunMachine(atariST, durationSeconds: 6.0);
+        }
+        catch (Exception ex)
+        {
+            DumpFloppyTrace(atariST, "Exception while running mounted-floppy integration.");
+            Assert.Fail($"Execution failed: {ex.Message}");
+        }
+
+        var stats = atariST.GetFloppyDebugStats();
+        if (stats.ReadSectorCommandCount == 0 || stats.SuccessfulReadSectorCommandCount == 0)
+            DumpFloppyTrace(atariST, "No successful BIOS floppy read observed.");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(stats.CommandCount, Is.GreaterThan(0), "Expected at least one floppy command.");
+            Assert.That(stats.ReadSectorCommandCount, Is.GreaterThan(0), "Expected EmuTOS to issue at least one read-sector command.");
+            Assert.That(stats.SuccessfulReadSectorCommandCount, Is.GreaterThan(0), "Expected at least one read-sector command to complete.");
+            Assert.That(stats.DmaBytesWritten, Is.GreaterThan(0), "Expected floppy DMA to write bytes into ST-RAM.");
         });
     }
 
@@ -405,6 +442,58 @@ public sealed class EmuTOSTests : TestsBase
             .ToArray();
 
         return romFiles.Length > 0 ? romFiles[0] : null;
+    }
+
+    private static byte[] CreateTestFloppyImage()
+    {
+        const int sectorsPerTrack = 9;
+        const int sideCount = 2;
+        const int trackCount = 80;
+        const int sectorSize = 512;
+        var image = new byte[trackCount * sideCount * sectorsPerTrack * sectorSize];
+
+        // Simple, deterministic boot sector with valid 0x55AA signature.
+        image[0] = 0xEB;
+        image[1] = 0x3C;
+        image[2] = 0x90;
+        var oemName = "G33KST  ";
+        for (var i = 0; i < oemName.Length; i++)
+            image[3 + i] = (byte)oemName[i];
+        image[510] = 0x55;
+        image[511] = 0xAA;
+
+        return image;
+    }
+
+    private static void RunMachine(AtariST atariST, double durationSeconds)
+    {
+        var targetCycles = (long)(atariST.Descriptor.CpuHz * durationSeconds);
+        var lastCpuTicks = atariST.CpuTicks;
+        while (atariST.CpuTicks < targetCycles)
+        {
+            atariST.StepCpu();
+            var currentCpuTicks = atariST.CpuTicks;
+            var deltaTicks = currentCpuTicks - lastCpuTicks;
+            if (deltaTicks > 0)
+                atariST.AdvanceDevices(deltaTicks);
+            lastCpuTicks = currentCpuTicks;
+            if (!atariST.TryConsumeInterrupt())
+                continue;
+            atariST.RequestInterrupt();
+        }
+    }
+
+    private static void DumpFloppyTrace(AtariST atariST, string reason)
+    {
+        var stats = atariST.GetFloppyDebugStats();
+        TestContext.Out.WriteLine(reason);
+        TestContext.Out.WriteLine($"Floppy stats: commands={stats.CommandCount}, reads={stats.ReadSectorCommandCount}, readsOk={stats.SuccessfulReadSectorCommandCount}, dmaBytes={stats.DmaBytesWritten}, lastCmd=0x{stats.LastCommand:X2}, lastStatus=0x{stats.LastStatus:X2}, lastDma=0x{stats.LastDmaStatusWord:X4}.");
+        var traceLines = atariST.GetRecentFloppyTraceLines(FloppyTraceLineCount);
+        if (traceLines.Count == 0)
+            return;
+        TestContext.Out.WriteLine("Recent floppy trace:");
+        foreach (var line in traceLines)
+            TestContext.Out.WriteLine($"  {line}");
     }
 
     private static uint ComputeBlankScreenChecksum(int width, int height)

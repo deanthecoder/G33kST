@@ -36,6 +36,22 @@
         <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,*">
             <Menu>
                 <MenuItem Header="_File">
+                    <MenuItem Header="Mount Floppy A..."
+                              Command="{Binding MountFloppyImage}" />
+                    <MenuItem Header="Mount Recent Floppy">
+                        <MenuItem Header="Empty" IsVisible="{Binding FloppyMru.IsEmpty}" IsEnabled="False" />
+                        <MenuItem Header="{Binding FloppyMru.Item1}" ToolTip.Tip="{Binding FloppyMru.Item1.FullName}" IsVisible="{Binding FloppyMru.Item1.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="1" />
+                        <MenuItem Header="{Binding FloppyMru.Item2}" ToolTip.Tip="{Binding FloppyMru.Item2.FullName}" IsVisible="{Binding FloppyMru.Item2.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="2" />
+                        <MenuItem Header="{Binding FloppyMru.Item3}" ToolTip.Tip="{Binding FloppyMru.Item3.FullName}" IsVisible="{Binding FloppyMru.Item3.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="3" />
+                        <MenuItem Header="{Binding FloppyMru.Item4}" ToolTip.Tip="{Binding FloppyMru.Item4.FullName}" IsVisible="{Binding FloppyMru.Item4.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="4" />
+                        <MenuItem Header="{Binding FloppyMru.Item5}" ToolTip.Tip="{Binding FloppyMru.Item5.FullName}" IsVisible="{Binding FloppyMru.Item5.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="5" />
+                        <MenuItem Header="{Binding FloppyMru.Item6}" ToolTip.Tip="{Binding FloppyMru.Item6.FullName}" IsVisible="{Binding FloppyMru.Item6.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="6" />
+                        <MenuItem Header="{Binding FloppyMru.Item7}" ToolTip.Tip="{Binding FloppyMru.Item7.FullName}" IsVisible="{Binding FloppyMru.Item7.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="7" />
+                        <MenuItem Header="{Binding FloppyMru.Item8}" ToolTip.Tip="{Binding FloppyMru.Item8.FullName}" IsVisible="{Binding FloppyMru.Item8.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="8" />
+                        <Separator />
+                        <MenuItem Header="Clear" Command="{Binding FloppyMru.Clear}" />
+                    </MenuItem>
+                    <Separator />
                     <MenuItem Header="Save _Screenshot..."
                               Command="{Binding SaveScreenshotCommand}"
                               InputGesture="{OnPlatform 'ctrl+s', macOS='⌘+s'}" />

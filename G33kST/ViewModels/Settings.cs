@@ -50,4 +50,16 @@ public sealed class Settings : UserSettingsBase
         get => Get<bool>();
         set => Set(value);
     }
+
+    public string FloppyImageMru
+    {
+        get => Get<string>();
+        set => Set(value);
+    }
+
+    public string LastFloppyImagePath
+    {
+        get => Get<string>();
+        set => Set(value);
+    }
 }

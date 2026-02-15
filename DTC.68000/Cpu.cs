@@ -42,6 +42,7 @@ public sealed class Cpu : CpuBase
     private bool m_isStopped;
     private uint m_stoppedResumeProgramCounter;
     private byte m_pendingInterruptLevel;
+    private uint m_resetSupervisorStackPointer;
 
     /// <summary>
     /// Gets the active CPU register set.
@@ -90,6 +91,7 @@ public sealed class Cpu : CpuBase
         
         // Vector 0 = initial SSP, vector 1 = initial PC.
         Registers.SupervisorStackPointer = Bus.Read32BigEndian(ResetStackPointerVectorAddress);
+        m_resetSupervisorStackPointer = Registers.SupervisorStackPointer;
         Registers.ProgramCounter = Bus.Read32BigEndian(ResetProgramCounterVectorAddress);
         Registers.StatusRegister = InitialStatusRegister;
         m_hasPrefetch = false;
@@ -435,8 +437,11 @@ public sealed class Cpu : CpuBase
     {
         var oldStatus = (ushort)(Registers.StatusRegister & ValidStatusRegisterMask);
         Registers.IsSupervisor = true;
-        Push32(oldPc);
-        Push16(oldStatus);
+        PushExceptionFrameWithFallback(() =>
+        {
+            Push32(oldPc);
+            Push16(oldStatus);
+        });
 
         var newStatus = (ushort)((oldStatus & ~TraceFlagMask) | SupervisorFlagMask);
         if (interruptPriorityMask.HasValue)
@@ -467,11 +472,14 @@ public sealed class Cpu : CpuBase
 
         // Address-error exception entry always stacks to supervisor mode.
         Registers.IsSupervisor = true;
-        Push32(frameProgramCounter);
-        Push16(oldStatus);
-        Push16(instructionRegister);
-        Push32(faultAddress);
-        Push16(specialStatusWord);
+        PushExceptionFrameWithFallback(() =>
+        {
+            Push32(frameProgramCounter);
+            Push16(oldStatus);
+            Push16(instructionRegister);
+            Push32(faultAddress);
+            Push16(specialStatusWord);
+        });
 
         Registers.StatusRegister = (ushort)((oldStatus & ~TraceFlagMask) | SupervisorFlagMask);
         Registers.ProgramCounter = Read32(AddressErrorVectorAddress);
@@ -492,15 +500,68 @@ public sealed class Cpu : CpuBase
 
         // Bus-error exception entry always stacks to supervisor mode.
         Registers.IsSupervisor = true;
-        Push32(frameProgramCounter);
-        Push16(oldStatus);
-        Push16(instructionRegister);
-        Push32(faultAddress);
-        Push16(specialStatusWord);
+        PushExceptionFrameWithFallback(() =>
+        {
+            Push32(frameProgramCounter);
+            Push16(oldStatus);
+            Push16(instructionRegister);
+            Push32(faultAddress);
+            Push16(specialStatusWord);
+        });
 
         Registers.StatusRegister = (ushort)((oldStatus & ~TraceFlagMask) | SupervisorFlagMask);
         Registers.ProgramCounter = Read32(BusErrorVectorAddress);
         RefreshPrefetchQueue();
+    }
+
+    /// <summary>
+    /// Tries to push an exception frame and retries with fallback stack pointers when the current
+    /// supervisor stack points at a non-responsive bus region.
+    /// </summary>
+    private void PushExceptionFrameWithFallback(Action pushFrame)
+    {
+        var originalStackPointer = Registers.StackPointer;
+        BusErrorException lastError;
+        try
+        {
+            pushFrame();
+            return;
+        }
+        catch (BusErrorException error)
+        {
+            lastError = error;
+            Registers.StackPointer = originalStackPointer;
+        }
+
+        foreach (var fallbackStackPointer in GetFallbackExceptionStackCandidates(originalStackPointer))
+        {
+            try
+            {
+                Registers.StackPointer = fallbackStackPointer & 0x00FF_FFFE;
+                pushFrame();
+                return;
+            }
+            catch (BusErrorException error)
+            {
+                lastError = error;
+                Registers.StackPointer = originalStackPointer;
+            }
+        }
+
+        throw lastError ?? new BusErrorException(originalStackPointer, isRead: false);
+    }
+
+    private IEnumerable<uint> GetFallbackExceptionStackCandidates(uint originalStackPointer)
+    {
+        if (Registers.UserStackPointer != originalStackPointer)
+            yield return Registers.UserStackPointer;
+        if (Registers.SupervisorStackPointer != originalStackPointer)
+            yield return Registers.SupervisorStackPointer;
+        if (m_resetSupervisorStackPointer != 0 && m_resetSupervisorStackPointer != originalStackPointer)
+            yield return m_resetSupervisorStackPointer;
+
+        // Final emergency fallback for bring-up resilience.
+        yield return 0x00010000;
     }
 
     private byte GetFunctionCode(bool programAccess)
