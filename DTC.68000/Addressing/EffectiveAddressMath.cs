@@ -7,6 +7,7 @@
 // about your modifications. Your contributions are valued!
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
+using System.Runtime.CompilerServices;
 
 namespace DTC.M68000.Addressing;
 
@@ -18,12 +19,14 @@ public static class EffectiveAddressMath
     /// <summary>
     /// Masks an address to the 24-bit external bus space.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static uint NormalizeAddress24(uint address) =>
         address & 0x00FF_FFFF;
 
     /// <summary>
     /// Adds a sign-extended displacement to a base address with 32-bit wrap semantics.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static uint AddDisplacement(uint baseAddress, short displacement) =>
         unchecked((uint)(baseAddress + displacement));
 
@@ -55,6 +58,7 @@ public static class EffectiveAddressMath
     /// <summary>
     /// Returns byte post-inc/pre-dec step size (A7 uses 2 to preserve word alignment).
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static uint ByteAddressStep(int registerIndex) =>
         registerIndex == 7 ? 2u : 1u;
 

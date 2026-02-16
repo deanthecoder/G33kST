@@ -24,7 +24,7 @@ public sealed class AtariSTOptions
     /// <summary>
     /// Amount of ST-RAM exposed to the machine in bytes.
     /// </summary>
-    public int RamSizeBytes { get; init; } = 1024 * 1024;
+    public uint RamSizeBytes { get; init; } = 1024 * 1024;
 
     /// <summary>
     /// Monitor type reported through MFP monitor-detect input.

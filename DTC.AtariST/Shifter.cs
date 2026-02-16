@@ -14,11 +14,11 @@ namespace DTC.AtariST;
 
 /// <summary>
 /// Minimal Atari ST Shifter video source with basic low/medium/high mode rendering.
-/// Output is exposed as a fixed RGBA surface with a representative border area.
+/// Output is exposed as a fixed RGB surface with a representative border area.
 /// </summary>
 public sealed class Shifter : IVideoSource
 {
-    private const int BytesPerPixel = 4;
+    private const int BytesPerPixel = 3;
     private const int ActiveOutputWidth = 640;
     private const int ActiveOutputHeight = 400;
     private const int BorderWidth = 32;
@@ -70,9 +70,6 @@ public sealed class Shifter : IVideoSource
         if (m_ticksPerLine <= 0)
             throw new ArgumentOutOfRangeException(nameof(cpuHz), "Computed ticks-per-line must be positive.");
 
-        // Ensure alpha is always opaque.
-        for (var i = 3; i < m_frameBuffer.Length; i += BytesPerPixel)
-            m_frameBuffer[i] = 255;
     }
 
     /// <inheritdoc />
@@ -80,6 +77,9 @@ public sealed class Shifter : IVideoSource
 
     /// <inheritdoc />
     public int FrameHeight => OutputHeight;
+
+    /// <inheritdoc />
+    public int FrameBytesPerPixel => BytesPerPixel;
 
     /// <summary>
     /// Gets the active source width for the last rendered frame before scaling to output.
@@ -283,7 +283,6 @@ public sealed class Shifter : IVideoSource
         m_frameBuffer[outputIndex] = red;
         m_frameBuffer[outputIndex + 1] = green;
         m_frameBuffer[outputIndex + 2] = blue;
-        m_frameBuffer[outputIndex + 3] = 255;
     }
 
     private uint ReadScreenBaseAddress()
@@ -316,7 +315,6 @@ public sealed class Shifter : IVideoSource
             m_frameBuffer[i] = red;
             m_frameBuffer[i + 1] = green;
             m_frameBuffer[i + 2] = blue;
-            m_frameBuffer[i + 3] = 255;
         }
     }
 

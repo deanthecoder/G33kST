@@ -8,6 +8,7 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
+using System.Runtime.CompilerServices;
 using DTC.Emulation;
 using DTC.M68000.Addressing;
 using DTC.M68000.Decoding;
@@ -159,6 +160,7 @@ public sealed class Cpu : CpuBase
     /// <summary>
     /// Reads one byte from bus memory.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override byte Read8(uint address)
     {
         var normalized = EffectiveAddressMath.NormalizeAddress24(address);
@@ -170,6 +172,7 @@ public sealed class Cpu : CpuBase
     /// <summary>
     /// Writes one byte to bus memory.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override void Write8(uint address, byte value)
     {
         var normalized = EffectiveAddressMath.NormalizeAddress24(address);
@@ -298,7 +301,11 @@ public sealed class Cpu : CpuBase
         {
             opcode = FetchPcWord();
             var instruction = InstructionDecoder.Decode(opcode) ?? throw new NotImplementedException($"Opcode 0x{opcode:X4} is not implemented.");
-            var instructionText = InstructionTraceTextFormatter.Format(opcode, instruction, this, opcodeAddress);
+            string instructionText = null;
+#if DEBUG
+            if (HasInstructionTextDebugger)
+                instructionText = InstructionTraceTextFormatter.Format(opcode, instruction, this, opcodeAddress);
+#endif
             NotifyBeforeInstruction(opcodeAddress, opcode, instructionText);
             instruction.Execute(this, opcode);
             if (EnableTraceExceptions && traceWasEnabled && Registers.TraceFlag)

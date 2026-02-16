@@ -20,7 +20,7 @@ namespace DTC.M68000.Decoding;
 /// </summary>
 public static class InstructionTraceTextFormatter
 {
-    private static readonly Regex s_placeholderRegex =
+    private static readonly Regex PlaceholderRegex =
         new("<(?<token>[^>]+)>", RegexOptions.Compiled);
 
     /// <summary>
@@ -91,7 +91,7 @@ public static class InstructionTraceTextFormatter
         };
 
     private static string SimplifyPlaceholders(string instructionText) =>
-        s_placeholderRegex.Replace(instructionText, "${token}");
+        PlaceholderRegex.Replace(instructionText, "${token}");
 
     private static string ExpandImmediatePlaceholders(ushort opcode, uint opcodeAddress, string instructionText, Emulation.Bus bus)
     {
@@ -220,15 +220,13 @@ public static class InstructionTraceTextFormatter
 
         string GetDataValueToken(int registerIndex)
         {
-            if (dataValueTokens[registerIndex] == null)
-                dataValueTokens[registerIndex] = $"D{registerIndex}={registers.GetDataRegister(registerIndex):X8}";
+            dataValueTokens[registerIndex] ??= $"D{registerIndex}={registers.GetDataRegister(registerIndex):X8}";
             return dataValueTokens[registerIndex];
         }
 
         string GetAddressValueToken(int registerIndex)
         {
-            if (addressValueTokens[registerIndex] == null)
-                addressValueTokens[registerIndex] = $"A{registerIndex}={registers.GetAddressRegister(registerIndex):X8}";
+            addressValueTokens[registerIndex] ??= $"A{registerIndex}={registers.GetAddressRegister(registerIndex):X8}";
             return addressValueTokens[registerIndex];
         }
     }

@@ -51,7 +51,7 @@ public sealed class AtariST : IMachine
     private readonly SystemControlDevice m_systemControl;
     private readonly RtcDevice m_rtc;
     private readonly MfpDevice m_mfp;
-    private readonly object m_mouseStateSync = new();
+    private readonly Lock m_mouseStateSync = new();
     private readonly List<PendingInterrupt> m_pendingInterrupts = [];
     private readonly Queue<InterruptAcknowledgeResult>[] m_pendingAcknowledgeByLevel = CreateAcknowledgeQueues();
     private byte m_latchedInterruptLevel;
@@ -139,7 +139,7 @@ public sealed class AtariST : IMachine
         m_psg.PortAChanged += OnPsgPortAChanged;
         bus.Attach(m_psg);
         m_floppyController = new FloppyDmaFdcDevice(driveAPresent: true, driveBPresent: false);
-        m_floppyController.ConfigureDmaAddressLimit((uint)m_options.RamSizeBytes);
+        m_floppyController.ConfigureDmaAddressLimit(m_options.RamSizeBytes);
         m_floppyController.DmaWrite8 = (address, value) => bus.Write8(address, value);
         m_floppyController.InterruptLineChanged += OnFloppyInterruptLineChanged;
         bus.Attach(m_floppyController);
@@ -495,14 +495,13 @@ public sealed class AtariST : IMachine
             throw new ArgumentOutOfRangeException(nameof(options), $"RAM size must be <= ${RomBaseAddress:X6}.");
     }
 
-    private static void AttachOpenBusGap(Bus bus, int ramSizeBytes)
+    private static void AttachOpenBusGap(Bus bus, uint ramSizeBytes)
     {
         if (ramSizeBytes >= RomBaseAddress)
             return;
 
-        var fromAddress = (uint)ramSizeBytes;
-        var toAddress = RomBaseAddress - 1;
-        bus.Attach(new OpenBusDevice(fromAddress, toAddress));
+        const uint toAddress = RomBaseAddress - 1;
+        bus.Attach(new OpenBusDevice(ramSizeBytes, toAddress));
     }
 
     private void SetBootVideoMode(Bus bus)

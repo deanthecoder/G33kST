@@ -166,7 +166,7 @@ public sealed class EmuTOSTests : TestsBase
 
         var executionHealth = new ExecutionHealthTracker(atariST.Descriptor.CpuHz, atariST.Descriptor.VideoHz, stallFrameCount: 2);
         var panicDetector = new PanicDetector(PanicCandidateProgramCounters);
-        var panicFrameDetector = new PanicFrameSignatureDetector(atariST.Video.FrameWidth, atariST.Video.FrameHeight);
+        var panicFrameDetector = new PanicFrameSignatureDetector(atariST.Video.FrameWidth, atariST.Video.FrameHeight, atariST.Video.FrameBytesPerPixel);
         var ioAccess = new IoAccessTracker(0x00FF8000, 0x00FFFFFF);
         var lowMemoryReads = new RangeAccessTracker(LowMemoryProbeFromAddress, LowMemoryProbeToAddress);
         atariST.Cpu.AddDebugger(ioAccess);
@@ -209,8 +209,9 @@ public sealed class EmuTOSTests : TestsBase
         var lastCpuTicks = atariST.CpuTicks;
         var frameSampleIntervalCycles = (long)Math.Round(atariST.Descriptor.CpuHz * FrameSampleIntervalSeconds);
         var nextFrameSampleCycle = frameSampleIntervalCycles;
-        var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * 4];
-        var blankScreenChecksum = ComputeBlankScreenChecksum(atariST.Video.FrameWidth, atariST.Video.FrameHeight);
+        var bytesPerPixel = atariST.Video.FrameBytesPerPixel;
+        var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * bytesPerPixel];
+        var blankScreenChecksum = ComputeBlankScreenChecksum(atariST.Video.FrameWidth, atariST.Video.FrameHeight, bytesPerPixel);
         var sawNonBlankFrame = false;
         var firstNonBlankSeenAtCycles = 0L;
         var sawMenuBarInk = false;
@@ -303,7 +304,7 @@ public sealed class EmuTOSTests : TestsBase
                         var elapsedSeconds = nextFrameSampleCycle / atariST.Descriptor.CpuHz;
                         var fileName = $"emutos_{elapsedSeconds:0000.000}s.tga";
                         var tgaFile = frameCaptureDir.GetFile(fileName);
-                        TgaWriter.Write(tgaFile, frameBuffer, atariST.Video.FrameWidth, atariST.Video.FrameHeight, 4);
+                        TgaWriter.Write(tgaFile, frameBuffer, atariST.Video.FrameWidth, atariST.Video.FrameHeight, bytesPerPixel);
                         savedFrames++;
                     }
 
@@ -496,11 +497,9 @@ public sealed class EmuTOSTests : TestsBase
             TestContext.Out.WriteLine($"  {line}");
     }
 
-    private static uint ComputeBlankScreenChecksum(int width, int height)
+    private static uint ComputeBlankScreenChecksum(int width, int height, int bytesPerPixel)
     {
-        var blankFrame = new byte[width * height * 4];
-        for (var i = 3; i < blankFrame.Length; i += 4)
-            blankFrame[i] = 255;
+        var blankFrame = new byte[width * height * bytesPerPixel];
         return ComputeFrameChecksum(blankFrame);
     }
 
@@ -520,7 +519,10 @@ public sealed class EmuTOSTests : TestsBase
 
     private static bool HasMenuBarInk(byte[] frameBuffer, int width, int height)
     {
-        if (frameBuffer == null || frameBuffer.Length < width * height * 4)
+        if (frameBuffer == null)
+            return false;
+        var bytesPerPixel = frameBuffer.Length / Math.Max(1, width * height);
+        if (bytesPerPixel < 3 || frameBuffer.Length < width * height * bytesPerPixel)
             return false;
         if (width <= (MenuBarScanMarginX * 2) || height <= MenuBarScanTop)
             return false;
@@ -533,10 +535,10 @@ public sealed class EmuTOSTests : TestsBase
 
         for (var y = startY; y < endY; y++)
         {
-            var rowOffset = y * width * 4;
+            var rowOffset = y * width * bytesPerPixel;
             for (var x = startX; x < endX; x++)
             {
-                var pixelOffset = rowOffset + (x * 4);
+                var pixelOffset = rowOffset + (x * bytesPerPixel);
                 var red = frameBuffer[pixelOffset];
                 var green = frameBuffer[pixelOffset + 1];
                 var blue = frameBuffer[pixelOffset + 2];
@@ -589,7 +591,8 @@ public sealed class EmuTOSTests : TestsBase
         var injectAtCycles = (long)(atariST.Descriptor.CpuHz * 1.5);
         var injected = false;
         var lastCpuTicks = atariST.CpuTicks;
-        var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * 4];
+        var bytesPerPixel = atariST.Video.FrameBytesPerPixel;
+        var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * bytesPerPixel];
         var sampleInterval = (long)Math.Round(atariST.Descriptor.CpuHz * FrameSampleIntervalSeconds);
         var nextSample = sampleInterval;
         var hasChecksum = false;
@@ -678,13 +681,15 @@ public sealed class EmuTOSTests : TestsBase
         private const int MinStableSamples = 4;
         private readonly int m_width;
         private readonly int m_height;
+        private readonly int m_bytesPerPixel;
         private uint m_lastChecksum;
         private int m_stableSampleCount;
 
-        public PanicFrameSignatureDetector(int width, int height)
+        public PanicFrameSignatureDetector(int width, int height, int bytesPerPixel)
         {
             m_width = width;
             m_height = height;
+            m_bytesPerPixel = bytesPerPixel;
         }
 
         public bool IsDetected { get; private set; }
@@ -696,7 +701,7 @@ public sealed class EmuTOSTests : TestsBase
             if (IsDetected || videoMode != 2)
                 return;
 
-            var rowStride = m_width * 4;
+            var rowStride = m_width * m_bytesPerPixel;
             var brightPixelCount = 0;
             var activeTextRows = 0;
             for (var y = 0; y < m_height; y++)
@@ -705,7 +710,7 @@ public sealed class EmuTOSTests : TestsBase
                 var rowStart = y * rowStride;
                 for (var x = 0; x < m_width; x++)
                 {
-                    var pixelOffset = rowStart + (x * 4);
+                    var pixelOffset = rowStart + (x * m_bytesPerPixel);
                     if (frameBuffer[pixelOffset] <= 192)
                         continue;
                     rowBrightPixels++;

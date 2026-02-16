@@ -28,38 +28,38 @@ public sealed class Mc68000OpcodeSuiteTests : TestsBase
     private const int MaxStepsFullSuite = 2_000_000;
     private const int TraceLeftColumnWidth = 44;
 
-    private static readonly Regex s_labelRegex = new(
+    private static readonly Regex LabelRegex = new(
         @"^(?<address>[0-9A-Fa-f]{8})\s+.*?\b(?<label>[A-Za-z_][A-Za-z0-9_]*):",
         RegexOptions.Compiled);
-    private static readonly Regex s_jsrEntryRegex = new(
+    private static readonly Regex JsrEntryRegex = new(
         @"^(?<address>[0-9A-Fa-f]{8})\s+.*?\bjsr\s+(?<label>op_[A-Za-z0-9_]+)\b",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
-    private static readonly Regex s_tracePlaceholderRegex = new(
+    private static readonly Regex TracePlaceholderRegex = new(
         "<(?<token>[^>]+)>",
         RegexOptions.Compiled);
-    private static readonly HashSet<string> s_stateDependentSections = new(
+    private static readonly HashSet<string> StateDependentSections = new(
         ["op_BCLR"],
         StringComparer.OrdinalIgnoreCase);
-    private static readonly HashSet<string> s_mIgnoredOpcodeSuiteSections = new(
+    private static readonly HashSet<string> IgnoredOpcodeSuiteSections = new(
         ["op_SBCD", "op_DIVU", "op_DIVS"],
         StringComparer.OrdinalIgnoreCase);
-    private static readonly Lazy<SuiteAssets> s_suiteAssets = new(LoadSuiteAssets);
+    private static readonly Lazy<SuiteAssets> AllSuiteAssets = new(LoadSuiteAssets);
 
     public static IEnumerable<TestCaseData> OpcodeSections =>
-        s_suiteAssets.Value.Listing.TestEntries
+        AllSuiteAssets.Value.Listing.TestEntries
             .Select(o => new TestCaseData(o.Name).SetName($"OpcodeSuiteSection_{o.Name}"));
 
     [OneTimeSetUp]
     public void OneTimeSetup()
     {
-        var suiteAssets = s_suiteAssets.Value;
+        var suiteAssets = AllSuiteAssets.Value;
         TestContext.Progress.WriteLine($"Loaded external MC68000 opcode suite metadata ({suiteAssets.Listing.TestEntries.Count} sections).");
     }
 
     [TestCaseSource(nameof(OpcodeSections))]
     public void RunsMicroCoreLabsOpcodeSuiteSection(string sectionName)
     {
-        if (s_mIgnoredOpcodeSuiteSections.Contains(sectionName))
+        if (IgnoredOpcodeSuiteSections.Contains(sectionName))
             Assert.Ignore($"Section '{sectionName}' is currently ignored due to opcode-suite/SingleStep divergence.");
 
         var runResult = RunSuite(sectionName);
@@ -70,7 +70,7 @@ public sealed class Mc68000OpcodeSuiteTests : TestsBase
 
     private static SuiteRunResult RunSuite(string sectionName)
     {
-        var suiteAssets = s_suiteAssets.Value;
+        var suiteAssets = AllSuiteAssets.Value;
         var listing = suiteAssets.Listing;
 
         var bus = new Bus(0x1000000);
@@ -220,7 +220,7 @@ public sealed class Mc68000OpcodeSuiteTests : TestsBase
     }
 
     private static bool RequiresSectionWarmup(string sectionName) =>
-        s_stateDependentSections.Contains(sectionName);
+        StateDependentSections.Contains(sectionName);
 
     private static void PatchMoveFromStatusRegisterSection(byte[] memory)
     {
@@ -293,7 +293,7 @@ public sealed class Mc68000OpcodeSuiteTests : TestsBase
 
         foreach (var line in lines)
         {
-            var labelMatch = s_labelRegex.Match(line);
+            var labelMatch = LabelRegex.Match(line);
             if (labelMatch.Success)
             {
                 var label = labelMatch.Groups["label"].Value;
@@ -301,7 +301,7 @@ public sealed class Mc68000OpcodeSuiteTests : TestsBase
                     labelToAddress[label] = Convert.ToUInt32(labelMatch.Groups["address"].Value, 16);
             }
 
-            var jsrMatch = s_jsrEntryRegex.Match(line);
+            var jsrMatch = JsrEntryRegex.Match(line);
             if (!jsrMatch.Success)
                 continue;
 
@@ -390,7 +390,7 @@ public sealed class Mc68000OpcodeSuiteTests : TestsBase
     }
 
     private static string SimplifyTraceMnemonic(string mnemonic) =>
-        s_tracePlaceholderRegex.Replace(mnemonic, "${token}");
+        TracePlaceholderRegex.Replace(mnemonic, "${token}");
 
     private sealed record SuiteAssets(
         FileInfo BinaryFile,

@@ -37,12 +37,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly LcdScreen m_screen;
     private readonly NullAudioOutputDevice m_audioDevice;
     private readonly DisplayRecorder m_recorder;
-    private readonly byte[] m_latestFrameBuffer;
-    private readonly byte[] m_uiFrameBuffer;
+    private byte[] m_backFrameBuffer;
+    private byte[] m_frontFrameBuffer;
     private int m_isUiFrameUpdateQueued;
-    private uint m_lastFrameChecksum;
-    private long m_lastFrameTicks;
-    private bool m_hasFrameChecksum;
     private static readonly string[] FloppyFileExtensions = [".st", ".zip"];
 
     public MainWindowViewModel()
@@ -52,8 +49,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         m_screen = new LcdScreen(m_machine.Video.FrameWidth, m_machine.Video.FrameHeight);
         m_audioDevice = new NullAudioOutputDevice(m_machine.Descriptor.AudioSampleRateHz);
         m_recorder = new DisplayRecorder();
-        m_latestFrameBuffer = new byte[m_machine.Video.FrameWidth * m_machine.Video.FrameHeight * 4];
-        m_uiFrameBuffer = new byte[m_machine.Video.FrameWidth * m_machine.Video.FrameHeight * 4];
+        var frameBufferSize = m_machine.Video.FrameWidth * m_machine.Video.FrameHeight * m_machine.Video.FrameBytesPerPixel;
+        m_backFrameBuffer = new byte[frameBufferSize];
+        m_frontFrameBuffer = new byte[frameBufferSize];
 
         m_machine.Video.FrameRendered += OnFrameRendered;
         m_recorder.StateChanged += (_, _) =>
@@ -142,6 +140,15 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         Logger.Instance.Info("Machine reset.");
     }
 
+    public void HardResetMachine()
+    {
+        if (m_machine.IsFloppyImageMounted(DriveAIndex))
+            m_machine.UnmountFloppyImage(DriveAIndex);
+
+        m_runner.Reset();
+        Logger.Instance.Info("Machine hard reset.");
+    }
+
     public void SaveScreenshotCommand()
     {
         var command = new FileSaveCommand(
@@ -151,9 +158,10 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             $"{AppTitle}_{DateTime.Now:yyyyMMdd_HHmmss}.tga");
         command.FileSelected += (_, file) =>
         {
+            var frameCopy = new byte[m_frontFrameBuffer.Length];
             lock (m_frameUpdateLock)
-                Buffer.BlockCopy(m_latestFrameBuffer, 0, m_uiFrameBuffer, 0, m_uiFrameBuffer.Length);
-            TgaWriter.Write(file, m_uiFrameBuffer, m_machine.Video.FrameWidth, m_machine.Video.FrameHeight, 4);
+                Buffer.BlockCopy(m_frontFrameBuffer, 0, frameCopy, 0, frameCopy.Length);
+            TgaWriter.Write(file, frameCopy, m_machine.Video.FrameWidth, m_machine.Video.FrameHeight, m_machine.Video.FrameBytesPerPixel);
             Logger.Instance.Info($"Screenshot saved: {file.FullName}");
         };
         command.Execute(null);
@@ -221,17 +229,6 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public void ReportCpuClockTicks() =>
         Console.WriteLine($"CPU clock ticks: {m_machine.CpuTicks}");
 
-    public void ReportFrameChecksum()
-    {
-        if (!m_hasFrameChecksum)
-        {
-            Console.WriteLine($"Frame checksum: n/a (no frame rendered yet). CPU ticks: {m_machine.CpuTicks}");
-            return;
-        }
-
-        Console.WriteLine($"Frame checksum: 0x{m_lastFrameChecksum:X8} @ CPU ticks {m_lastFrameTicks} (current {m_machine.CpuTicks}).");
-    }
-
     public void CloseCommand() =>
         Application.Current?.GetMainWindow()?.Close();
 
@@ -277,10 +274,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             FloppyMru.Add(imageFile);
         Settings.LastFloppyImagePath = imageFile.FullName;
 
-        if (wasMounted)
-            Logger.Instance.Info($"Drive A: floppy image replaced with '{imageFile.Name}'.");
-        else
-            Logger.Instance.Info($"Drive A: mounted floppy image '{imageFile.Name}'.");
+        Logger.Instance.Info(wasMounted ? $"Drive A: floppy image replaced with '{imageFile.Name}'." : $"Drive A: mounted floppy image '{imageFile.Name}'.");
         Logger.Instance.Info($"Drive A image details: {imageSummary}.");
         return true;
     }
@@ -313,13 +307,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         if (frameBuffer == null || frameBuffer.Length == 0)
             return;
 
-        lock (m_frameUpdateLock)
-            Buffer.BlockCopy(frameBuffer, 0, m_latestFrameBuffer, 0, Math.Min(frameBuffer.Length, m_latestFrameBuffer.Length));
-
-        m_lastFrameChecksum = ComputeFrameChecksum(frameBuffer);
-        m_lastFrameTicks = m_machine.CpuTicks;
-        m_hasFrameChecksum = true;
-
+        CopyToBackFrame(frameBuffer);
         m_recorder.CaptureFrame();
 
         if (Interlocked.Exchange(ref m_isUiFrameUpdateQueued, 1) == 1)
@@ -329,16 +317,34 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         {
             try
             {
-                lock (m_frameUpdateLock)
-                    Buffer.BlockCopy(m_latestFrameBuffer, 0, m_uiFrameBuffer, 0, m_uiFrameBuffer.Length);
-                m_screen.Update(m_uiFrameBuffer);
+                var frameToPresent = SwapFrameBuffers();
+                m_screen.Update(frameToPresent);
                 DisplayUpdated?.Invoke(this, EventArgs.Empty);
             }
             finally
             {
                 Interlocked.Exchange(ref m_isUiFrameUpdateQueued, 0);
             }
-        }, DispatcherPriority.Render);
+        }, DispatcherPriority.Normal);
+    }
+
+    private void CopyToBackFrame(byte[] frameBuffer)
+    {
+        lock (m_frameUpdateLock)
+        {
+            var bytesToCopy = Math.Min(frameBuffer.Length, m_backFrameBuffer.Length);
+            var source = frameBuffer.AsSpan(0, bytesToCopy);
+            source.CopyTo(m_backFrameBuffer.AsSpan(0, bytesToCopy));
+        }
+    }
+
+    private byte[] SwapFrameBuffers()
+    {
+        lock (m_frameUpdateLock)
+        {
+            (m_backFrameBuffer, m_frontFrameBuffer) = (m_frontFrameBuffer, m_backFrameBuffer);
+            return m_frontFrameBuffer;
+        }
     }
 
     private void OnSettingsPropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -400,19 +406,5 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         }
 
         return null;
-    }
-
-    private static uint ComputeFrameChecksum(byte[] frameBuffer)
-    {
-        const uint offsetBasis = 2166136261;
-        const uint prime = 16777619;
-        var hash = offsetBasis;
-        foreach (var b in frameBuffer)
-        {
-            hash ^= b;
-            hash *= prime;
-        }
-
-        return hash;
     }
 }

@@ -28,6 +28,7 @@
 
     <Window.KeyBindings>
         <KeyBinding Command="{Binding ResetMachine}" Gesture="{OnPlatform 'ctrl+r', macOS='⌘+r'}" />
+        <KeyBinding Command="{Binding HardResetMachine}" Gesture="{OnPlatform 'ctrl+shift+r', macOS='⌘+shift+r'}" />
         <KeyBinding Command="{Binding MountFloppyImage}" Gesture="{OnPlatform 'ctrl+o', macOS='⌘+o'}" />
         <KeyBinding Command="{Binding SaveScreenshotCommand}" Gesture="{OnPlatform 'ctrl+s', macOS='⌘+s'}" />
         <KeyBinding Command="{Binding ToggleRecordingCommand}" Gesture="{OnPlatform 'ctrl+m', macOS='⌘+m'}" />
@@ -73,9 +74,12 @@
                 </MenuItem>
 
                 <MenuItem Header="_Emulation">
-                    <MenuItem Header="_Reset"
+                    <MenuItem Header="_Soft Reset"
                               Command="{Binding ResetMachine}"
                               InputGesture="{OnPlatform 'ctrl+r', macOS='⌘+r'}" />
+                    <MenuItem Header="_Hard Reset"
+                              Command="{Binding HardResetMachine}"
+                              InputGesture="{OnPlatform 'ctrl+shift+r', macOS='⌘+shift+r'}" />
                 </MenuItem>
 
                 <MenuItem Header="_Display">
@@ -111,7 +115,6 @@
                               IsEnabled="{Binding Settings.IsCpuHistoryTracked}" />
                     <Separator />
                     <MenuItem Header="Report CPU Clock Ticks" Command="{Binding ReportCpuClockTicks}" />
-                    <MenuItem Header="Report Frame Checksum + Ticks" Command="{Binding ReportFrameChecksum}" />
                 </MenuItem>
 
                 <MenuItem Header="_Help">
