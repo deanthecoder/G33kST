@@ -101,6 +101,11 @@ public sealed class Shifter : IVideoSource
     /// </summary>
     public int ActiveOriginY => m_activeOriginY;
 
+    /// <summary>
+    /// Gets whether the current raster line is in the display-enable range.
+    /// </summary>
+    public bool IsDisplayEnableActive => m_currentRasterLine < VisibleRasterLines;
+
     /// <inheritdoc />
     public event EventHandler<byte[]> FrameRendered;
 

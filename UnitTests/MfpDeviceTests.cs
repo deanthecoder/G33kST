@@ -17,9 +17,14 @@ public sealed class MfpDeviceTests
 {
     private const uint BaseAddress = 0x00FFFA00;
     private const uint InterruptEnableBRegister = BaseAddress + 0x09;
+    private const uint InterruptEnableARegister = BaseAddress + 0x07;
     private const uint InterruptPendingBRegister = BaseAddress + 0x0D;
+    private const uint InterruptPendingARegister = BaseAddress + 0x0B;
+    private const uint InterruptMaskARegister = BaseAddress + 0x13;
     private const uint InterruptMaskBRegister = BaseAddress + 0x15;
     private const uint VectorRegister = BaseAddress + 0x17;
+    private const uint TimerBControlRegister = BaseAddress + 0x1B;
+    private const uint TimerBDataRegister = BaseAddress + 0x21;
     private const uint TimerCdControlRegister = BaseAddress + 0x1D;
     private const uint TimerCDataRegister = BaseAddress + 0x23;
     private const uint TimerDDataRegister = BaseAddress + 0x25;
@@ -193,6 +198,58 @@ public sealed class MfpDeviceTests
         {
             Assert.That(interruptCount, Is.EqualTo(1));
             Assert.That(interruptVector, Is.EqualTo(0x57));
+        });
+    }
+
+    [Test]
+    public void TimerBEventCountShouldDecrementOnHblank()
+    {
+        var mfp = new MfpDevice();
+        mfp.Reset();
+        mfp.Write8(TimerBDataRegister, 0x03);
+        mfp.Write8(TimerBControlRegister, 0x08);
+
+        mfp.NotifyHblank(true);
+        var firstRead = mfp.Read8(TimerBDataRegister);
+        mfp.NotifyHblank(true);
+        var secondRead = mfp.Read8(TimerBDataRegister);
+        mfp.NotifyHblank(true);
+        var thirdRead = mfp.Read8(TimerBDataRegister);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(firstRead, Is.EqualTo(2));
+            Assert.That(secondRead, Is.EqualTo(1));
+            Assert.That(thirdRead, Is.EqualTo(3), "Timer B should reload from data register when it reaches zero.");
+        });
+    }
+
+    [Test]
+    public void TimerBEventCountShouldRaiseInterruptWhenEnabled()
+    {
+        var mfp = new MfpDevice();
+        mfp.Reset();
+        var interruptCount = 0;
+        var interruptVector = (byte)0;
+        mfp.InterruptRequested += (_, vector) =>
+        {
+            interruptCount++;
+            interruptVector = vector;
+        };
+        mfp.Write8(VectorRegister, 0x40);
+        mfp.Write8(InterruptEnableARegister, 0x01);
+        mfp.Write8(InterruptMaskARegister, 0x01);
+        mfp.Write8(TimerBDataRegister, 0x01);
+        mfp.Write8(TimerBControlRegister, 0x08);
+
+        mfp.NotifyHblank(true);
+        var interruptPendingValue = mfp.Read8(InterruptPendingARegister);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(interruptCount, Is.EqualTo(1));
+            Assert.That(interruptVector, Is.EqualTo(0x48));
+            Assert.That(interruptPendingValue & 0x01, Is.Not.Zero);
         });
     }
 

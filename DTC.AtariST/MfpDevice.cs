@@ -44,10 +44,17 @@ public sealed class MfpDevice : IMemDevice
     private const int InterruptPendingB = 0x0D;
     private const int InterruptInServiceB = 0x11;
     private const int InterruptMaskB = 0x15;
+    private const int InterruptEnableA = 0x07;
+    private const int InterruptPendingA = 0x0B;
+    private const int InterruptMaskA = 0x13;
     private const int VectorRegister = 0x17;
+    private const int TimerBControl = 0x1B;
     private const int TimerCdControl = 0x1D;
+    private const int TimerBData = 0x21;
     private const int TimerCData = 0x23;
     private const int TimerDData = 0x25;
+    private const byte TimerBInterruptMask = 0x01;
+    private const byte TimerBSourceNumber = 8;
 
     private static readonly int[] TimerPrescaleDivisors =
     [
@@ -64,8 +71,10 @@ public sealed class MfpDevice : IMemDevice
     private readonly byte[] m_registers = new byte[RegisterSpace];
     private int m_timerCCurrent;
     private int m_timerDCurrent;
+    private int m_timerBCurrent;
     private int m_timerCAccumulator;
     private int m_timerDAccumulator;
+    private int m_timerBAccumulator;
     private bool m_aciaInterruptLineActiveLow;
     private bool m_floppyInterruptLineActiveLow;
     private byte m_gpipInputState = 0xFF;
@@ -93,8 +102,10 @@ public sealed class MfpDevice : IMemDevice
         m_registers[VectorRegister] = DefaultVectorBase;
         m_timerCCurrent = 0;
         m_timerDCurrent = 0;
+        m_timerBCurrent = 0;
         m_timerCAccumulator = 0;
         m_timerDAccumulator = 0;
+        m_timerBAccumulator = 0;
         m_aciaInterruptLineActiveLow = false;
         m_floppyInterruptLineActiveLow = false;
     }
@@ -107,8 +118,31 @@ public sealed class MfpDevice : IMemDevice
         if (deltaTicks <= 0)
             return;
 
+        AdvanceTimerB((int)Math.Min(deltaTicks, int.MaxValue));
         AdvanceTimerC((int)Math.Min(deltaTicks, int.MaxValue));
         AdvanceTimerD((int)Math.Min(deltaTicks, int.MaxValue));
+    }
+
+    /// <summary>
+    /// Advances Timer B by one display-enable edge in event-count mode.
+    /// On real ST hardware this input is tied to the Shifter DE signal,
+    /// so there are no Timer B event pulses during vertical blank.
+    /// </summary>
+    public void NotifyHblank(bool isDisplayEnableActive)
+    {
+        if (!isDisplayEnableActive)
+            return;
+        if ((m_registers[TimerBControl] & 0x0F) != 0x08)
+            return;
+        if (m_timerBCurrent == 0)
+            m_timerBCurrent = NormalizeTimerData(m_registers[TimerBData]);
+
+        m_timerBCurrent--;
+        if (m_timerBCurrent > 0)
+            return;
+
+        m_timerBCurrent = NormalizeTimerData(m_registers[TimerBData]);
+        RaiseInterrupt(InterruptEnableA, InterruptMaskA, InterruptPendingA, TimerBInterruptMask, TimerBSourceNumber);
     }
 
     /// <summary>
@@ -184,6 +218,8 @@ public sealed class MfpDevice : IMemDevice
             return 0xFF;
         if (offset == GpipRegister)
             return ReadGpipState();
+        if (offset == TimerBData)
+            return (byte)m_timerBCurrent;
 
         return m_registers[offset];
     }
@@ -210,7 +246,9 @@ public sealed class MfpDevice : IMemDevice
         }
 
         m_registers[offset] = value;
-        if (offset == TimerCData)
+        if (offset == TimerBData)
+            m_timerBCurrent = NormalizeTimerData(value);
+        else if (offset == TimerCData)
             m_timerCCurrent = NormalizeTimerData(value);
         else if (offset == TimerDData)
             m_timerDCurrent = NormalizeTimerData(value);
@@ -240,6 +278,30 @@ public sealed class MfpDevice : IMemDevice
 
             m_timerCCurrent = NormalizeTimerData(m_registers[TimerCData]);
             RaiseTimerInterrupt(TimerCInterruptMask, TimerCSourceNumber);
+        }
+    }
+
+    private void AdvanceTimerB(int deltaTicks)
+    {
+        var timerControl = (byte)(m_registers[TimerBControl] & 0x0F);
+        if (timerControl >= TimerPrescaleDivisors.Length)
+            return;
+
+        var prescale = TimerPrescaleDivisors[timerControl];
+        if (prescale == 0)
+            return;
+        if (m_timerBCurrent == 0)
+            m_timerBCurrent = NormalizeTimerData(m_registers[TimerBData]);
+
+        m_timerBAccumulator += deltaTicks;
+        while (m_timerBAccumulator >= prescale)
+        {
+            m_timerBAccumulator -= prescale;
+            m_timerBCurrent--;
+            if (m_timerBCurrent > 0)
+                continue;
+
+            m_timerBCurrent = NormalizeTimerData(m_registers[TimerBData]);
         }
     }
 

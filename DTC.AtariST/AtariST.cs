@@ -455,7 +455,7 @@ public sealed class AtariST : IMachine
 
     private void OnHblank()
     {
-        // Hook point for future HBlank-timed devices.
+        m_mfp.NotifyHblank(m_video.IsDisplayEnableActive);
     }
 
     private void OnVblank()
