@@ -62,4 +62,10 @@ public sealed class Settings : UserSettingsBase
         get => Get<string>();
         set => Set(value);
     }
+
+    public string SelectedRomPath
+    {
+        get => Get<string>();
+        set => Set(value);
+    }
 }

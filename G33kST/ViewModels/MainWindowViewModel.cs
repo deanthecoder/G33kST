@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using System.ComponentModel;
+using System.Reflection;
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -37,10 +38,12 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly LcdScreen m_screen;
     private readonly NullAudioOutputDevice m_audioDevice;
     private readonly DisplayRecorder m_recorder;
+    private readonly DirectoryInfo m_romStoreDir;
     private byte[] m_backFrameBuffer;
     private byte[] m_frontFrameBuffer;
     private int m_isUiFrameUpdateQueued;
     private static readonly string[] FloppyFileExtensions = [".st", ".zip"];
+    private static readonly string[] RomFileExtensions = [".img", ".rom", ".bin", ".zip"];
 
     public MainWindowViewModel()
     {
@@ -63,9 +66,10 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         Settings.PropertyChanged += OnSettingsPropertyChanged;
         FloppyMru = new MruFiles().InitFromString(Settings.FloppyImageMru);
         FloppyMru.OpenRequested += (_, file) => MountFloppyImageFromFile(file, addToMru: false);
+        m_romStoreDir = GetRomStoreDirectory();
         ApplySettingState();
         AboutInfo = AboutInfoProvider.Info;
-        LoadRomInternal(FindBundledRom());
+        LoadInitialRom();
     }
 
     public Settings Settings => Settings.Instance;
@@ -209,6 +213,33 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         command.Execute(null);
     }
 
+    public void SelectRomImage()
+    {
+        var command = new FileOpenCommand("Select ROM Image", "Atari ST ROM Images", ["*.img", "*.rom", "*.bin", "*.zip"]);
+        command.FileSelected += (_, romFile) => SwitchRomImage(romFile);
+        command.Execute(null);
+    }
+
+    public void UseBundledEmuTosRom()
+    {
+        var bundledRom = FindBundledRom();
+        if (bundledRom?.Exists() != true)
+        {
+            DialogService.Instance.ShowMessage(
+                "Bundled ROM not found.",
+                "Could not locate the bundled EmuTOS ROM.");
+            return;
+        }
+
+        var storedRom = TryCopyRomIntoStore(bundledRom, showDialogOnFailure: false);
+        if (storedRom == null)
+            return;
+        if (!TryLoadRom(storedRom, shouldHardReset: true, updateSelection: true))
+            return;
+
+        Logger.Instance.Info($"ROM switched to bundled EmuTOS '{storedRom.Name}'.");
+    }
+
     public void ToggleCrtEmulation() =>
         Settings.IsCrtEmulationEnabled = !Settings.IsCrtEmulationEnabled;
 
@@ -304,10 +335,79 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         return true;
     }
 
-    private void LoadRomInternal(FileInfo romFile)
+    private void LoadInitialRom()
+    {
+        var selectedRomFile = Settings.SelectedRomPath?.ToFile();
+        if (selectedRomFile?.Exists() == true && TryLoadRom(selectedRomFile, shouldHardReset: false, updateSelection: false))
+            return;
+
+        var bundledRom = FindBundledRom();
+        if (bundledRom?.Exists() != true)
+        {
+            Logger.Instance.Warn("No Atari ST ROM was found. Use File -> Select ROM Image... to choose one.");
+            return;
+        }
+
+        var storedRom = TryCopyRomIntoStore(bundledRom, showDialogOnFailure: false);
+        if (storedRom == null)
+            return;
+
+        _ = TryLoadRom(storedRom, shouldHardReset: false, updateSelection: true);
+    }
+
+    private void SwitchRomImage(FileInfo selectedRomFile)
+    {
+        var storedRom = TryCopyRomIntoStore(selectedRomFile, showDialogOnFailure: true);
+        if (storedRom == null)
+            return;
+
+        if (!TryLoadRom(storedRom, shouldHardReset: true, updateSelection: true))
+            return;
+
+        Logger.Instance.Info($"ROM switched to '{storedRom.Name}'.");
+    }
+
+    private FileInfo TryCopyRomIntoStore(FileInfo sourceRomFile, bool showDialogOnFailure)
+    {
+        if (sourceRomFile == null || !sourceRomFile.Exists())
+        {
+            Logger.Instance.Warn($"Unable to load ROM '{sourceRomFile?.FullName}': File not found.");
+            return null;
+        }
+
+        if (!RomFileExtensions.Contains(sourceRomFile.Extension, StringComparer.OrdinalIgnoreCase))
+        {
+            Logger.Instance.Warn($"Unable to load ROM '{sourceRomFile.FullName}': Unsupported extension.");
+            return null;
+        }
+
+        var (romFileName, romData) = RomImageLoader.ReadRomData(sourceRomFile);
+        if (romData == null || romData.Length == 0)
+        {
+            Logger.Instance.Warn($"Unable to load ROM '{sourceRomFile.FullName}': No supported ROM data found.");
+            if (showDialogOnFailure && sourceRomFile.Extension.Equals(".zip", StringComparison.OrdinalIgnoreCase))
+            {
+                DialogService.Instance.ShowMessage(
+                    "Unable to load ROM image.",
+                    $"The zip '{sourceRomFile.Name}' does not contain a supported .img/.rom/.bin ROM.");
+            }
+            return null;
+        }
+
+        var storedFileName = GetStoredRomFileName(romFileName);
+        var storedRomFile = m_romStoreDir.GetFile(storedFileName);
+        storedRomFile.WriteAllBytes(romData);
+        return storedRomFile;
+    }
+
+    private bool TryLoadRom(FileInfo romFile, bool shouldHardReset, bool updateSelection)
     {
         if (romFile?.Exists() != true)
-            return;
+            return false;
+
+        var wasRunning = m_runner.IsRunning;
+        if (wasRunning)
+            m_runner.Stop();
 
         try
         {
@@ -315,15 +415,28 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             if (romData == null || romData.Length == 0)
             {
                 Logger.Instance.Warn($"ROM '{romFile.FullName}' is empty.");
-                return;
+                return false;
             }
 
+            if (shouldHardReset && m_machine.IsFloppyImageMounted(DriveAIndex))
+                m_machine.UnmountFloppyImage(DriveAIndex);
+
             m_machine.LoadRom(romData, romFile.Name);
+            if (updateSelection)
+                Settings.SelectedRomPath = romFile.FullName;
+            OnPropertyChanged(nameof(IsHighResolutionMode));
             Logger.Instance.Info($"ROM loaded: {romFile.Name} ({romData.Length / 1024.0:F1} KB).");
+            return true;
         }
         catch (Exception e)
         {
             Logger.Instance.Exception($"Failed to load ROM '{romFile.FullName}'.", e);
+            return false;
+        }
+        finally
+        {
+            if (wasRunning)
+                m_runner.Start();
         }
     }
 
@@ -424,12 +537,36 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             var rom = dir.GetFiles("*.img", SearchOption.TopDirectoryOnly).FirstOrDefault();
             if (rom != null)
                 return rom;
-
             rom = dir.GetFiles("*.rom", SearchOption.TopDirectoryOnly).FirstOrDefault();
+            if (rom != null)
+                return rom;
+            rom = dir.GetFiles("*.bin", SearchOption.TopDirectoryOnly).FirstOrDefault();
+            if (rom != null)
+                return rom;
+            rom = dir.GetFiles("*.zip", SearchOption.TopDirectoryOnly).FirstOrDefault();
             if (rom != null)
                 return rom;
         }
 
         return null;
+    }
+
+    private static DirectoryInfo GetRomStoreDirectory()
+    {
+        var assembly = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
+        var romStore = assembly.GetAppSettingsPath().GetDir("Roms");
+        if (!romStore.Exists())
+            romStore.Create();
+        return romStore;
+    }
+
+    private static string GetStoredRomFileName(string romFileName)
+    {
+        var safeName = Path.GetFileName(romFileName ?? string.Empty).ToSafeFileName();
+        if (string.IsNullOrWhiteSpace(safeName))
+            safeName = $"rom_{DateTime.Now:yyyyMMdd_HHmmss}.img";
+        if (Path.HasExtension(safeName))
+            return safeName;
+        return $"{safeName}.img";
     }
 }

@@ -29,6 +29,7 @@
     <Window.KeyBindings>
         <KeyBinding Command="{Binding ResetMachine}" Gesture="{OnPlatform 'ctrl+r', macOS='⌘+r'}" />
         <KeyBinding Command="{Binding HardResetMachine}" Gesture="{OnPlatform 'ctrl+shift+r', macOS='⌘+shift+r'}" />
+        <KeyBinding Command="{Binding SelectRomImage}" Gesture="{OnPlatform 'ctrl+shift+o', macOS='⌘+shift+o'}" />
         <KeyBinding Command="{Binding MountFloppyImage}" Gesture="{OnPlatform 'ctrl+o', macOS='⌘+o'}" />
         <KeyBinding Command="{Binding SaveScreenshotCommand}" Gesture="{OnPlatform 'ctrl+s', macOS='⌘+s'}" />
         <KeyBinding Command="{Binding ToggleRecordingCommand}" Gesture="{OnPlatform 'ctrl+m', macOS='⌘+m'}" />
@@ -54,6 +55,13 @@
                         <MenuItem Header="{Binding FloppyMru.Item8}" ToolTip.Tip="{Binding FloppyMru.Item8.FullName}" IsVisible="{Binding FloppyMru.Item8.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="8" />
                         <Separator />
                         <MenuItem Header="Clear" Command="{Binding FloppyMru.Clear}" />
+                    </MenuItem>
+                    <MenuItem Header="_ROM">
+                        <MenuItem Header="Select _ROM Image..."
+                                  Command="{Binding SelectRomImage}"
+                                  InputGesture="{OnPlatform 'ctrl+shift+o', macOS='⌘+shift+o'}" />
+                        <MenuItem Header="Use Bundled EmuTOS"
+                                  Command="{Binding UseBundledEmuTosRom}" />
                     </MenuItem>
                     <Separator />
                     <MenuItem Header="Save _Screenshot..."
