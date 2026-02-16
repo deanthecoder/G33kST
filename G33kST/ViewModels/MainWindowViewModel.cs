@@ -43,7 +43,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private uint m_lastFrameChecksum;
     private long m_lastFrameTicks;
     private bool m_hasFrameChecksum;
-    private static readonly string[] FloppyFileExtensions = [".st", ".stx", ".zip"];
+    private static readonly string[] FloppyFileExtensions = [".st", ".zip"];
 
     public MainWindowViewModel()
     {
@@ -192,7 +192,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     public void MountFloppyImage()
     {
-        var command = new FileOpenCommand("Mount Floppy Image", "Atari ST Floppy Images", ["*.st", "*.stx", "*.zip"]);
+        var command = new FileOpenCommand("Mount Floppy Image", "Atari ST Floppy Images", ["*.st", "*.zip"]);
         command.FileSelected += (_, info) => MountFloppyImageFromFile(info, addToMru: true);
         command.Execute(null);
     }
@@ -256,6 +256,12 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         if (imageData == null || imageData.Length == 0)
         {
             Logger.Instance.Warn($"Unable to mount floppy image '{imageFile.FullName}': No supported floppy image data found.");
+            if (imageFile.Extension.Equals(".zip", StringComparison.OrdinalIgnoreCase))
+            {
+                DialogService.Instance.ShowMessage(
+                    "Unable to mount floppy image.",
+                    $"The zip '{imageFile.Name}' does not contain a supported .st disk image.");
+            }
             return false;
         }
         var imageSummary = FloppyImageLoader.DescribeImage(imageData);

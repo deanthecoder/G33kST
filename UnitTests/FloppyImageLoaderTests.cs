@@ -78,68 +78,6 @@ public sealed class FloppyImageLoaderTests
     }
 
     [Test]
-    public void ReadImageDataShouldConvertRawStxFileToSectorImage()
-    {
-        var tempDir = CreateTempDirectory();
-        try
-        {
-            var file = new FileInfo(Path.Combine(tempDir.FullName, "disk.stx"));
-            var expectedSector = CreatePatternSector(0x5A);
-            File.WriteAllBytes(file.FullName, BuildMinimalStxImage(expectedSector));
-
-            var (imageName, imageData) = FloppyImageLoader.ReadImageData(file);
-
-            Assert.Multiple(() =>
-            {
-                Assert.That(imageName, Is.EqualTo("disk"));
-                Assert.That(imageData, Is.Not.Null);
-                Assert.That(imageData.Length, Is.EqualTo(512));
-                Assert.That(imageData.Take(32), Is.EqualTo(expectedSector.Take(32)));
-                Assert.That(imageData[510], Is.EqualTo(0x55));
-                Assert.That(imageData[511], Is.EqualTo(0xAA));
-            });
-        }
-        finally
-        {
-            tempDir.Delete(recursive: true);
-        }
-    }
-
-    [Test]
-    public void ReadImageDataShouldConvertFirstStxEntryFromZip()
-    {
-        var tempDir = CreateTempDirectory();
-        try
-        {
-            var zipFile = new FileInfo(Path.Combine(tempDir.FullName, "images.zip"));
-            var expectedSector = CreatePatternSector(0x23);
-            using (var archive = ZipFile.Open(zipFile.FullName, ZipArchiveMode.Create))
-            {
-                var entry = archive.CreateEntry("disk-a.stx");
-                using var stream = entry.Open();
-                var data = BuildMinimalStxImage(expectedSector);
-                stream.Write(data, 0, data.Length);
-            }
-
-            var (imageName, imageData) = FloppyImageLoader.ReadImageData(zipFile);
-
-            Assert.Multiple(() =>
-            {
-                Assert.That(imageName, Is.EqualTo("disk-a"));
-                Assert.That(imageData, Is.Not.Null);
-                Assert.That(imageData.Length, Is.EqualTo(512));
-                Assert.That(imageData[0], Is.EqualTo(0x23));
-                Assert.That(imageData[510], Is.EqualTo(0x55));
-                Assert.That(imageData[511], Is.EqualTo(0xAA));
-            });
-        }
-        finally
-        {
-            tempDir.Delete(recursive: true);
-        }
-    }
-
-    [Test]
     public void DescribeImageShouldReportGeometryAndRootDirectorySummary()
     {
         var imageData = CreateFat12ImageWithRootEntries("DEGAS.PRG", "README.TXT");
@@ -201,58 +139,6 @@ public sealed class FloppyImageLoaderTests
         }
 
         return image;
-    }
-
-    private static byte[] BuildMinimalStxImage(byte[] sectorData)
-    {
-        var image = new byte[16 + 16 + 16 + sectorData.Length];
-
-        // STX header.
-        image[0] = (byte)'R';
-        image[1] = (byte)'S';
-        image[2] = (byte)'Y';
-        image[3] = 0x00;
-        BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(4, 2), 3);
-        BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(6, 2), 1);
-        BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(8, 2), 0);
-        image[10] = 1; // One track block.
-        image[11] = 2;
-        BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(12, 4), 0);
-
-        var trackOffset = 16;
-        var trackBlockSize = 16 + 16 + sectorData.Length;
-        BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(trackOffset + 0, 4), (uint)trackBlockSize);
-        BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(trackOffset + 4, 4), 0);
-        BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(trackOffset + 8, 2), 1); // Sector count.
-        BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(trackOffset + 10, 2), 1); // Sector block present.
-        BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(trackOffset + 12, 2), (ushort)sectorData.Length);
-        image[trackOffset + 14] = 0; // Track 0, side 0.
-        image[trackOffset + 15] = 0;
-
-        var sectorOffset = trackOffset + 16;
-        BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(sectorOffset + 0, 4), 32);
-        BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(sectorOffset + 4, 2), 0);
-        BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(sectorOffset + 6, 2), 0);
-        image[sectorOffset + 8] = 0; // ID track.
-        image[sectorOffset + 9] = 0; // ID head.
-        image[sectorOffset + 10] = 1; // ID sector.
-        image[sectorOffset + 11] = 2; // 512 bytes.
-        BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(sectorOffset + 12, 2), 0);
-        image[sectorOffset + 14] = 0;
-        image[sectorOffset + 15] = 0;
-
-        Buffer.BlockCopy(sectorData, 0, image, trackOffset + 32, sectorData.Length);
-        return image;
-    }
-
-    private static byte[] CreatePatternSector(byte seed)
-    {
-        var sector = new byte[512];
-        for (var i = 0; i < sector.Length; i++)
-            sector[i] = (byte)(seed + i);
-        sector[510] = 0x55;
-        sector[511] = 0xAA;
-        return sector;
     }
 
     private static void WriteDosName(Span<byte> destination, string name)

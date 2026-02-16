@@ -25,7 +25,7 @@ namespace G33kST.Views;
 public partial class MainWindow : Window
 {
     private const int KeyHoldDelayMs = 300;
-    private static readonly string[] SupportedDroppedFileExtensions = [".st", ".stx", ".zip"];
+    private static readonly string[] SupportedDroppedFileExtensions = [".st", ".zip"];
     private bool m_isLoaded;
     private bool m_isPointerInsideDisplay;
     private bool m_isLeftMouseButtonPressed;

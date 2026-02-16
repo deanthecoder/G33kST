@@ -20,17 +20,11 @@ namespace DTC.AtariST;
 /// </summary>
 public static class FloppyImageLoader
 {
-    private const int StxHeaderSize = 16;
-    private const int StxTrackHeaderSize = 16;
-    private const int StxSectorHeaderSize = 16;
     private const int SectorSizeBytes = 512;
-    private const byte StxRecordNotFoundFlag = 0x10;
     private static readonly int[] PreferredSectorSizes = [9, 10, 11, 8, 12];
-    private static ReadOnlySpan<byte> StxHeaderId => "RSY\0"u8;
     private static readonly HashSet<string> SupportedImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".st",
-        ".stx"
+        ".st"
     };
 
     /// <summary>
@@ -50,8 +44,6 @@ public static class FloppyImageLoader
             using var stream = imageFile.OpenRead();
             var buffer = new byte[stream.Length];
             stream.ReadExactly(buffer.AsSpan());
-            if (imageFile.Extension.Equals(".stx", StringComparison.OrdinalIgnoreCase))
-                buffer = ConvertStxToSectorImage(buffer);
             return (imageName, buffer);
         }
 
@@ -64,8 +56,6 @@ public static class FloppyImageLoader
             var buffer = new byte[(int)entry.Length];
             using var stream = entry.Open();
             stream.ReadExactly(buffer.AsSpan());
-            if (Path.GetExtension(entry.Name).Equals(".stx", StringComparison.OrdinalIgnoreCase))
-                buffer = ConvertStxToSectorImage(buffer);
             if (buffer == null || buffer.Length == 0)
                 continue;
 
@@ -113,113 +103,6 @@ public static class FloppyImageLoader
         if (string.IsNullOrWhiteSpace(extension))
             return false;
         return SupportedImageExtensions.Contains(extension);
-    }
-
-    private static byte[] ConvertStxToSectorImage(byte[] stxData)
-    {
-        if (stxData == null || stxData.Length < StxHeaderSize)
-            return null;
-        if (!stxData.AsSpan(0, StxHeaderId.Length).SequenceEqual(StxHeaderId))
-            return null;
-
-        var trackBlockCount = stxData[10];
-        if (trackBlockCount == 0)
-            return null;
-
-        var sectors = new Dictionary<(int Track, int Side, int Sector), byte[]>();
-        var offset = StxHeaderSize;
-        var maxTrack = -1;
-        var maxSide = -1;
-        var maxSector = -1;
-
-        for (var trackBlockIndex = 0; trackBlockIndex < trackBlockCount; trackBlockIndex++)
-        {
-            if (offset + StxTrackHeaderSize > stxData.Length)
-                break;
-
-            var trackBlockSize = ReadUInt32LittleEndian(stxData, offset);
-            var sectorsCount = ReadUInt16LittleEndian(stxData, offset + 8);
-            var trackNumberWithSide = stxData[offset + 14];
-            if (trackBlockSize < StxTrackHeaderSize)
-                break;
-
-            var trackBlockStart = offset;
-            var sectorBlockStart = offset + StxTrackHeaderSize;
-            var fallbackTrack = trackNumberWithSide & 0x7F;
-            var fallbackSide = (trackNumberWithSide >> 7) & 0x01;
-            for (var sectorIndex = 0; sectorIndex < sectorsCount; sectorIndex++)
-            {
-                var sectorOffset = sectorBlockStart + (sectorIndex * StxSectorHeaderSize);
-                if (sectorOffset + StxSectorHeaderSize > stxData.Length)
-                    break;
-
-                var dataOffset = ReadUInt32LittleEndian(stxData, sectorOffset);
-                var idTrack = stxData[sectorOffset + 8];
-                var idHead = stxData[sectorOffset + 9];
-                var idSector = stxData[sectorOffset + 10];
-                var idSizeCode = stxData[sectorOffset + 11];
-                var fdcStatus = stxData[sectorOffset + 14];
-                if ((fdcStatus & StxRecordNotFoundFlag) != 0)
-                    continue;
-
-                var sectorSize = 128 << (idSizeCode & 0x03);
-                if (sectorSize <= 0)
-                    continue;
-
-                var dataStart = trackBlockStart + (int)dataOffset;
-                if (dataStart < 0 || dataStart + sectorSize > stxData.Length)
-                    continue;
-
-                var track = (int)idTrack;
-                if (track == 0 && fallbackTrack != 0)
-                    track = fallbackTrack;
-                var side = idHead & 0x01;
-                if (idHead == 0 && fallbackSide != 0)
-                    side = fallbackSide;
-                var sectorNumber = (int)idSector;
-                if (sectorNumber <= 0)
-                    continue;
-
-                var normalizedSector = new byte[512];
-                if (sectorSize >= normalizedSector.Length)
-                    Buffer.BlockCopy(stxData, dataStart, normalizedSector, 0, normalizedSector.Length);
-                else
-                    Buffer.BlockCopy(stxData, dataStart, normalizedSector, 0, sectorSize);
-
-                sectors[(track, side, sectorNumber)] = normalizedSector;
-                if (track > maxTrack)
-                    maxTrack = track;
-                if (side > maxSide)
-                    maxSide = side;
-                if (sectorNumber > maxSector)
-                    maxSector = sectorNumber;
-            }
-
-            offset += (int)trackBlockSize;
-            if (offset > stxData.Length)
-                break;
-        }
-
-        if (sectors.Count == 0 || maxTrack < 0 || maxSide < 0 || maxSector <= 0)
-            return null;
-
-        var trackCount = maxTrack + 1;
-        var sideCount = maxSide + 1;
-        var sectorsPerTrack = maxSector;
-        var image = new byte[trackCount * sideCount * sectorsPerTrack * 512];
-        foreach (var entry in sectors)
-        {
-            var (track, side, sectorNumber) = entry.Key;
-            var linearSector = ((track * sideCount) + side) * sectorsPerTrack + (sectorNumber - 1);
-            if (linearSector < 0)
-                continue;
-            var destinationOffset = linearSector * 512;
-            if (destinationOffset + 512 > image.Length)
-                continue;
-            Buffer.BlockCopy(entry.Value, 0, image, destinationOffset, 512);
-        }
-
-        return image;
     }
 
     private static ushort ReadUInt16LittleEndian(byte[] buffer, int offset) =>
