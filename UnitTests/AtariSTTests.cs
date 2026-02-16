@@ -36,11 +36,11 @@ public sealed class AtariSTTests : TestsBase
         Assert.That(atariST.Descriptor, Is.Not.Null);
         Assert.That(atariST.Descriptor.CpuHz, Is.EqualTo(8_000_000.0));
         Assert.That(atariST.Descriptor.VideoHz, Is.EqualTo(60.0));
-        Assert.That(atariST.Descriptor.FrameWidth, Is.EqualTo(640));
-        Assert.That(atariST.Descriptor.FrameHeight, Is.EqualTo(400));
+        Assert.That(atariST.Descriptor.FrameWidth, Is.EqualTo(704));
+        Assert.That(atariST.Descriptor.FrameHeight, Is.EqualTo(448));
         Assert.That(atariST.Video, Is.Not.Null);
-        Assert.That(atariST.Video.FrameWidth, Is.EqualTo(640));
-        Assert.That(atariST.Video.FrameHeight, Is.EqualTo(400));
+        Assert.That(atariST.Video.FrameWidth, Is.EqualTo(704));
+        Assert.That(atariST.Video.FrameHeight, Is.EqualTo(448));
     }
 
     [Test]
@@ -546,6 +546,7 @@ public sealed class AtariSTTests : TestsBase
     {
         var atariST = new AtariST();
         atariST.Reset();
+        var shifter = (Shifter)atariST.Video;
         var bus = atariST.Cpu.Bus;
         const uint screenBaseAddress = 0x00000100;
         const uint videoBaseHighRegister = 0x00FF8201;
@@ -576,28 +577,35 @@ public sealed class AtariSTTests : TestsBase
         atariST.AdvanceDevices(oneFrameTicks);
         var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * 4];
         atariST.Video.CopyToFrameBuffer(frameBuffer);
+        var firstPixelOffset = ((shifter.ActiveOriginY * atariST.Video.FrameWidth) + shifter.ActiveOriginX) * 4;
 
         Assert.Multiple(() =>
         {
             Assert.That(frameRendered, Is.True);
 
-            // Pixel 0: red.
-            Assert.That(frameBuffer[0], Is.EqualTo(255));
+            // Border should use color 0 (black by default).
+            Assert.That(frameBuffer[0], Is.EqualTo(0));
             Assert.That(frameBuffer[1], Is.EqualTo(0));
             Assert.That(frameBuffer[2], Is.EqualTo(0));
             Assert.That(frameBuffer[3], Is.EqualTo(255));
 
+            // Pixel 0: red.
+            Assert.That(frameBuffer[firstPixelOffset], Is.EqualTo(255));
+            Assert.That(frameBuffer[firstPixelOffset + 1], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + 2], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + 3], Is.EqualTo(255));
+
             // Pixel 1: duplicated low-res pixel 0 (also red due 2x horizontal scaling).
-            Assert.That(frameBuffer[4], Is.EqualTo(255));
-            Assert.That(frameBuffer[5], Is.EqualTo(0));
-            Assert.That(frameBuffer[6], Is.EqualTo(0));
-            Assert.That(frameBuffer[7], Is.EqualTo(255));
+            Assert.That(frameBuffer[firstPixelOffset + 4], Is.EqualTo(255));
+            Assert.That(frameBuffer[firstPixelOffset + 5], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + 6], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + 7], Is.EqualTo(255));
 
             // Pixel 2: first black pixel after 2x horizontal scaling.
-            Assert.That(frameBuffer[8], Is.EqualTo(0));
-            Assert.That(frameBuffer[9], Is.EqualTo(0));
-            Assert.That(frameBuffer[10], Is.EqualTo(0));
-            Assert.That(frameBuffer[11], Is.EqualTo(255));
+            Assert.That(frameBuffer[firstPixelOffset + 8], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + 9], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + 10], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + 11], Is.EqualTo(255));
         });
     }
 
@@ -606,6 +614,7 @@ public sealed class AtariSTTests : TestsBase
     {
         var atariST = new AtariST();
         atariST.Reset();
+        var shifter = (Shifter)atariST.Video;
         var bus = atariST.Cpu.Bus;
         const uint screenBaseAddress = 0x00000100;
         const uint videoBaseHighRegister = 0x00FF8201;
@@ -627,20 +636,27 @@ public sealed class AtariSTTests : TestsBase
         atariST.AdvanceDevices(oneFrameTicks);
         var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * 4];
         atariST.Video.CopyToFrameBuffer(frameBuffer);
+        var firstPixelOffset = ((shifter.ActiveOriginY * atariST.Video.FrameWidth) + shifter.ActiveOriginX) * 4;
 
         Assert.Multiple(() =>
         {
-            // Pixel 0 should be black (set bit).
-            Assert.That(frameBuffer[0], Is.EqualTo(0));
-            Assert.That(frameBuffer[1], Is.EqualTo(0));
-            Assert.That(frameBuffer[2], Is.EqualTo(0));
+            // Mono border defaults to white.
+            Assert.That(frameBuffer[0], Is.EqualTo(255));
+            Assert.That(frameBuffer[1], Is.EqualTo(255));
+            Assert.That(frameBuffer[2], Is.EqualTo(255));
             Assert.That(frameBuffer[3], Is.EqualTo(255));
 
+            // Pixel 0 should be black (set bit).
+            Assert.That(frameBuffer[firstPixelOffset], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + 1], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + 2], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + 3], Is.EqualTo(255));
+
             // Pixel 1 should be white (clear bit).
-            Assert.That(frameBuffer[4], Is.EqualTo(255));
-            Assert.That(frameBuffer[5], Is.EqualTo(255));
-            Assert.That(frameBuffer[6], Is.EqualTo(255));
-            Assert.That(frameBuffer[7], Is.EqualTo(255));
+            Assert.That(frameBuffer[firstPixelOffset + 4], Is.EqualTo(255));
+            Assert.That(frameBuffer[firstPixelOffset + 5], Is.EqualTo(255));
+            Assert.That(frameBuffer[firstPixelOffset + 6], Is.EqualTo(255));
+            Assert.That(frameBuffer[firstPixelOffset + 7], Is.EqualTo(255));
         });
     }
 
@@ -649,6 +665,7 @@ public sealed class AtariSTTests : TestsBase
     {
         var atariST = new AtariST();
         atariST.Reset();
+        var shifter = (Shifter)atariST.Video;
         var bus = atariST.Cpu.Bus;
         const uint screenBaseAddress = 0x00000100;
         const uint videoBaseHighRegister = 0x00FF8201;
@@ -675,27 +692,28 @@ public sealed class AtariSTTests : TestsBase
         atariST.AdvanceDevices(oneFrameTicks);
         var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * 4];
         atariST.Video.CopyToFrameBuffer(frameBuffer);
+        var firstPixelOffset = ((shifter.ActiveOriginY * atariST.Video.FrameWidth) + shifter.ActiveOriginX) * 4;
 
         Assert.Multiple(() =>
         {
             // Pixel (0,0): green.
-            Assert.That(frameBuffer[0], Is.EqualTo(0));
-            Assert.That(frameBuffer[1], Is.EqualTo(255));
-            Assert.That(frameBuffer[2], Is.EqualTo(0));
-            Assert.That(frameBuffer[3], Is.EqualTo(255));
+            Assert.That(frameBuffer[firstPixelOffset], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + 1], Is.EqualTo(255));
+            Assert.That(frameBuffer[firstPixelOffset + 2], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + 3], Is.EqualTo(255));
 
             // Pixel (0,1): also green (2x vertical scaling in medium mode).
             var secondLineOffset = atariST.Video.FrameWidth * 4;
-            Assert.That(frameBuffer[secondLineOffset], Is.EqualTo(0));
-            Assert.That(frameBuffer[secondLineOffset + 1], Is.EqualTo(255));
-            Assert.That(frameBuffer[secondLineOffset + 2], Is.EqualTo(0));
-            Assert.That(frameBuffer[secondLineOffset + 3], Is.EqualTo(255));
+            Assert.That(frameBuffer[firstPixelOffset + secondLineOffset], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + secondLineOffset + 1], Is.EqualTo(255));
+            Assert.That(frameBuffer[firstPixelOffset + secondLineOffset + 2], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + secondLineOffset + 3], Is.EqualTo(255));
 
             // Pixel (1,0): black (next source bit is clear).
-            Assert.That(frameBuffer[4], Is.EqualTo(0));
-            Assert.That(frameBuffer[5], Is.EqualTo(0));
-            Assert.That(frameBuffer[6], Is.EqualTo(0));
-            Assert.That(frameBuffer[7], Is.EqualTo(255));
+            Assert.That(frameBuffer[firstPixelOffset + 4], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + 5], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + 6], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + 7], Is.EqualTo(255));
         });
     }
 

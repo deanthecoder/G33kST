@@ -14,13 +14,17 @@ namespace DTC.AtariST;
 
 /// <summary>
 /// Minimal Atari ST Shifter video source with basic low/medium/high mode rendering.
-/// Output is exposed as a fixed 640x400 RGBA surface.
+/// Output is exposed as a fixed RGBA surface with a representative border area.
 /// </summary>
 public sealed class Shifter : IVideoSource
 {
     private const int BytesPerPixel = 4;
-    private const int OutputWidth = 640;
-    private const int OutputHeight = 400;
+    private const int ActiveOutputWidth = 640;
+    private const int ActiveOutputHeight = 400;
+    private const int BorderWidth = 32;
+    private const int BorderHeight = 24;
+    private const int OutputWidth = ActiveOutputWidth + (BorderWidth * 2);
+    private const int OutputHeight = ActiveOutputHeight + (BorderHeight * 2);
     private const int LowResWidth = 320;
     private const int LowResHeight = 200;
     private const int LowResWordsPerLine = 20;
@@ -53,6 +57,8 @@ public sealed class Shifter : IVideoSource
     private int m_currentRasterLine;
     private int m_activeWidth = LowResWidth;
     private int m_activeHeight = LowResHeight;
+    private int m_activeOriginX = BorderWidth;
+    private int m_activeOriginY = BorderHeight;
 
     /// <summary>
     /// Creates an Atari ST video source.
@@ -85,6 +91,16 @@ public sealed class Shifter : IVideoSource
     /// </summary>
     public int ActiveHeight => m_activeHeight;
 
+    /// <summary>
+    /// Gets the X offset where the active picture starts in the output framebuffer.
+    /// </summary>
+    public int ActiveOriginX => m_activeOriginX;
+
+    /// <summary>
+    /// Gets the Y offset where the active picture starts in the output framebuffer.
+    /// </summary>
+    public int ActiveOriginY => m_activeOriginY;
+
     /// <inheritdoc />
     public event EventHandler<byte[]> FrameRendered;
 
@@ -97,6 +113,8 @@ public sealed class Shifter : IVideoSource
         m_currentRasterLine = 0;
         m_activeWidth = LowResWidth;
         m_activeHeight = LowResHeight;
+        m_activeOriginX = BorderWidth;
+        m_activeOriginY = BorderHeight;
     }
 
     /// <summary>
@@ -145,25 +163,36 @@ public sealed class Shifter : IVideoSource
             case 0:
                 m_activeWidth = LowResWidth;
                 m_activeHeight = LowResHeight;
+                m_activeOriginX = BorderWidth;
+                m_activeOriginY = BorderHeight;
+                ClearToColor(m_paletteR[0], m_paletteG[0], m_paletteB[0]);
                 RenderLowResolution(screenBaseAddress);
                 break;
 
             case 1:
                 m_activeWidth = MediumResWidth;
                 m_activeHeight = MediumResHeight;
+                m_activeOriginX = BorderWidth;
+                m_activeOriginY = BorderHeight;
+                ClearToColor(m_paletteR[0], m_paletteG[0], m_paletteB[0]);
                 RenderMediumResolution(screenBaseAddress);
                 break;
 
             case 2:
                 m_activeWidth = HighResWidth;
                 m_activeHeight = HighResHeight;
+                m_activeOriginX = BorderWidth;
+                m_activeOriginY = BorderHeight;
+                ClearToColor(255, 255, 255);
                 RenderHighResolutionMonochrome(screenBaseAddress);
                 break;
 
             default:
                 m_activeWidth = 0;
                 m_activeHeight = 0;
-                ClearToBlack();
+                m_activeOriginX = 0;
+                m_activeOriginY = 0;
+                ClearToColor(0, 0, 0);
                 break;
         }
 
@@ -208,12 +237,12 @@ public sealed class Shifter : IVideoSource
                 var plane1 = m_bus.Read16BigEndian(chunkAddress + 2);
                 for (var bit = 15; bit >= 0; bit--)
                 {
-                    var x = (chunk * 16) + (15 - bit);
+                    var x = m_activeOriginX + (chunk * 16) + (15 - bit);
                     var pixelIndex =
                         ((plane0 >> bit) & 1) |
                         (((plane1 >> bit) & 1) << 1);
-                    WriteRgbAt(x, y * 2, m_paletteR[pixelIndex], m_paletteG[pixelIndex], m_paletteB[pixelIndex]);
-                    WriteRgbAt(x, y * 2 + 1, m_paletteR[pixelIndex], m_paletteG[pixelIndex], m_paletteB[pixelIndex]);
+                    WriteRgbAt(x, m_activeOriginY + (y * 2), m_paletteR[pixelIndex], m_paletteG[pixelIndex], m_paletteB[pixelIndex]);
+                    WriteRgbAt(x, m_activeOriginY + (y * 2) + 1, m_paletteR[pixelIndex], m_paletteG[pixelIndex], m_paletteB[pixelIndex]);
                 }
             }
         }
@@ -229,10 +258,10 @@ public sealed class Shifter : IVideoSource
                 var word = m_bus.Read16BigEndian(unchecked(lineAddress + (uint)(chunk * 2)));
                 for (var bit = 15; bit >= 0; bit--)
                 {
-                    var x = (chunk * 16) + (15 - bit);
+                    var x = m_activeOriginX + (chunk * 16) + (15 - bit);
                     var on = ((word >> bit) & 1) != 0;
                     var value = on ? (byte)0 : (byte)255;
-                    WriteRgbAt(x, y, value, value, value);
+                    WriteRgbAt(x, m_activeOriginY + y, value, value, value);
                 }
             }
         }
@@ -240,8 +269,8 @@ public sealed class Shifter : IVideoSource
 
     private void WriteScaled2X2(int sourceX, int sourceY, byte red, byte green, byte blue)
     {
-        var outX = sourceX * 2;
-        var outY = sourceY * 2;
+        var outX = m_activeOriginX + (sourceX * 2);
+        var outY = m_activeOriginY + (sourceY * 2);
         WriteRgbAt(outX, outY, red, green, blue);
         WriteRgbAt(outX + 1, outY, red, green, blue);
         WriteRgbAt(outX, outY + 1, red, green, blue);
@@ -280,13 +309,13 @@ public sealed class Shifter : IVideoSource
         }
     }
 
-    private void ClearToBlack()
+    private void ClearToColor(byte red, byte green, byte blue)
     {
         for (var i = 0; i < m_frameBuffer.Length; i += BytesPerPixel)
         {
-            m_frameBuffer[i] = 0;
-            m_frameBuffer[i + 1] = 0;
-            m_frameBuffer[i + 2] = 0;
+            m_frameBuffer[i] = red;
+            m_frameBuffer[i + 1] = green;
+            m_frameBuffer[i + 2] = blue;
             m_frameBuffer[i + 3] = 255;
         }
     }

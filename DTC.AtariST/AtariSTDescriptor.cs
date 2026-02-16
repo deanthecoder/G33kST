@@ -26,9 +26,9 @@ public sealed class AtariSTDescriptor : IMachineDescriptor
     // Standard audio sample rate
     private const int AudioSampleRate = 44100;
 
-    // Expose a fixed output surface sized for the largest ST mode.
-    private const int OutputWidth = 640;
-    private const int OutputHeight = 400;
+    // Expose a fixed output surface including a representative border area.
+    private const int OutputWidth = 704;
+    private const int OutputHeight = 448;
 
     public string Name => "Atari ST 1040 STFM";
 
