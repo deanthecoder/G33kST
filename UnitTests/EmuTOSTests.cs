@@ -399,26 +399,7 @@ public sealed class EmuTOSTests : TestsBase
         TestContext.Out.WriteLine();
         TestContext.Out.WriteLine("Test completed. Check output above for EmuTOS behavior.");
     }
-
-    [Test]
-    [Explicit("Diagnostic: probes keyboard interrupt vector candidates.")]
-    public void ProbeKeyboardInterruptVectorCandidates()
-    {
-        var romFile = FindEmuTosRom();
-        Assert.That(romFile, Is.Not.Null);
-        Assert.That(romFile.Exists, Is.True);
-        var romData = romFile.ReadAllBytes();
-        Assert.That(romData, Is.Not.Empty);
-
-        var candidates = Enumerable.Range(0x48, 8).Select(o => (byte)o).ToArray();
-        TestContext.Out.WriteLine("Vector | frame changes | IKBD status reads | IKBD data reads | IKBD data writes");
-        foreach (var vector in candidates)
-        {
-            var result = RunVectorProbe(romData, romFile.Name, vector);
-            TestContext.Out.WriteLine($"{vector:X2}     | {result.FrameChanges,13:N0} | {result.KeyboardStatusReads,17:N0} | {result.KeyboardDataReads,15:N0} | {result.KeyboardDataWrites,16:N0}");
-        }
-    }
-
+    
     private static DirectoryInfo CreateDesktopFrameOutputDir()
     {
         var desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
@@ -571,76 +552,6 @@ public sealed class EmuTOSTests : TestsBase
             2 => "2 (high mono 640x400)",
             _ => $"{mode} (unknown)"
         };
-    
-    private static ProbeResult RunVectorProbe(byte[] romData, string romName, byte vector)
-    {
-        var atariST = new AtariST
-        {
-            KeyboardInterruptVector = vector
-        };
-        atariST.LoadRom(romData, romName);
-
-        var keyboardStatusReads = 0L;
-        var keyboardDataReads = 0L;
-        var keyboardDataWrites = 0L;
-        atariST.Cpu.AddDebugger(new MemoryReadDebugger(KeyboardAciaStatusRegister, _ => keyboardStatusReads++));
-        atariST.Cpu.AddDebugger(new MemoryReadDebugger(KeyboardAciaDataRegister, _ => keyboardDataReads++));
-        atariST.Cpu.AddDebugger(new MemoryWriteDebugger(KeyboardAciaDataRegister, _ => keyboardDataWrites++));
-
-        var targetCycles = (long)(atariST.Descriptor.CpuHz * 6.0);
-        var injectAtCycles = (long)(atariST.Descriptor.CpuHz * 1.5);
-        var injected = false;
-        var lastCpuTicks = atariST.CpuTicks;
-        var bytesPerPixel = atariST.Video.FrameBytesPerPixel;
-        var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * bytesPerPixel];
-        var sampleInterval = (long)Math.Round(atariST.Descriptor.CpuHz * FrameSampleIntervalSeconds);
-        var nextSample = sampleInterval;
-        var hasChecksum = false;
-        var lastChecksum = 0u;
-        var frameChanges = 0;
-
-        while (atariST.CpuTicks < targetCycles)
-        {
-            atariST.StepCpu();
-            var currentCpuTicks = atariST.CpuTicks;
-            var deltaTicks = currentCpuTicks - lastCpuTicks;
-            if (deltaTicks > 0)
-                atariST.AdvanceDevices(deltaTicks);
-            lastCpuTicks = currentCpuTicks;
-
-            if (atariST.TryConsumeInterrupt())
-                atariST.RequestInterrupt();
-
-            if (!injected && atariST.CpuTicks >= injectAtCycles)
-            {
-                atariST.InjectKeyboardScanCode(0x1C);
-                atariST.InjectKeyboardScanCode(0x9C);
-                injected = true;
-            }
-
-            while (atariST.CpuTicks >= nextSample)
-            {
-                atariST.Video.CopyToFrameBuffer(frameBuffer);
-                var checksum = ComputeFrameChecksum(frameBuffer);
-                if (!hasChecksum)
-                {
-                    hasChecksum = true;
-                    lastChecksum = checksum;
-                }
-                else if (checksum != lastChecksum)
-                {
-                    frameChanges++;
-                    lastChecksum = checksum;
-                }
-
-                nextSample += sampleInterval;
-            }
-        }
-
-        return new ProbeResult(frameChanges, keyboardStatusReads, keyboardDataReads, keyboardDataWrites);
-    }
-
-    private readonly record struct ProbeResult(int FrameChanges, long KeyboardStatusReads, long KeyboardDataReads, long KeyboardDataWrites);
 
     private sealed class PanicDetector
     {

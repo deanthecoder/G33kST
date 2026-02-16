@@ -40,9 +40,7 @@ public sealed class AtariST : IMachine
     private const uint RealTimeClockFromAddress = 0x00FFFC20;
     private const uint RealTimeClockToAddress = 0x00FFFC3F;
     private const byte SyntheticVblInterruptLevel = 4;
-    private const byte DefaultKeyboardInterruptVector = 0x48;
     private const long MfpInputClockHz = 2_457_600;
-    private readonly AtariSTOptions m_options;
     private readonly Shifter m_video;
     private readonly AciaIkbdDevice m_aciaIkbd;
     private readonly ShifterRegistersDevice m_shifterRegisters;
@@ -70,6 +68,7 @@ public sealed class AtariST : IMachine
     private int m_mouseDownY = -1;
     private bool m_isLeftMouseButtonPressed;
     private bool m_isRightMouseButtonPressed;
+    private AtariMonitorType m_monitorType;
 
     public IMachineDescriptor Descriptor { get; } = new AtariSTDescriptor();
 
@@ -93,11 +92,11 @@ public sealed class AtariST : IMachine
     public RomDevice Rom { get; }
 
     public RomMirrorDevice RomMirror { get; }
-
+    
     /// <summary>
-    /// Gets or sets the vector number returned for synthetic keyboard interrupts.
+    /// Gets whether the current monitor mode is monochrome high-resolution.
     /// </summary>
-    public byte KeyboardInterruptVector { get; set; } = DefaultKeyboardInterruptVector;
+    public bool IsHighResolutionMode => m_monitorType == AtariMonitorType.Monochrome;
 
     public AtariST()
         : this(AtariSTOptions.Default)
@@ -106,12 +105,13 @@ public sealed class AtariST : IMachine
 
     public AtariST(AtariSTOptions options)
     {
-        m_options = options ?? AtariSTOptions.Default;
-        ValidateOptions(m_options);
+        var options1 = options ?? AtariSTOptions.Default;
+        ValidateOptions(options1);
+        m_monitorType = options1.MonitorType;
         m_cpuClockHz = Math.Max(1, (long)Math.Round(Descriptor.CpuHz));
 
         // Create main RAM and ROM
-        Ram = new Memory(m_options.RamSizeBytes);
+        Ram = new Memory(options1.RamSizeBytes);
         Rom = new RomDevice(RomSize, RomBaseAddress);
 
         // Create ROM mirror for boot-time reset vector access
@@ -121,7 +121,7 @@ public sealed class AtariST : IMachine
         // The 68000 has a 24-bit address bus, so create a backing device for full space.
         var fullAddressSpace = new Memory(FullAddressSpaceSizeBytes);
         var bus = new Bus(fullAddressSpace);
-        AttachOpenBusGap(bus, m_options.RamSizeBytes);
+        AttachOpenBusGap(bus, options1.RamSizeBytes);
         bus.Attach(new OpenBusDevice(IoRegionFromAddress, IoRegionToAddress));
         bus.Attach(new BusErrorDevice(BlitterRegisterFromAddress, BlitterRegisterToAddress));
 
@@ -139,12 +139,12 @@ public sealed class AtariST : IMachine
         m_psg.PortAChanged += OnPsgPortAChanged;
         bus.Attach(m_psg);
         m_floppyController = new FloppyDmaFdcDevice(driveAPresent: true, driveBPresent: false);
-        m_floppyController.ConfigureDmaAddressLimit(m_options.RamSizeBytes);
+        m_floppyController.ConfigureDmaAddressLimit(options1.RamSizeBytes);
         m_floppyController.DmaWrite8 = (address, value) => bus.Write8(address, value);
         m_floppyController.InterruptLineChanged += OnFloppyInterruptLineChanged;
         bus.Attach(m_floppyController);
         m_rtc = null;
-        if (m_options.HasRealTimeClock)
+        if (options1.HasRealTimeClock)
         {
             m_rtc = new RtcDevice();
             m_rtc.Reset();
@@ -154,7 +154,7 @@ public sealed class AtariST : IMachine
             bus.Attach(new OpenBusDevice(RealTimeClockFromAddress, RealTimeClockToAddress));
 
         m_mfp = new MfpDevice();
-        m_mfp.SetMonitorType(m_options.MonitorType);
+        m_mfp.SetMonitorType(m_monitorType);
         m_mfp.InterruptRequested += OnMfpInterruptRequested;
         bus.Attach(m_mfp);
 
@@ -181,7 +181,7 @@ public sealed class AtariST : IMachine
         if (m_rtc != null)
             m_rtc.Reset();
         m_mfp.Reset();
-        m_mfp.SetMonitorType(m_options.MonitorType);
+        m_mfp.SetMonitorType(m_monitorType);
         SetBootVideoMode(Cpu.Bus);
         m_pendingInterrupts.Clear();
         foreach (var queue in m_pendingAcknowledgeByLevel)
@@ -280,6 +280,17 @@ public sealed class AtariST : IMachine
             return;
 
         UpdateMouseState(0, 0, false, false, false);
+    }
+
+    /// <summary>
+    /// Toggles between low-resolution color and high-resolution monochrome display modes.
+    /// </summary>
+    public void ToggleDisplayResolutionMode()
+    {
+        m_monitorType = m_monitorType == AtariMonitorType.Monochrome
+            ? AtariMonitorType.Color
+            : AtariMonitorType.Monochrome;
+        ApplyMonitorAndVideoMode(Cpu.Bus);
     }
 
     /// <summary>
@@ -506,10 +517,16 @@ public sealed class AtariST : IMachine
 
     private void SetBootVideoMode(Bus bus)
     {
-        var mode = m_options.MonitorType == AtariMonitorType.Monochrome
+        var mode = m_monitorType == AtariMonitorType.Monochrome
             ? HighResolutionModeValue
             : LowResolutionModeValue;
         bus.Write8(VideoModeRegister, mode);
+    }
+
+    private void ApplyMonitorAndVideoMode(Bus bus)
+    {
+        m_mfp.SetMonitorType(m_monitorType);
+        SetBootVideoMode(bus);
     }
 
     private static Queue<InterruptAcknowledgeResult>[] CreateAcknowledgeQueues() =>

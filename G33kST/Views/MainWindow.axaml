@@ -97,10 +97,10 @@
                         </MenuItem.Icon>
                     </MenuItem>
                     <Separator />
-                    <MenuItem Header="Video Mode">
-                        <MenuItem Header="Low (320x200, 16 colors)" IsEnabled="False" />
-                        <MenuItem Header="Medium (640x200, 4 colors)" IsEnabled="False" />
-                        <MenuItem Header="High (640x400 mono)" IsEnabled="False" />
+                    <MenuItem Header="High Resolution Mono" Command="{Binding ToggleDisplayResolutionMode}">
+                        <MenuItem.Icon>
+                            <icons:MaterialIcon Kind="Tick" IsVisible="{Binding IsHighResolutionMode}" />
+                        </MenuItem.Icon>
                     </MenuItem>
                 </MenuItem>
 

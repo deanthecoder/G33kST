@@ -89,6 +89,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     public bool IsSoundEnabled => Settings.IsSoundEnabled;
 
+    public bool IsHighResolutionMode => m_machine.IsHighResolutionMode;
+
     public string WindowTitle => $"{AppTitle} - {m_machine.Descriptor.Name}";
 
     public event EventHandler DisplayUpdated;
@@ -137,6 +139,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public void ResetMachine()
     {
         m_runner.Reset();
+        OnPropertyChanged(nameof(IsHighResolutionMode));
         Logger.Instance.Info("Machine reset.");
     }
 
@@ -146,6 +149,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             m_machine.UnmountFloppyImage(DriveAIndex);
 
         m_runner.Reset();
+        OnPropertyChanged(nameof(IsHighResolutionMode));
         Logger.Instance.Info("Machine hard reset.");
     }
 
@@ -207,6 +211,27 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     public void ToggleCrtEmulation() =>
         Settings.IsCrtEmulationEnabled = !Settings.IsCrtEmulationEnabled;
+
+    public void ToggleDisplayResolutionMode()
+    {
+        var targetMode = m_machine.IsHighResolutionMode
+            ? "low-resolution color"
+            : "high-resolution monochrome";
+        DialogService.Instance.Warn(
+            "Switch display mode?",
+            $"Switching to {targetMode} performs a hard reset.",
+            "Cancel",
+            "Switch + Reset",
+            isConfirmed =>
+            {
+                if (!isConfirmed)
+                    return;
+
+                m_machine.ToggleDisplayResolutionMode();
+                HardResetMachine();
+                Logger.Instance.Info($"Display mode switched to {targetMode}.");
+            });
+    }
 
     public void OpenLog()
     {
