@@ -32,6 +32,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 {
     private const string AppTitle = "G33kST";
     private const int DriveAIndex = 0;
+    private const byte CrtPreviousFrameBlendWeight = 2;
+    private const byte CrtCurrentFrameBlendWeight = 3;
     private readonly Lock m_frameUpdateLock = new();
     private readonly AtariST m_machine;
     private readonly MachineRunner m_runner;
@@ -51,6 +53,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         m_machine = new AtariST(AtariSTOptions.Default);
         m_runner = new MachineRunner(m_machine, () => m_machine.Descriptor.CpuHz, OnMachineRunnerError);
         m_screen = new LcdScreen(m_machine.Video.FrameWidth, m_machine.Video.FrameHeight);
+        m_screen.CrtBlendWeights = new CrtBlendWeights(CrtPreviousFrameBlendWeight, CrtCurrentFrameBlendWeight);
         m_audioDevice = new NullAudioOutputDevice(m_machine.Descriptor.AudioSampleRateHz);
         m_recorder = new DisplayRecorder();
         var frameBufferSize = m_machine.Video.FrameWidth * m_machine.Video.FrameHeight * m_machine.Video.FrameBytesPerPixel;

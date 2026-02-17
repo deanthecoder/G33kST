@@ -32,7 +32,7 @@ public sealed class AtariSTTests : TestsBase
         var atariST = new AtariST();
 
         Assert.That(atariST, Is.Not.Null);
-        Assert.That(atariST.Name, Is.EqualTo("Atari ST 1040 STFM"));
+        Assert.That(atariST.Name, Is.EqualTo("Atari 1040 STFM"));
         Assert.That(atariST.Descriptor, Is.Not.Null);
         Assert.That(atariST.Descriptor.CpuHz, Is.EqualTo(8_000_000.0));
         Assert.That(atariST.Descriptor.VideoHz, Is.EqualTo(60.0));
