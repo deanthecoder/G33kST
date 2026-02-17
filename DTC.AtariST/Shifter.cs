@@ -23,8 +23,8 @@ public sealed class Shifter : IVideoSource
     private const int ActiveOutputHeight = 400;
     private const int BorderWidth = 32;
     private const int BorderHeight = 24;
-    private const int OutputWidth = ActiveOutputWidth + (BorderWidth * 2);
-    private const int OutputHeight = ActiveOutputHeight + (BorderHeight * 2);
+    private const int OutputWidth = ActiveOutputWidth + BorderWidth * 2;
+    private const int OutputHeight = ActiveOutputHeight + BorderHeight * 2;
     private const int LowResWidth = 320;
     private const int LowResHeight = 200;
     private const int LowResWordsPerLine = 20;
@@ -53,6 +53,10 @@ public sealed class Shifter : IVideoSource
     private readonly byte[] m_paletteR = new byte[16];
     private readonly byte[] m_paletteG = new byte[16];
     private readonly byte[] m_paletteB = new byte[16];
+    private byte m_lastClearRed;
+    private byte m_lastClearGreen;
+    private byte m_lastClearBlue;
+    private bool m_hasLastClearColor;
     private double m_lineTickAccumulator;
     private int m_currentRasterLine;
     private int m_activeWidth = LowResWidth;
@@ -120,6 +124,7 @@ public sealed class Shifter : IVideoSource
         m_activeHeight = LowResHeight;
         m_activeOriginX = BorderWidth;
         m_activeOriginY = BorderHeight;
+        m_hasLastClearColor = false;
     }
 
     /// <summary>
@@ -170,7 +175,7 @@ public sealed class Shifter : IVideoSource
                 m_activeHeight = LowResHeight;
                 m_activeOriginX = BorderWidth;
                 m_activeOriginY = BorderHeight;
-                ClearToColor(m_paletteR[0], m_paletteG[0], m_paletteB[0]);
+                ClearToColorIfNeeded(m_paletteR[0], m_paletteG[0], m_paletteB[0]);
                 RenderLowResolution(screenBaseAddress);
                 break;
 
@@ -179,7 +184,7 @@ public sealed class Shifter : IVideoSource
                 m_activeHeight = MediumResHeight;
                 m_activeOriginX = BorderWidth;
                 m_activeOriginY = BorderHeight;
-                ClearToColor(m_paletteR[0], m_paletteG[0], m_paletteB[0]);
+                ClearToColorIfNeeded(m_paletteR[0], m_paletteG[0], m_paletteB[0]);
                 RenderMediumResolution(screenBaseAddress);
                 break;
 
@@ -188,7 +193,7 @@ public sealed class Shifter : IVideoSource
                 m_activeHeight = HighResHeight;
                 m_activeOriginX = BorderWidth;
                 m_activeOriginY = BorderHeight;
-                ClearToColor(255, 255, 255);
+                ClearToColorIfNeeded(255, 255, 255);
                 RenderHighResolutionMonochrome(screenBaseAddress);
                 break;
 
@@ -197,7 +202,7 @@ public sealed class Shifter : IVideoSource
                 m_activeHeight = 0;
                 m_activeOriginX = 0;
                 m_activeOriginY = 0;
-                ClearToColor(0, 0, 0);
+                ClearToColorIfNeeded(0, 0, 0);
                 break;
         }
 
@@ -206,9 +211,19 @@ public sealed class Shifter : IVideoSource
 
     private void RenderLowResolution(uint screenBaseAddress)
     {
+        var frameBuffer = m_frameBuffer;
+        var paletteR = m_paletteR;
+        var paletteG = m_paletteG;
+        var paletteB = m_paletteB;
+        const int outputStride = OutputWidth * BytesPerPixel;
+        var activeOriginXBytes = m_activeOriginX * BytesPerPixel;
+        var activeOriginY = m_activeOriginY;
+
         for (var y = 0; y < LowResHeight; y++)
         {
             var lineAddress = unchecked(screenBaseAddress + (uint)(y * LowResBytesPerLine));
+            var outputTopRowIndex = (activeOriginY + y * 2) * outputStride + activeOriginXBytes;
+            var outputBottomRowIndex = outputTopRowIndex + outputStride;
             for (var chunk = 0; chunk < LowResWordsPerLine; chunk++)
             {
                 var chunkAddress = unchecked(lineAddress + (uint)(chunk * 8));
@@ -216,15 +231,35 @@ public sealed class Shifter : IVideoSource
                 var plane1 = m_bus.Read16BigEndian(chunkAddress + 2);
                 var plane2 = m_bus.Read16BigEndian(chunkAddress + 4);
                 var plane3 = m_bus.Read16BigEndian(chunkAddress + 6);
+                var topIndex = outputTopRowIndex + chunk * 16 * 2 * BytesPerPixel;
+                var bottomIndex = outputBottomRowIndex + chunk * 16 * 2 * BytesPerPixel;
                 for (var bit = 15; bit >= 0; bit--)
                 {
-                    var x = (chunk * 16) + (15 - bit);
                     var pixelIndex =
                         ((plane0 >> bit) & 1) |
                         (((plane1 >> bit) & 1) << 1) |
                         (((plane2 >> bit) & 1) << 2) |
                         (((plane3 >> bit) & 1) << 3);
-                    WriteScaled2X2(x, y, m_paletteR[pixelIndex], m_paletteG[pixelIndex], m_paletteB[pixelIndex]);
+                    var red = paletteR[pixelIndex];
+                    var green = paletteG[pixelIndex];
+                    var blue = paletteB[pixelIndex];
+
+                    frameBuffer[topIndex] = red;
+                    frameBuffer[topIndex + 1] = green;
+                    frameBuffer[topIndex + 2] = blue;
+                    frameBuffer[topIndex + 3] = red;
+                    frameBuffer[topIndex + 4] = green;
+                    frameBuffer[topIndex + 5] = blue;
+
+                    frameBuffer[bottomIndex] = red;
+                    frameBuffer[bottomIndex + 1] = green;
+                    frameBuffer[bottomIndex + 2] = blue;
+                    frameBuffer[bottomIndex + 3] = red;
+                    frameBuffer[bottomIndex + 4] = green;
+                    frameBuffer[bottomIndex + 5] = blue;
+
+                    topIndex += 2 * BytesPerPixel;
+                    bottomIndex += 2 * BytesPerPixel;
                 }
             }
         }
@@ -242,12 +277,12 @@ public sealed class Shifter : IVideoSource
                 var plane1 = m_bus.Read16BigEndian(chunkAddress + 2);
                 for (var bit = 15; bit >= 0; bit--)
                 {
-                    var x = m_activeOriginX + (chunk * 16) + (15 - bit);
+                    var x = m_activeOriginX + chunk * 16 + (15 - bit);
                     var pixelIndex =
                         ((plane0 >> bit) & 1) |
                         (((plane1 >> bit) & 1) << 1);
-                    WriteRgbAt(x, m_activeOriginY + (y * 2), m_paletteR[pixelIndex], m_paletteG[pixelIndex], m_paletteB[pixelIndex]);
-                    WriteRgbAt(x, m_activeOriginY + (y * 2) + 1, m_paletteR[pixelIndex], m_paletteG[pixelIndex], m_paletteB[pixelIndex]);
+                    WriteRgbAt(x, m_activeOriginY + y * 2, m_paletteR[pixelIndex], m_paletteG[pixelIndex], m_paletteB[pixelIndex]);
+                    WriteRgbAt(x, m_activeOriginY + y * 2 + 1, m_paletteR[pixelIndex], m_paletteG[pixelIndex], m_paletteB[pixelIndex]);
                 }
             }
         }
@@ -263,7 +298,7 @@ public sealed class Shifter : IVideoSource
                 var word = m_bus.Read16BigEndian(unchecked(lineAddress + (uint)(chunk * 2)));
                 for (var bit = 15; bit >= 0; bit--)
                 {
-                    var x = m_activeOriginX + (chunk * 16) + (15 - bit);
+                    var x = m_activeOriginX + chunk * 16 + (15 - bit);
                     var on = ((word >> bit) & 1) != 0;
                     var value = on ? (byte)0 : (byte)255;
                     WriteRgbAt(x, m_activeOriginY + y, value, value, value);
@@ -272,19 +307,9 @@ public sealed class Shifter : IVideoSource
         }
     }
 
-    private void WriteScaled2X2(int sourceX, int sourceY, byte red, byte green, byte blue)
-    {
-        var outX = m_activeOriginX + (sourceX * 2);
-        var outY = m_activeOriginY + (sourceY * 2);
-        WriteRgbAt(outX, outY, red, green, blue);
-        WriteRgbAt(outX + 1, outY, red, green, blue);
-        WriteRgbAt(outX, outY + 1, red, green, blue);
-        WriteRgbAt(outX + 1, outY + 1, red, green, blue);
-    }
-
     private void WriteRgbAt(int x, int y, byte red, byte green, byte blue)
     {
-        var outputIndex = ((y * OutputWidth) + x) * BytesPerPixel;
+        var outputIndex = (y * OutputWidth + x) * BytesPerPixel;
         m_frameBuffer[outputIndex] = red;
         m_frameBuffer[outputIndex + 1] = green;
         m_frameBuffer[outputIndex + 2] = blue;
@@ -321,6 +346,23 @@ public sealed class Shifter : IVideoSource
             m_frameBuffer[i + 1] = green;
             m_frameBuffer[i + 2] = blue;
         }
+    }
+
+    private void ClearToColorIfNeeded(byte red, byte green, byte blue)
+    {
+        // Safe while rendering is frame-based because active pixels are fully rewritten each frame.
+        // If rendering becomes row-based, this optimization must be revisited for border correctness.
+        if (m_hasLastClearColor &&
+            m_lastClearRed == red &&
+            m_lastClearGreen == green &&
+            m_lastClearBlue == blue)
+            return;
+
+        ClearToColor(red, green, blue);
+        m_lastClearRed = red;
+        m_lastClearGreen = green;
+        m_lastClearBlue = blue;
+        m_hasLastClearColor = true;
     }
 
     private static byte ScaleThreeBitToEightBit(int value) =>
