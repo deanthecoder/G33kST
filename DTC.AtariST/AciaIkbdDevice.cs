@@ -39,6 +39,7 @@ public sealed class AciaIkbdDevice : IMemDevice
     private const byte IkbdPauseOutputCommand = 0x13;
     private const byte IkbdSetJoystickEventModeCommand = 0x14;
     private const byte IkbdSetJoystickInterrogateModeCommand = 0x15;
+    private const byte IkbdInterrogateJoystickStateCommand = 0x16;
     private const byte JoystickPacketHeaderPort0 = 0xFE;
     private const byte JoystickPacketHeaderPort1 = 0xFF;
     private const byte JoystickBitUp = 0x01;
@@ -52,6 +53,7 @@ public sealed class AciaIkbdDevice : IMemDevice
     private const byte IkbdMouseModeRelative = 0x08;
     private readonly object m_stateSync = new();
     private readonly Queue<byte> m_keyboardReceiveQueue = [];
+    private readonly byte[] m_lastJoystickStateBytes = new byte[2];
     private readonly byte[] m_pendingCommandParameters = new byte[8];
     private bool m_mouseReportingEnabled = true;
     private bool m_outputPaused;
@@ -135,6 +137,7 @@ public sealed class AciaIkbdDevice : IMemDevice
 
         lock (m_stateSync)
         {
+            m_lastJoystickStateBytes[joystickIndex] = stateByte;
             if (m_outputPaused || !m_joystickEventModeEnabled)
                 return;
 
@@ -161,6 +164,8 @@ public sealed class AciaIkbdDevice : IMemDevice
             m_outputPaused = false;
             m_mouseMode = IkbdMouseModeRelative;
             m_joystickEventModeEnabled = true;
+            m_lastJoystickStateBytes[0] = 0;
+            m_lastJoystickStateBytes[1] = 0;
             EnqueueKeyboardByteNoLock(IkbdResetCompleteCode);
         }
     }
@@ -290,6 +295,8 @@ public sealed class AciaIkbdDevice : IMemDevice
                 m_outputPaused = false;
                 m_mouseMode = IkbdMouseModeRelative;
                 m_joystickEventModeEnabled = true;
+                m_lastJoystickStateBytes[0] = 0;
+                m_lastJoystickStateBytes[1] = 0;
                 EnqueueKeyboardByteNoLock(IkbdResetCompleteCode);
             }
             return;
@@ -345,6 +352,8 @@ public sealed class AciaIkbdDevice : IMemDevice
 
         if (command == IkbdSetJoystickInterrogateModeCommand)
             m_joystickEventModeEnabled = false;
+        if (command == IkbdInterrogateJoystickStateCommand)
+            QueueJoystickInterrogationResponseNoLock();
     }
 
     private static bool TryGetIkbdCommandParameterCount(byte command, out int parameterCount)
@@ -366,6 +375,7 @@ public sealed class AciaIkbdDevice : IMemDevice
             IkbdPauseOutputCommand => 0,
             IkbdSetJoystickEventModeCommand => 0,
             IkbdSetJoystickInterrogateModeCommand => 0,
+            IkbdInterrogateJoystickStateCommand => 0,
             IkbdResetCommand => 1,
             _ => -1
         };
@@ -384,6 +394,15 @@ public sealed class AciaIkbdDevice : IMemDevice
         m_keyboardReceiveQueue.Enqueue(value);
         RefreshInterruptLineNoLock();
         KeyboardDataReady?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void QueueJoystickInterrogationResponseNoLock()
+    {
+        if (m_outputPaused)
+            return;
+
+        EnqueueKeyboardByteNoLock(JoystickPacketHeaderPort0);
+        EnqueueKeyboardByteNoLock(m_lastJoystickStateBytes[0]);
     }
 
     private void RefreshInterruptLineNoLock()

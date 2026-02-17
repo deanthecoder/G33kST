@@ -67,6 +67,7 @@ public partial class MainWindow : Window
         var point = e.GetCurrentPoint(MainDisplay);
         m_isLeftMouseButtonPressed = point.Properties.IsLeftButtonPressed;
         MainDisplay.Cursor = HiddenCursor;
+        FocusDisplaySurface();
         ForwardPointerStateToMachine(e);
     }
 
@@ -74,6 +75,8 @@ public partial class MainWindow : Window
     {
         if (sender is InputElement element)
             e.Pointer.Capture(element);
+
+        FocusDisplaySurface();
 
         var point = e.GetCurrentPoint(MainDisplay);
         var isLeftButtonPressed = point.Properties.IsLeftButtonPressed;
@@ -197,7 +200,13 @@ public partial class MainWindow : Window
         MainDisplay.Cursor = ArrowCursor;
         ForwardPointerStateToMachine(e, isPointerWithinDisplay: false);
         ReleaseAllPressedMachineKeys();
-        ReleaseAllPressedJoystickKeys();
+    }
+
+    private void FocusDisplaySurface()
+    {
+        if (!IsActive)
+            return;
+        MainDisplay.Focus(NavigationMethod.Pointer);
     }
 
     private bool TryMapPointerToNormalized(Point pointerPosition, out double normalizedX, out double normalizedY)
@@ -246,8 +255,6 @@ public partial class MainWindow : Window
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (!m_isPointerInsideDisplay)
-            return;
         if (ShouldTreatAsHostShortcut(e))
             return;
         if (TryHandleJoystickKeyDown(e.Key))
@@ -255,6 +262,8 @@ public partial class MainWindow : Window
             e.Handled = true;
             return;
         }
+        if (!m_isPointerInsideDisplay)
+            return;
         if (!AtariStKeyMapper.TryGetScanCode(e.Key, out var scanCode))
             return;
         if (m_pressedMachineKeys.ContainsKey(e.Key))
@@ -359,6 +368,8 @@ public partial class MainWindow : Window
     private bool TryHandleJoystickKeyDown(Key key)
     {
         if (!ViewModel.IsJoystickInputEnabled)
+            return false;
+        if (!IsActive)
             return false;
 
         switch (key)
