@@ -7,3 +7,6 @@
 [submodule "external/m68000"]
 	path = external/m68000
 	url = https://github.com/SingleStepTests/m68000
+[submodule "Installer"]
+	path = Installer
+	url = https://github.com/deanthecoder/DTC.Installer.git

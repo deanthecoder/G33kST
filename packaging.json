@@ -1,0 +1,24 @@
+{
+  "ProductName": "G33kST",
+  "CompanyName": "Dean Edis (DeanTheCoder)",
+  "PublisherUrl": "https://github.com/deanthecoder",
+  "BundleIdentifier": "com.deanthecoder.G33kST",
+  "Executable": "G33kST",
+  "Project": "G33kST/G33kST.csproj",
+  "Version": "0.1",
+  "Win": {
+    "InnoScript": "Installer/templates/inno.iss",
+    "IconIco": "G33kST/Assets/app.ico",
+    "GUID": "{A8A4EAA6-CB4B-47E2-8AE5-8ECA0FA2E0A5}",
+    "RuntimeIdentifier": "win-x64",
+    "InstallOpenAL": true
+  },
+  "Mac": {
+    "RuntimeIdentifiers": [
+      "osx-arm64",
+      "osx-x64"
+    ],
+    "IconIcns": "G33kST/Assets/icon.icns",
+    "InfoPlist": "Installer/templates/Info.plist"
+  }
+}
