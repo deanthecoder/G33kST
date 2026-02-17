@@ -32,6 +32,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 {
     private const string AppTitle = "G33kST";
     private const int DriveAIndex = 0;
+    private const int FloppyLedHoldMs = 130;
     private const byte CrtPreviousFrameBlendWeight = 2;
     private const byte CrtCurrentFrameBlendWeight = 3;
     private readonly Lock m_frameUpdateLock = new();
@@ -44,6 +45,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private byte[] m_backFrameBuffer;
     private byte[] m_frontFrameBuffer;
     private int m_isUiFrameUpdateQueued;
+    private bool m_isFloppyActivityIndicatorOn;
+    private long m_lastFloppyCommandCount;
+    private long m_floppyActivityVisibleUntilMs;
     private bool m_isJoystickInputEnabled;
     private static readonly string[] FloppyFileExtensions = [".st", ".zip"];
     private static readonly string[] RomFileExtensions = [".img", ".rom", ".bin", ".zip"];
@@ -94,6 +98,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public bool IsRecording => m_recorder.IsRecording;
 
     public bool IsRecordingIndicatorOn => m_recorder.IsIndicatorOn;
+    public bool IsFloppyActivityIndicatorOn => m_isFloppyActivityIndicatorOn;
 
     public bool IsSoundEnabled => Settings.IsSoundEnabled;
 
@@ -465,6 +470,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         if (frameBuffer == null || frameBuffer.Length == 0)
             return;
 
+        UpdateFloppyActivityWindow();
         CopyToBackFrame(frameBuffer);
         m_recorder.CaptureFrame();
 
@@ -477,6 +483,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             {
                 var frameToPresent = SwapFrameBuffers();
                 m_screen.Update(frameToPresent);
+                UpdateFloppyActivityIndicatorState();
                 DisplayUpdated?.Invoke(this, EventArgs.Empty);
             }
             finally
@@ -484,6 +491,32 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                 Interlocked.Exchange(ref m_isUiFrameUpdateQueued, 0);
             }
         }, DispatcherPriority.Normal);
+    }
+
+    /// <summary>
+    /// Extends the on-screen floppy LED window when new FDC commands are observed.
+    /// </summary>
+    private void UpdateFloppyActivityWindow()
+    {
+        var commandCount = m_machine.GetFloppyDebugStats().CommandCount;
+        if (commandCount == m_lastFloppyCommandCount)
+            return;
+
+        m_lastFloppyCommandCount = commandCount;
+        Volatile.Write(ref m_floppyActivityVisibleUntilMs, Environment.TickCount64 + FloppyLedHoldMs);
+    }
+
+    /// <summary>
+    /// Updates the LED binding so the UI can show short floppy access flashes like original ST hardware.
+    /// </summary>
+    private void UpdateFloppyActivityIndicatorState()
+    {
+        var shouldBeOn = Environment.TickCount64 <= Volatile.Read(ref m_floppyActivityVisibleUntilMs);
+        if (shouldBeOn == m_isFloppyActivityIndicatorOn)
+            return;
+
+        m_isFloppyActivityIndicatorOn = shouldBeOn;
+        OnPropertyChanged(nameof(IsFloppyActivityIndicatorOn));
     }
 
     private void CopyToBackFrame(byte[] frameBuffer)

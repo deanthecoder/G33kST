@@ -194,6 +194,43 @@
                         </icons:MaterialIcon.Styles>
                     </icons:MaterialIcon>
                 </ToggleButton>
+
+                <Border Width="34"
+                        Height="9"
+                        CornerRadius="2"
+                        Margin="8,0,0,0"
+                        VerticalAlignment="Center"
+                        ToolTip.Tip="Drive activity"
+                        Tag="{Binding IsFloppyActivityIndicatorOn}">
+                    <Border.Styles>
+                        <Style Selector="Border">
+                            <Setter Property="Opacity" Value="0.24" />
+                            <Setter Property="BorderThickness" Value="1" />
+                            <Setter Property="BorderBrush" Value="#2E7D32" />
+                            <Setter Property="Background">
+                                <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
+                                    <GradientStop Color="#2B5F35" Offset="0.0" />
+                                    <GradientStop Color="#397D45" Offset="0.5" />
+                                    <GradientStop Color="#2B5F35" Offset="1.0" />
+                                </LinearGradientBrush>
+                            </Setter>
+                        </Style>
+                        <Style Selector="Border[Tag=True]">
+                            <Setter Property="Opacity" Value="1.0" />
+                            <Setter Property="BorderBrush" Value="#B9FFCD" />
+                            <Setter Property="Background">
+                                <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
+                                    <GradientStop Color="#4FAE64" Offset="0.0" />
+                                    <GradientStop Color="#9BFFC0" Offset="0.5" />
+                                    <GradientStop Color="#4FAE64" Offset="1.0" />
+                                </LinearGradientBrush>
+                            </Setter>
+                            <Setter Property="Effect">
+                                <DropShadowEffect Color="#70FF99" BlurRadius="6" OffsetX="0" OffsetY="0" />
+                            </Setter>
+                        </Style>
+                    </Border.Styles>
+                </Border>
             </StackPanel>
 
             <Grid Grid.Row="1" Grid.ColumnSpan="2" Grid.Column="0" Background="Black">

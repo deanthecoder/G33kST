@@ -262,6 +262,66 @@ public sealed class AciaIkbdDeviceTests
     }
 
     [Test]
+    public void JoystickInterrogateCommandShouldReturnMostRecentQueuedState()
+    {
+        var device = new AciaIkbdDevice();
+        const byte setJoystickInterrogateModeCommand = 0x15;
+        const byte interrogateJoystickStateCommand = 0x16;
+
+        device.Write8(KeyboardDataAddress, setJoystickInterrogateModeCommand);
+        device.QueueJoystickState(0, new JoystickState(
+            IsUpPressed: true,
+            IsDownPressed: false,
+            IsLeftPressed: false,
+            IsRightPressed: false,
+            IsFirePressed: false));
+        device.QueueJoystickState(0, new JoystickState(
+            IsUpPressed: false,
+            IsDownPressed: true,
+            IsLeftPressed: true,
+            IsRightPressed: false,
+            IsFirePressed: false));
+        device.Write8(KeyboardDataAddress, interrogateJoystickStateCommand);
+        var header = device.Read8(KeyboardDataAddress);
+        var state = device.Read8(KeyboardDataAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(header, Is.EqualTo(0xFE));
+            Assert.That(state, Is.EqualTo(0x06), "Expected latest state (Down + Left) to be returned.");
+        });
+    }
+
+    [Test]
+    public void JoystickInterrogateCommandShouldReturnNeutralAfterReset()
+    {
+        var device = new AciaIkbdDevice();
+        const byte setJoystickInterrogateModeCommand = 0x15;
+        const byte interrogateJoystickStateCommand = 0x16;
+
+        device.Write8(KeyboardDataAddress, setJoystickInterrogateModeCommand);
+        device.QueueJoystickState(0, new JoystickState(
+            IsUpPressed: false,
+            IsDownPressed: false,
+            IsLeftPressed: false,
+            IsRightPressed: true,
+            IsFirePressed: true));
+
+        device.Reset();
+        _ = device.Read8(KeyboardDataAddress); // Consume reset acknowledge.
+        device.Write8(KeyboardDataAddress, setJoystickInterrogateModeCommand);
+        device.Write8(KeyboardDataAddress, interrogateJoystickStateCommand);
+        var header = device.Read8(KeyboardDataAddress);
+        var state = device.Read8(KeyboardDataAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(header, Is.EqualTo(0xFE));
+            Assert.That(state, Is.EqualTo(0x00));
+        });
+    }
+
+    [Test]
     public void DisableMouseReportingCommandShouldSuppressMousePacketsUntilRelativeModeIsSet()
     {
         var device = new AciaIkbdDevice();
