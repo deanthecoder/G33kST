@@ -33,6 +33,7 @@
         <KeyBinding Command="{Binding MountFloppyImage}" Gesture="{OnPlatform 'ctrl+o', macOS='⌘+o'}" />
         <KeyBinding Command="{Binding SaveScreenshotCommand}" Gesture="{OnPlatform 'ctrl+s', macOS='⌘+s'}" />
         <KeyBinding Command="{Binding ToggleRecordingCommand}" Gesture="{OnPlatform 'ctrl+m', macOS='⌘+m'}" />
+        <KeyBinding Command="{Binding ToggleJoystickInput}" Gesture="{OnPlatform 'ctrl+j', macOS='⌘+j'}" />
         <KeyBinding Command="{Binding CloseCommand}" Gesture="{OnPlatform 'ctrl+q', macOS='⌘+q'}" />
     </Window.KeyBindings>
 
@@ -88,6 +89,14 @@
                     <MenuItem Header="_Hard Reset"
                               Command="{Binding HardResetMachine}"
                               InputGesture="{OnPlatform 'ctrl+shift+r', macOS='⌘+shift+r'}" />
+                    <Separator />
+                    <MenuItem Header="_Joystick Input"
+                              Command="{Binding ToggleJoystickInput}"
+                              InputGesture="{OnPlatform 'ctrl+j', macOS='⌘+j'}">
+                        <MenuItem.Icon>
+                            <icons:MaterialIcon Kind="Tick" IsVisible="{Binding IsJoystickInputEnabled}" />
+                        </MenuItem.Icon>
+                    </MenuItem>
                 </MenuItem>
 
                 <MenuItem Header="_Display">

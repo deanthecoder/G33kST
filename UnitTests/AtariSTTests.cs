@@ -445,6 +445,61 @@ public sealed class AtariSTTests : TestsBase
     }
 
     [Test]
+    public void UpdateJoystickStateShouldQueueIkbdJoystickPacket()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        var bus = atariST.Cpu.Bus;
+        const uint keyboardStatusAddress = 0x00FFFC00;
+        const uint keyboardDataAddress = 0x00FFFC02;
+        DrainKeyboardReceiveQueue(bus, keyboardStatusAddress, keyboardDataAddress);
+
+        atariST.UpdateJoystickState(new JoystickState(
+            IsUpPressed: true,
+            IsDownPressed: false,
+            IsLeftPressed: false,
+            IsRightPressed: true,
+            IsFirePressed: true));
+        var header = bus.Read8(keyboardDataAddress);
+        var state = bus.Read8(keyboardDataAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(header, Is.EqualTo(0xFE));
+            Assert.That(state, Is.EqualTo(0x89));
+        });
+    }
+
+    [Test]
+    public void UpdateJoystickStateShouldNotQueueDuplicatePacketsForUnchangedState()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        var bus = atariST.Cpu.Bus;
+        const uint keyboardStatusAddress = 0x00FFFC00;
+        const uint keyboardDataAddress = 0x00FFFC02;
+        DrainKeyboardReceiveQueue(bus, keyboardStatusAddress, keyboardDataAddress);
+
+        atariST.UpdateJoystickState(new JoystickState(
+            IsUpPressed: false,
+            IsDownPressed: true,
+            IsLeftPressed: true,
+            IsRightPressed: false,
+            IsFirePressed: false));
+        atariST.UpdateJoystickState(new JoystickState(
+            IsUpPressed: false,
+            IsDownPressed: true,
+            IsLeftPressed: true,
+            IsRightPressed: false,
+            IsFirePressed: false));
+        _ = bus.Read8(keyboardDataAddress);
+        _ = bus.Read8(keyboardDataAddress);
+        var statusAfterFirstPacket = bus.Read8(keyboardStatusAddress);
+
+        Assert.That(statusAfterFirstPacket & 0x01, Is.Zero, "Unchanged joystick state should not queue another packet.");
+    }
+
+    [Test]
     public void UpdateMouseStateShouldQueueDeltaOnFirstReEntryMove()
     {
         var atariST = new AtariST();

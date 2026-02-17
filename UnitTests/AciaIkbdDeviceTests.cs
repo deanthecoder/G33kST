@@ -162,6 +162,81 @@ public sealed class AciaIkbdDeviceTests
     }
 
     [Test]
+    public void QueueJoystickStateShouldExposePort0HeaderAndStateBits()
+    {
+        var device = new AciaIkbdDevice();
+
+        device.QueueJoystickState(0, new JoystickState(
+            IsUpPressed: true,
+            IsDownPressed: false,
+            IsLeftPressed: true,
+            IsRightPressed: false,
+            IsFirePressed: true));
+
+        var header = device.Read8(KeyboardDataAddress);
+        var state = device.Read8(KeyboardDataAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(header, Is.EqualTo(0xFE));
+            Assert.That(state, Is.EqualTo(0x85));
+        });
+    }
+
+    [Test]
+    public void QueueJoystickStateShouldNeutralizeOppositeDirectionsOnEachAxis()
+    {
+        var device = new AciaIkbdDevice();
+
+        device.QueueJoystickState(0, new JoystickState(
+            IsUpPressed: true,
+            IsDownPressed: true,
+            IsLeftPressed: true,
+            IsRightPressed: true,
+            IsFirePressed: true));
+
+        var header = device.Read8(KeyboardDataAddress);
+        var state = device.Read8(KeyboardDataAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(header, Is.EqualTo(0xFE));
+            Assert.That(state, Is.EqualTo(0x80), "Opposite directions should cancel out, leaving only fire.");
+        });
+    }
+
+    [Test]
+    public void JoystickInterrogateModeShouldSuppressEventsUntilEventModeIsRestored()
+    {
+        var device = new AciaIkbdDevice();
+        const byte setJoystickInterrogateModeCommand = 0x15;
+        const byte setJoystickEventModeCommand = 0x14;
+
+        device.Write8(KeyboardDataAddress, setJoystickInterrogateModeCommand);
+        device.QueueJoystickState(0, new JoystickState(
+            IsUpPressed: false,
+            IsDownPressed: false,
+            IsLeftPressed: false,
+            IsRightPressed: true,
+            IsFirePressed: false));
+        var statusInInterrogateMode = device.Read8(KeyboardStatusAddress);
+        device.Write8(KeyboardDataAddress, setJoystickEventModeCommand);
+        device.QueueJoystickState(0, new JoystickState(
+            IsUpPressed: false,
+            IsDownPressed: false,
+            IsLeftPressed: false,
+            IsRightPressed: true,
+            IsFirePressed: false));
+        var statusInEventMode = device.Read8(KeyboardStatusAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(statusInInterrogateMode & 0x01, Is.Zero);
+            Assert.That(statusInEventMode & 0x01, Is.Not.Zero);
+        });
+    }
+
+    [Test]
     public void DisableMouseReportingCommandShouldSuppressMousePacketsUntilRelativeModeIsSet()
     {
         var device = new AciaIkbdDevice();

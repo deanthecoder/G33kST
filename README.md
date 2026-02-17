@@ -47,6 +47,13 @@ Current note for exception/interrupt work:
 - **Avalonia UI shell** - A cross-platform desktop shell will host the emulator.
 - **Unit tests** - NUnit-based tests will validate CPU behavior and core subsystems.
 
+## Input shortcuts
+- `Ctrl+J` / `⌘+J` toggles joystick input mode (off by default, not persisted).
+- With joystick input enabled:
+  - Arrow keys map to joystick directions.
+  - `Z` maps to joystick fire.
+  - `A` maps to joystick auto-fire.
+
 ## Test data
 The single-step 68000 test data comes from the excellent `m68000` repo by SingleStepTests, used under its license:
 https://github.com/SingleStepTests/m68000

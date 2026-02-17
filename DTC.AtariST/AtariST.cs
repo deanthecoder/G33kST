@@ -68,6 +68,7 @@ public sealed class AtariST : IMachine
     private int m_mouseDownY = -1;
     private bool m_isLeftMouseButtonPressed;
     private bool m_isRightMouseButtonPressed;
+    private JoystickState m_joystickState;
     private AtariMonitorType m_monitorType;
 
     public IMachineDescriptor Descriptor { get; } = new AtariSTDescriptor();
@@ -203,6 +204,7 @@ public sealed class AtariST : IMachine
             m_mouseDownY = -1;
             m_isLeftMouseButtonPressed = false;
             m_isRightMouseButtonPressed = false;
+            m_joystickState = JoystickState.Neutral;
         }
         Cpu.Reset();
     }
@@ -280,6 +282,7 @@ public sealed class AtariST : IMachine
             return;
 
         UpdateMouseState(0, 0, false, false, false);
+        UpdateJoystickState(JoystickState.Neutral);
     }
 
     /// <summary>
@@ -308,6 +311,28 @@ public sealed class AtariST : IMachine
         if (!isPressed)
             keyCode |= 0x80;
         m_aciaIkbd.QueueKeyboardByte(keyCode);
+    }
+
+    /// <summary>
+    /// Updates joystick 0 state and queues IKBD joystick event packets.
+    /// </summary>
+    public void UpdateJoystickState(JoystickState state)
+    {
+        lock (m_mouseStateSync)
+        {
+            if (!m_isInputActive)
+            {
+                ReleaseJoystickNoLock();
+                return;
+            }
+
+            state = state.NormalizeOpposingDirections();
+            if (state == m_joystickState)
+                return;
+
+            m_joystickState = state;
+            m_aciaIkbd.QueueJoystickState(0, state);
+        }
     }
 
     /// <summary>
@@ -564,6 +589,15 @@ public sealed class AtariST : IMachine
             deltaX -= stepX;
             deltaY -= stepY;
         }
+    }
+
+    private void ReleaseJoystickNoLock()
+    {
+        if (m_joystickState == JoystickState.Neutral)
+            return;
+
+        m_joystickState = JoystickState.Neutral;
+        m_aciaIkbd.QueueJoystickState(0, m_joystickState);
     }
 
     /// <summary>

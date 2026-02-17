@@ -42,6 +42,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private byte[] m_backFrameBuffer;
     private byte[] m_frontFrameBuffer;
     private int m_isUiFrameUpdateQueued;
+    private bool m_isJoystickInputEnabled;
     private static readonly string[] FloppyFileExtensions = [".st", ".zip"];
     private static readonly string[] RomFileExtensions = [".img", ".rom", ".bin", ".zip"];
 
@@ -95,6 +96,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     public bool IsHighResolutionMode => m_machine.IsHighResolutionMode;
 
+    public bool IsJoystickInputEnabled => m_isJoystickInputEnabled;
+
     public string WindowTitle => $"{AppTitle} - {m_machine.Descriptor.Name}";
 
     public event EventHandler DisplayUpdated;
@@ -127,6 +130,12 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     /// </summary>
     public void UpdateKeyboardState(byte scanCode, bool isPressed) =>
         m_machine.InjectKeyboardKeyState(scanCode, isPressed);
+
+    /// <summary>
+    /// Forwards host joystick state to IKBD joystick port 0.
+    /// </summary>
+    public void UpdateJoystickState(JoystickState state) =>
+        m_machine.UpdateJoystickState(state);
 
     public void Dispose()
     {
@@ -262,6 +271,14 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                 HardResetMachine();
                 Logger.Instance.Info($"Display mode switched to {targetMode}.");
             });
+    }
+
+    public void ToggleJoystickInput()
+    {
+        m_isJoystickInputEnabled = !m_isJoystickInputEnabled;
+        if (!m_isJoystickInputEnabled)
+            UpdateJoystickState(JoystickState.Neutral);
+        OnPropertyChanged(nameof(IsJoystickInputEnabled));
     }
 
     public void OpenLog()

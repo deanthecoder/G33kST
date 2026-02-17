@@ -39,6 +39,13 @@ public sealed class AciaIkbdDevice : IMemDevice
     private const byte IkbdPauseOutputCommand = 0x13;
     private const byte IkbdSetJoystickEventModeCommand = 0x14;
     private const byte IkbdSetJoystickInterrogateModeCommand = 0x15;
+    private const byte JoystickPacketHeaderPort0 = 0xFE;
+    private const byte JoystickPacketHeaderPort1 = 0xFF;
+    private const byte JoystickBitUp = 0x01;
+    private const byte JoystickBitDown = 0x02;
+    private const byte JoystickBitLeft = 0x04;
+    private const byte JoystickBitRight = 0x08;
+    private const byte JoystickBitFire = 0x80;
     private const byte IkbdResetCommand = 0x80;
     private const byte IkbdResetParameter = 0x01;
     private const byte IkbdResetCompleteCode = 0xF1;
@@ -48,6 +55,7 @@ public sealed class AciaIkbdDevice : IMemDevice
     private readonly byte[] m_pendingCommandParameters = new byte[8];
     private bool m_mouseReportingEnabled = true;
     private bool m_outputPaused;
+    private bool m_joystickEventModeEnabled = true;
     private byte m_pendingCommand;
     private int m_pendingCommandParameterCount;
     private int m_pendingCommandParameterIndex;
@@ -104,6 +112,39 @@ public sealed class AciaIkbdDevice : IMemDevice
     }
 
     /// <summary>
+    /// Queues one IKBD joystick event packet for joystick 0 or 1.
+    /// </summary>
+    public void QueueJoystickState(byte joystickIndex, JoystickState state)
+    {
+        if (joystickIndex > 1)
+            return;
+
+        state = state.NormalizeOpposingDirections();
+
+        var stateByte = (byte)0;
+        if (state.IsUpPressed)
+            stateByte |= JoystickBitUp;
+        if (state.IsDownPressed)
+            stateByte |= JoystickBitDown;
+        if (state.IsLeftPressed)
+            stateByte |= JoystickBitLeft;
+        if (state.IsRightPressed)
+            stateByte |= JoystickBitRight;
+        if (state.IsFirePressed)
+            stateByte |= JoystickBitFire;
+
+        lock (m_stateSync)
+        {
+            if (m_outputPaused || !m_joystickEventModeEnabled)
+                return;
+
+            var header = joystickIndex == 0 ? JoystickPacketHeaderPort0 : JoystickPacketHeaderPort1;
+            EnqueueKeyboardByteNoLock(header);
+            EnqueueKeyboardByteNoLock(stateByte);
+        }
+    }
+
+    /// <summary>
     /// Resets ACIA/IKBD transient state.
     /// </summary>
     public void Reset()
@@ -119,6 +160,7 @@ public sealed class AciaIkbdDevice : IMemDevice
             m_mouseReportingEnabled = true;
             m_outputPaused = false;
             m_mouseMode = IkbdMouseModeRelative;
+            m_joystickEventModeEnabled = true;
             EnqueueKeyboardByteNoLock(IkbdResetCompleteCode);
         }
     }
@@ -247,6 +289,7 @@ public sealed class AciaIkbdDevice : IMemDevice
                 m_mouseReportingEnabled = true;
                 m_outputPaused = false;
                 m_mouseMode = IkbdMouseModeRelative;
+                m_joystickEventModeEnabled = true;
                 EnqueueKeyboardByteNoLock(IkbdResetCompleteCode);
             }
             return;
@@ -293,6 +336,15 @@ public sealed class AciaIkbdDevice : IMemDevice
 
         if (command == IkbdPauseOutputCommand)
             m_outputPaused = true;
+
+        if (command == IkbdSetJoystickEventModeCommand)
+        {
+            m_joystickEventModeEnabled = true;
+            return;
+        }
+
+        if (command == IkbdSetJoystickInterrogateModeCommand)
+            m_joystickEventModeEnabled = false;
     }
 
     private static bool TryGetIkbdCommandParameterCount(byte command, out int parameterCount)

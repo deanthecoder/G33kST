@@ -9,12 +9,14 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using System.Diagnostics;
+using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using DTC.AtariST;
 using G33kST.ViewModels;
 
 namespace G33kST.Views;
@@ -25,12 +27,17 @@ namespace G33kST.Views;
 public partial class MainWindow : Window
 {
     private const int KeyHoldDelayMs = 300;
+    private const int AutoFireIntervalMs = 60; // Match MasterG33k cadence.
     private static readonly string[] SupportedDroppedFileExtensions = [".st", ".zip"];
     private bool m_isLoaded;
     private bool m_isPointerInsideDisplay;
     private bool m_isLeftMouseButtonPressed;
     private readonly Dictionary<Key, HeldKeyState> m_pressedMachineKeys = [];
     private readonly DispatcherTimer m_keyHoldTimer;
+    private readonly DispatcherTimer m_joystickAutoFireTimer;
+    private JoystickState m_joystickState;
+    private bool m_isJoystickAutoFireHeld;
+    private bool m_isJoystickAutoFirePulseOn;
     private static readonly Cursor HiddenCursor = new(StandardCursorType.None);
     private static readonly Cursor ArrowCursor = new(StandardCursorType.Arrow);
     private MainWindowViewModel ViewModel => (MainWindowViewModel)DataContext;
@@ -40,6 +47,8 @@ public partial class MainWindow : Window
         InitializeComponent();
         m_keyHoldTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(10) };
         m_keyHoldTimer.Tick += OnKeyHoldTick;
+        m_joystickAutoFireTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(AutoFireIntervalMs) };
+        m_joystickAutoFireTimer.Tick += OnJoystickAutoFireTick;
         AddHandler(KeyDownEvent, OnPreviewKeyDown, RoutingStrategies.Tunnel);
         AddHandler(KeyUpEvent, OnPreviewKeyUp, RoutingStrategies.Tunnel);
         AddHandler(DragDrop.DragOverEvent, OnWindowDragOver);
@@ -123,8 +132,11 @@ public partial class MainWindow : Window
         {
             ViewModel?.SetInputActive(false);
             ReleaseAllPressedMachineKeys();
+            ReleaseAllPressedJoystickKeys();
         };
         ViewModel?.SetInputActive(IsActive);
+        if (ViewModel != null)
+            ViewModel.PropertyChanged += OnViewModelPropertyChanged;
     }
 
     protected override void OnLoaded(RoutedEventArgs e)
@@ -143,6 +155,17 @@ public partial class MainWindow : Window
                 MainDisplay.InvalidateVisual();
             }, DispatcherPriority.Render);
         };
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        if (ViewModel != null)
+            ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        m_joystickAutoFireTimer.Stop();
+        m_joystickAutoFireTimer.Tick -= OnJoystickAutoFireTick;
+        m_keyHoldTimer.Stop();
+        m_keyHoldTimer.Tick -= OnKeyHoldTick;
+        base.OnClosed(e);
     }
 
     private void ForwardPointerStateToMachine(PointerEventArgs e, bool? isPointerWithinDisplay = null, bool? isLeftButtonPressed = null, bool? isRightButtonPressed = null)
@@ -174,6 +197,7 @@ public partial class MainWindow : Window
         MainDisplay.Cursor = ArrowCursor;
         ForwardPointerStateToMachine(e, isPointerWithinDisplay: false);
         ReleaseAllPressedMachineKeys();
+        ReleaseAllPressedJoystickKeys();
     }
 
     private bool TryMapPointerToNormalized(Point pointerPosition, out double normalizedX, out double normalizedY)
@@ -226,6 +250,11 @@ public partial class MainWindow : Window
             return;
         if (ShouldTreatAsHostShortcut(e))
             return;
+        if (TryHandleJoystickKeyDown(e.Key))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!AtariStKeyMapper.TryGetScanCode(e.Key, out var scanCode))
             return;
         if (m_pressedMachineKeys.ContainsKey(e.Key))
@@ -245,6 +274,12 @@ public partial class MainWindow : Window
 
     private void OnPreviewKeyUp(object sender, KeyEventArgs e)
     {
+        if (TryHandleJoystickKeyUp(e.Key))
+        {
+            e.Handled = true;
+            return;
+        }
+
         if (!m_pressedMachineKeys.Remove(e.Key, out var state))
             return;
 
@@ -285,6 +320,147 @@ public partial class MainWindow : Window
         m_pressedMachineKeys.Clear();
         m_keyHoldTimer.Stop();
     }
+
+    private void ReleaseAllPressedJoystickKeys()
+    {
+        if (!HasAnyJoystickState())
+            return;
+
+        m_joystickState = JoystickState.Neutral;
+        m_isJoystickAutoFireHeld = false;
+        m_isJoystickAutoFirePulseOn = false;
+        m_joystickAutoFireTimer.Stop();
+        ViewModel.UpdateJoystickState(m_joystickState);
+    }
+
+    private void OnJoystickAutoFireTick(object sender, EventArgs e)
+    {
+        if (!ViewModel.IsJoystickInputEnabled || !m_isJoystickAutoFireHeld)
+        {
+            m_isJoystickAutoFirePulseOn = false;
+            m_joystickAutoFireTimer.Stop();
+            PushJoystickStateToMachine();
+            return;
+        }
+
+        m_isJoystickAutoFirePulseOn = !m_isJoystickAutoFirePulseOn;
+        PushJoystickStateToMachine();
+    }
+
+    private void OnViewModelPropertyChanged(object sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(MainWindowViewModel.IsJoystickInputEnabled))
+            return;
+        if (ViewModel.IsJoystickInputEnabled)
+            return;
+        ReleaseAllPressedJoystickKeys();
+    }
+
+    private bool TryHandleJoystickKeyDown(Key key)
+    {
+        if (!ViewModel.IsJoystickInputEnabled)
+            return false;
+
+        switch (key)
+        {
+            case Key.Up:
+                if (m_joystickState.IsUpPressed)
+                    return true;
+                m_joystickState = m_joystickState with { IsUpPressed = true };
+                break;
+            case Key.Down:
+                if (m_joystickState.IsDownPressed)
+                    return true;
+                m_joystickState = m_joystickState with { IsDownPressed = true };
+                break;
+            case Key.Left:
+                if (m_joystickState.IsLeftPressed)
+                    return true;
+                m_joystickState = m_joystickState with { IsLeftPressed = true };
+                break;
+            case Key.Right:
+                if (m_joystickState.IsRightPressed)
+                    return true;
+                m_joystickState = m_joystickState with { IsRightPressed = true };
+                break;
+            case Key.Z:
+                if (m_joystickState.IsFirePressed)
+                    return true;
+                m_joystickState = m_joystickState with { IsFirePressed = true };
+                break;
+            case Key.A:
+                if (m_isJoystickAutoFireHeld)
+                    return true;
+                m_isJoystickAutoFireHeld = true;
+                m_isJoystickAutoFirePulseOn = true; // Engage fire immediately.
+                m_joystickAutoFireTimer.Start();
+                break;
+            default:
+                return false;
+        }
+
+        PushJoystickStateToMachine();
+        return true;
+    }
+
+    private bool TryHandleJoystickKeyUp(Key key)
+    {
+        if (!IsJoystickControlKey(key))
+            return false;
+        if (!ViewModel.IsJoystickInputEnabled && !HasAnyJoystickState())
+            return false;
+
+        var changed = false;
+        switch (key)
+        {
+            case Key.Up:
+                changed = m_joystickState.IsUpPressed;
+                m_joystickState = m_joystickState with { IsUpPressed = false };
+                break;
+            case Key.Down:
+                changed = m_joystickState.IsDownPressed;
+                m_joystickState = m_joystickState with { IsDownPressed = false };
+                break;
+            case Key.Left:
+                changed = m_joystickState.IsLeftPressed;
+                m_joystickState = m_joystickState with { IsLeftPressed = false };
+                break;
+            case Key.Right:
+                changed = m_joystickState.IsRightPressed;
+                m_joystickState = m_joystickState with { IsRightPressed = false };
+                break;
+            case Key.Z:
+                changed = m_joystickState.IsFirePressed;
+                m_joystickState = m_joystickState with { IsFirePressed = false };
+                break;
+            case Key.A:
+                changed = m_isJoystickAutoFireHeld || m_isJoystickAutoFirePulseOn;
+                m_isJoystickAutoFireHeld = false;
+                m_isJoystickAutoFirePulseOn = false;
+                m_joystickAutoFireTimer.Stop();
+                break;
+        }
+
+        if (!changed)
+            return false;
+
+        PushJoystickStateToMachine();
+        return true;
+    }
+
+    private void PushJoystickStateToMachine()
+    {
+        var isFirePressed = m_joystickState.IsFirePressed || (m_isJoystickAutoFireHeld && m_isJoystickAutoFirePulseOn);
+        ViewModel.UpdateJoystickState(m_joystickState.WithFire(isFirePressed));
+    }
+
+    private bool HasAnyJoystickState() =>
+        m_joystickState.HasAnyInput ||
+        m_isJoystickAutoFireHeld ||
+        m_isJoystickAutoFirePulseOn;
+
+    private static bool IsJoystickControlKey(Key key) =>
+        key is Key.Up or Key.Down or Key.Left or Key.Right or Key.Z or Key.A;
 
     private static long MsToTicks(int milliseconds) =>
         milliseconds * Stopwatch.Frequency / 1000;
