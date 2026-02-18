@@ -32,7 +32,7 @@ public sealed class AtariSTTests : TestsBase
         var atariST = new AtariST();
 
         Assert.That(atariST, Is.Not.Null);
-        Assert.That(atariST.Name, Is.EqualTo("Atari 1040 STFM"));
+        Assert.That(atariST.Name, Is.EqualTo("Atari ST 1040 STFM"));
         Assert.That(atariST.Descriptor, Is.Not.Null);
         Assert.That(atariST.Descriptor.CpuHz, Is.EqualTo(8_000_000.0));
         Assert.That(atariST.Descriptor.VideoHz, Is.EqualTo(60.0));
@@ -431,6 +431,7 @@ public sealed class AtariSTTests : TestsBase
 
         atariST.UpdateMouseState(0.50, 0.50, isLeftButtonPressed: false, isRightButtonPressed: false, isPointerWithinDisplay: true);
         atariST.UpdateMouseState(0.60, 0.50, isLeftButtonPressed: true, isRightButtonPressed: false, isPointerWithinDisplay: true);
+        atariST.AdvanceDevices(CpuTicksForOneMousePacket(atariST));
 
         var header = bus.Read8(keyboardDataAddress);
         var deltaX = bus.Read8(keyboardDataAddress);
@@ -511,9 +512,11 @@ public sealed class AtariSTTests : TestsBase
 
         atariST.UpdateMouseState(0.45, 0.45, false, false, true);
         atariST.UpdateMouseState(0.50, 0.45, false, false, true);
+        atariST.AdvanceDevices(CpuTicksForOneMousePacket(atariST) * 2);
         DrainKeyboardReceiveQueue(bus, keyboardStatusAddress, keyboardDataAddress);
         atariST.UpdateMouseState(0.00, 0.00, false, false, false);
         atariST.UpdateMouseState(0.70, 0.45, false, false, true);
+        atariST.AdvanceDevices(CpuTicksForOneMousePacket(atariST));
 
         var status = bus.Read8(keyboardStatusAddress);
         Assert.That(status & 0x01, Is.Not.Zero, "Expected a relative mouse packet on first move after pointer re-entry.");
@@ -530,9 +533,33 @@ public sealed class AtariSTTests : TestsBase
         DrainKeyboardReceiveQueue(bus, keyboardStatusAddress, keyboardDataAddress);
 
         atariST.UpdateMouseState(0.90, 0.90, false, false, true);
+        atariST.AdvanceDevices(CpuTicksForOneMousePacket(atariST));
 
         var status = bus.Read8(keyboardStatusAddress);
         Assert.That(status & 0x01, Is.Not.Zero, "Expected initial entry to queue a sync delta from boot cursor position.");
+    }
+
+    [Test]
+    public void UpdateMouseStateShouldQueuePacketsOnFixedCadence()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        var bus = atariST.Cpu.Bus;
+        const uint keyboardStatusAddress = 0x00FFFC00;
+        const uint keyboardDataAddress = 0x00FFFC02;
+        DrainKeyboardReceiveQueue(bus, keyboardStatusAddress, keyboardDataAddress);
+
+        atariST.UpdateMouseState(0.50, 0.50, false, false, true);
+        atariST.UpdateMouseState(0.70, 0.50, false, false, true);
+        var statusBeforeHblank = bus.Read8(keyboardStatusAddress);
+        atariST.AdvanceDevices(CpuTicksForOneMousePacket(atariST));
+        var statusAfterCadenceTick = bus.Read8(keyboardStatusAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(statusBeforeHblank & 0x01, Is.Zero, "Packets should not be queued immediately from host mouse events.");
+            Assert.That(statusAfterCadenceTick & 0x01, Is.Not.Zero, "Expected one queued packet to flush on fixed mouse cadence.");
+        });
     }
 
     [Test]
@@ -765,6 +792,73 @@ public sealed class AtariSTTests : TestsBase
         });
     }
 
+    [Test]
+    public void VideoShouldApplyPaletteChangesPerScanlineInLowResolutionMode()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        var shifter = (Shifter)atariST.Video;
+        var bus = atariST.Cpu.Bus;
+        const uint screenBaseAddress = 0x00000100;
+        const uint videoBaseHighRegister = 0x00FF8201;
+        const uint videoBaseMidRegister = 0x00FF8203;
+        const uint videoModeRegister = 0x00FF8260;
+        const uint paletteBaseRegister = 0x00FF8240;
+        const int lowResBytesPerLine = 160;
+        var ticksPerLine = (long)Math.Ceiling(atariST.Descriptor.CpuHz / (atariST.Descriptor.VideoHz * 262.0));
+        var bytesPerPixel = atariST.Video.FrameBytesPerPixel;
+        bus.Write8(0x00FF8001, 0x01);
+
+        bus.Write8(videoModeRegister, 0x00);
+        bus.Write8(videoBaseHighRegister, 0x00);
+        bus.Write8(videoBaseMidRegister, 0x01);
+
+        bus.Write16BigEndian(paletteBaseRegister + 2, 0x0700); // Palette index 1 = red.
+        bus.Write16BigEndian(screenBaseAddress, 0x8000);
+        bus.Write16BigEndian(screenBaseAddress + 2, 0x0000);
+        bus.Write16BigEndian(screenBaseAddress + 4, 0x0000);
+        bus.Write16BigEndian(screenBaseAddress + 6, 0x0000);
+
+        var line1Address = screenBaseAddress + lowResBytesPerLine;
+        bus.Write16BigEndian(line1Address, 0x8000);
+        bus.Write16BigEndian(line1Address + 2, 0x0000);
+        bus.Write16BigEndian(line1Address + 4, 0x0000);
+        bus.Write16BigEndian(line1Address + 6, 0x0000);
+
+        // Re-evaluate line 0 with the configured registers and palette.
+        shifter.Reset();
+
+        var hasUpdatedPaletteForNextLine = false;
+        shifter.Advance(
+            ticksPerLine,
+            () =>
+            {
+                if (hasUpdatedPaletteForNextLine)
+                    return;
+
+                hasUpdatedPaletteForNextLine = true;
+                bus.Write16BigEndian(paletteBaseRegister + 2, 0x0070); // Palette index 1 = green.
+            },
+            null);
+
+        var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * bytesPerPixel];
+        atariST.Video.CopyToFrameBuffer(frameBuffer);
+        var line0PixelOffset = ((shifter.ActiveOriginY * atariST.Video.FrameWidth) + shifter.ActiveOriginX) * bytesPerPixel;
+        var line1OutputY = shifter.ActiveOriginY + 2;
+        var line1PixelOffset = ((line1OutputY * atariST.Video.FrameWidth) + shifter.ActiveOriginX) * bytesPerPixel;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(frameBuffer[line0PixelOffset], Is.EqualTo(255));
+            Assert.That(frameBuffer[line0PixelOffset + 1], Is.EqualTo(0));
+            Assert.That(frameBuffer[line0PixelOffset + 2], Is.EqualTo(0));
+
+            Assert.That(frameBuffer[line1PixelOffset], Is.EqualTo(0));
+            Assert.That(frameBuffer[line1PixelOffset + 1], Is.EqualTo(255));
+            Assert.That(frameBuffer[line1PixelOffset + 2], Is.EqualTo(0));
+        });
+    }
+
     /// <summary>
     /// Creates a minimal TOS ROM image with valid reset vectors.
     /// The 68000 expects the initial SSP at $000000 and initial PC at $000004.
@@ -798,4 +892,10 @@ public sealed class AtariSTTests : TestsBase
         while ((bus.Read8(statusAddress) & 0x01) != 0)
             _ = bus.Read8(dataAddress);
     }
+
+    private static long CpuTicksForOneScanline(AtariST atariST) =>
+        (long)Math.Ceiling(atariST.Descriptor.CpuHz / (atariST.Descriptor.VideoHz * 262.0));
+
+    private static long CpuTicksForOneMousePacket(AtariST atariST) =>
+        (long)Math.Ceiling(atariST.Descriptor.CpuHz / 200.0);
 }

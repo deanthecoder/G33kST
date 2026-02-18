@@ -37,10 +37,12 @@ public sealed class AtariST : IMachine
     private const byte LowResolutionModeValue = 0x00;
     private const byte HighResolutionModeValue = 0x02;
     private const int MouseDragActivationThresholdPixels = 2;
+    private const int MaxQueuedMousePackets = 128;
     private const uint RealTimeClockFromAddress = 0x00FFFC20;
     private const uint RealTimeClockToAddress = 0x00FFFC3F;
     private const byte SyntheticVblInterruptLevel = 4;
     private const long MfpInputClockHz = 2_457_600;
+    private const double IkbdMousePacketHz = 200.0;
     private readonly Shifter m_video;
     private readonly AciaIkbdDevice m_aciaIkbd;
     private readonly ShifterRegistersDevice m_shifterRegisters;
@@ -57,7 +59,9 @@ public sealed class AtariST : IMachine
     private bool m_hasLatchedInterrupt;
     private bool m_isInputActive = true;
     private readonly long m_cpuClockHz;
+    private readonly double m_mousePacketTicksPerSample;
     private long m_mfpTickRemainder;
+    private double m_mousePacketTickAccumulator;
     private bool m_wasMouseActive;
     private int m_lastMouseX = -1;
     private int m_lastMouseY = -1;
@@ -68,6 +72,7 @@ public sealed class AtariST : IMachine
     private int m_mouseDownY = -1;
     private bool m_isLeftMouseButtonPressed;
     private bool m_isRightMouseButtonPressed;
+    private readonly Queue<MousePacket> m_pendingMousePackets = [];
     private JoystickState m_joystickState;
     private AtariMonitorType m_monitorType;
 
@@ -110,6 +115,7 @@ public sealed class AtariST : IMachine
         ValidateOptions(options1);
         m_monitorType = options1.MonitorType;
         m_cpuClockHz = Math.Max(1, (long)Math.Round(Descriptor.CpuHz));
+        m_mousePacketTicksPerSample = Math.Max(1.0, Descriptor.CpuHz / IkbdMousePacketHz);
 
         // Create main RAM and ROM
         Ram = new Memory(options1.RamSizeBytes);
@@ -187,6 +193,8 @@ public sealed class AtariST : IMachine
         m_pendingInterrupts.Clear();
         foreach (var queue in m_pendingAcknowledgeByLevel)
             queue.Clear();
+        m_pendingMousePackets.Clear();
+        m_mousePacketTickAccumulator = 0;
         m_hasLatchedInterrupt = false;
         m_latchedInterruptLevel = 0;
         m_latchedInterruptAcknowledge = default;
@@ -232,6 +240,7 @@ public sealed class AtariST : IMachine
     public void AdvanceDevices(long deltaTicks)
     {
         m_video.Advance(deltaTicks, OnHblank, OnVblank);
+        FlushPendingMousePacketsOnCadence(deltaTicks);
         var mfpTicks = ScaleCpuTicksForMfp(deltaTicks);
         if (mfpTicks > 0)
             m_mfp.Advance(mfpTicks);
@@ -382,6 +391,7 @@ public sealed class AtariST : IMachine
             var isMouseActive = m_isInputActive && isPointerWithinDisplay;
             if (!isMouseActive)
             {
+                m_pendingMousePackets.Clear();
                 ReleaseMouseButtonsNoLock();
                 m_wasMouseActive = false;
                 return;
@@ -407,7 +417,7 @@ public sealed class AtariST : IMachine
                 var syncDeltaY = mouseY - m_estimatedMouseY;
                 if (syncDeltaX != 0 || syncDeltaY != 0)
                 {
-                    QueueRelativeMouseDeltas(syncDeltaX, syncDeltaY, isLeftButtonPressed, isRightButtonPressed);
+                    QueueRelativeMouseDeltasNoLock(syncDeltaX, syncDeltaY, isLeftButtonPressed, isRightButtonPressed);
                     m_estimatedMouseX = mouseX;
                     m_estimatedMouseY = mouseY;
                 }
@@ -462,17 +472,17 @@ public sealed class AtariST : IMachine
             if (!hasPreviousPosition)
             {
                 if (buttonsChanged)
-                    m_aciaIkbd.QueueRelativeMousePacket(0, 0, isLeftButtonPressed, isRightButtonPressed);
+                    EnqueueMousePacketNoLock(0, 0, isLeftButtonPressed, isRightButtonPressed);
                 return;
             }
             if (deltaX == 0 && deltaY == 0)
             {
                 if (buttonsChanged)
-                    m_aciaIkbd.QueueRelativeMousePacket(0, 0, isLeftButtonPressed, isRightButtonPressed);
+                    EnqueueMousePacketNoLock(0, 0, isLeftButtonPressed, isRightButtonPressed);
                 return;
             }
 
-            QueueRelativeMouseDeltas(deltaX, deltaY, isLeftButtonPressed, isRightButtonPressed);
+            QueueRelativeMouseDeltasNoLock(deltaX, deltaY, isLeftButtonPressed, isRightButtonPressed);
             m_estimatedMouseX = mouseX;
             m_estimatedMouseY = mouseY;
         }
@@ -576,18 +586,50 @@ public sealed class AtariST : IMachine
         m_isLeftMouseButtonPressed = false;
         m_isRightMouseButtonPressed = false;
         m_isMouseDragPending = false;
-        m_aciaIkbd.QueueRelativeMousePacket(0, 0, false, false);
+        EnqueueMousePacketNoLock(0, 0, false, false);
     }
 
-    private void QueueRelativeMouseDeltas(int deltaX, int deltaY, bool isLeftButtonPressed, bool isRightButtonPressed)
+    private void QueueRelativeMouseDeltasNoLock(int deltaX, int deltaY, bool isLeftButtonPressed, bool isRightButtonPressed)
     {
         while (deltaX != 0 || deltaY != 0)
         {
             var stepX = Math.Clamp(deltaX, -127, 127);
             var stepY = Math.Clamp(deltaY, -127, 127);
-            m_aciaIkbd.QueueRelativeMousePacket((sbyte)stepX, (sbyte)stepY, isLeftButtonPressed, isRightButtonPressed);
+            EnqueueMousePacketNoLock((sbyte)stepX, (sbyte)stepY, isLeftButtonPressed, isRightButtonPressed);
             deltaX -= stepX;
             deltaY -= stepY;
+        }
+    }
+
+    private void EnqueueMousePacketNoLock(sbyte deltaX, sbyte deltaY, bool isLeftButtonPressed, bool isRightButtonPressed)
+    {
+        if (m_pendingMousePackets.Count >= MaxQueuedMousePackets)
+            _ = m_pendingMousePackets.Dequeue();
+
+        m_pendingMousePackets.Enqueue(new MousePacket(deltaX, deltaY, isLeftButtonPressed, isRightButtonPressed));
+    }
+
+    private void FlushPendingMousePacketsOnCadence(long deltaTicks)
+    {
+        if (deltaTicks <= 0)
+            return;
+
+        m_mousePacketTickAccumulator += deltaTicks;
+        var packetCount = (int)(m_mousePacketTickAccumulator / m_mousePacketTicksPerSample);
+        if (packetCount <= 0)
+            return;
+        m_mousePacketTickAccumulator -= packetCount * m_mousePacketTicksPerSample;
+
+        lock (m_mouseStateSync)
+        {
+            for (var i = 0; i < packetCount; i++)
+            {
+                if (m_pendingMousePackets.Count == 0)
+                    return;
+
+                var packet = m_pendingMousePackets.Dequeue();
+                m_aciaIkbd.QueueRelativeMousePacket(packet.DeltaX, packet.DeltaY, packet.IsLeftButtonPressed, packet.IsRightButtonPressed);
+            }
         }
     }
 
@@ -615,4 +657,5 @@ public sealed class AtariST : IMachine
         return scaledTicks <= 0 ? 0 : (int)Math.Min(scaledTicks, int.MaxValue);
     }
 
+    private readonly record struct MousePacket(sbyte DeltaX, sbyte DeltaY, bool IsLeftButtonPressed, bool IsRightButtonPressed);
 }

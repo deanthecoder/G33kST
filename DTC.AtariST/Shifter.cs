@@ -73,7 +73,7 @@ public sealed class Shifter : IVideoSource
         m_ticksPerLine = cpuHz / (videoHz * TotalRasterLines);
         if (m_ticksPerLine <= 0)
             throw new ArgumentOutOfRangeException(nameof(cpuHz), "Computed ticks-per-line must be positive.");
-
+        Reset();
     }
 
     /// <inheritdoc />
@@ -125,6 +125,11 @@ public sealed class Shifter : IVideoSource
         m_activeOriginX = BorderWidth;
         m_activeOriginY = BorderHeight;
         m_hasLastClearColor = false;
+        BeginFrame();
+        if (GetVideoMode() == 0)
+            RenderLowResolutionScanline(0);
+        else
+            RenderFrameForNonLowResolutionModes(GetVideoMode());
     }
 
     /// <summary>
@@ -142,14 +147,25 @@ public sealed class Shifter : IVideoSource
             hblankCallback?.Invoke();
 
             m_currentRasterLine++;
+            var mode = GetVideoMode();
+            if (mode == 0 && m_currentRasterLine < VisibleRasterLines)
+                RenderLowResolutionScanline(m_currentRasterLine);
+
             if (m_currentRasterLine == VisibleRasterLines)
             {
-                RenderFrame();
+                if (mode != 0)
+                    RenderFrameForNonLowResolutionModes(mode);
+                FrameRendered?.Invoke(this, m_frameBuffer);
                 vblankCallback?.Invoke();
             }
 
             if (m_currentRasterLine >= TotalRasterLines)
+            {
                 m_currentRasterLine = 0;
+                BeginFrame();
+                if (GetVideoMode() == 0)
+                    RenderLowResolutionScanline(0);
+            }
         }
     }
 
@@ -162,11 +178,8 @@ public sealed class Shifter : IVideoSource
         m_frameBuffer.CopyTo(frameBuffer);
     }
 
-    private void RenderFrame()
+    private void BeginFrame()
     {
-        RefreshPalette();
-        var screenBaseAddress = ReadScreenBaseAddress();
-
         var mode = m_bus.Read8(VideoModeRegister) & 0x03;
         switch (mode)
         {
@@ -175,8 +188,8 @@ public sealed class Shifter : IVideoSource
                 m_activeHeight = LowResHeight;
                 m_activeOriginX = BorderWidth;
                 m_activeOriginY = BorderHeight;
+                RefreshPalette();
                 ClearToColorIfNeeded(m_paletteR[0], m_paletteG[0], m_paletteB[0]);
-                RenderLowResolution(screenBaseAddress);
                 break;
 
             case 1:
@@ -184,8 +197,8 @@ public sealed class Shifter : IVideoSource
                 m_activeHeight = MediumResHeight;
                 m_activeOriginX = BorderWidth;
                 m_activeOriginY = BorderHeight;
+                RefreshPalette();
                 ClearToColorIfNeeded(m_paletteR[0], m_paletteG[0], m_paletteB[0]);
-                RenderMediumResolution(screenBaseAddress);
                 break;
 
             case 2:
@@ -194,7 +207,6 @@ public sealed class Shifter : IVideoSource
                 m_activeOriginX = BorderWidth;
                 m_activeOriginY = BorderHeight;
                 ClearToColorIfNeeded(255, 255, 255);
-                RenderHighResolutionMonochrome(screenBaseAddress);
                 break;
 
             default:
@@ -205,105 +217,182 @@ public sealed class Shifter : IVideoSource
                 ClearToColorIfNeeded(0, 0, 0);
                 break;
         }
-
-        FrameRendered?.Invoke(this, m_frameBuffer);
     }
 
-    private void RenderLowResolution(uint screenBaseAddress)
+    private int GetVideoMode() =>
+        m_bus.Read8(VideoModeRegister) & 0x03;
+
+    private void RenderFrameForNonLowResolutionModes(int mode)
     {
+        switch (mode)
+        {
+            case 1:
+                RefreshPalette();
+                ClearToColorIfNeeded(m_paletteR[0], m_paletteG[0], m_paletteB[0]);
+                RenderMediumResolutionFrame(ReadScreenBaseAddress());
+                return;
+            case 2:
+                ClearToColorIfNeeded(255, 255, 255);
+                RenderHighResolutionMonochromeFrame(ReadScreenBaseAddress());
+                return;
+            default:
+                return;
+        }
+    }
+
+    private void RenderLowResolutionScanline(int sourceLine)
+    {
+        if (sourceLine < 0 || sourceLine >= LowResHeight)
+            return;
+
+        RefreshPalette();
+        var screenBaseAddress = ReadScreenBaseAddress();
+        var borderRed = m_paletteR[0];
+        var borderGreen = m_paletteG[0];
+        var borderBlue = m_paletteB[0];
+        var topOutputY = m_activeOriginY + sourceLine * 2;
+        var bottomOutputY = topOutputY + 1;
+        FillOutputRow(topOutputY, borderRed, borderGreen, borderBlue);
+        FillOutputRow(bottomOutputY, borderRed, borderGreen, borderBlue);
+
         var frameBuffer = m_frameBuffer;
         var paletteR = m_paletteR;
         var paletteG = m_paletteG;
         var paletteB = m_paletteB;
         const int outputStride = OutputWidth * BytesPerPixel;
         var activeOriginXBytes = m_activeOriginX * BytesPerPixel;
-        var activeOriginY = m_activeOriginY;
-
-        for (var y = 0; y < LowResHeight; y++)
+        var lineAddress = unchecked(screenBaseAddress + (uint)(sourceLine * LowResBytesPerLine));
+        var outputTopRowIndex = topOutputY * outputStride + activeOriginXBytes;
+        var outputBottomRowIndex = bottomOutputY * outputStride + activeOriginXBytes;
+        for (var chunk = 0; chunk < LowResWordsPerLine; chunk++)
         {
-            var lineAddress = unchecked(screenBaseAddress + (uint)(y * LowResBytesPerLine));
-            var outputTopRowIndex = (activeOriginY + y * 2) * outputStride + activeOriginXBytes;
-            var outputBottomRowIndex = outputTopRowIndex + outputStride;
-            for (var chunk = 0; chunk < LowResWordsPerLine; chunk++)
+            var chunkAddress = unchecked(lineAddress + (uint)(chunk * 8));
+            var plane0 = m_bus.Read16BigEndian(chunkAddress);
+            var plane1 = m_bus.Read16BigEndian(chunkAddress + 2);
+            var plane2 = m_bus.Read16BigEndian(chunkAddress + 4);
+            var plane3 = m_bus.Read16BigEndian(chunkAddress + 6);
+            var topIndex = outputTopRowIndex + chunk * 16 * 2 * BytesPerPixel;
+            var bottomIndex = outputBottomRowIndex + chunk * 16 * 2 * BytesPerPixel;
+            for (var bit = 15; bit >= 0; bit--)
             {
-                var chunkAddress = unchecked(lineAddress + (uint)(chunk * 8));
-                var plane0 = m_bus.Read16BigEndian(chunkAddress);
-                var plane1 = m_bus.Read16BigEndian(chunkAddress + 2);
-                var plane2 = m_bus.Read16BigEndian(chunkAddress + 4);
-                var plane3 = m_bus.Read16BigEndian(chunkAddress + 6);
-                var topIndex = outputTopRowIndex + chunk * 16 * 2 * BytesPerPixel;
-                var bottomIndex = outputBottomRowIndex + chunk * 16 * 2 * BytesPerPixel;
-                for (var bit = 15; bit >= 0; bit--)
-                {
-                    var pixelIndex =
-                        ((plane0 >> bit) & 1) |
-                        (((plane1 >> bit) & 1) << 1) |
-                        (((plane2 >> bit) & 1) << 2) |
-                        (((plane3 >> bit) & 1) << 3);
-                    var red = paletteR[pixelIndex];
-                    var green = paletteG[pixelIndex];
-                    var blue = paletteB[pixelIndex];
+                var pixelIndex =
+                    ((plane0 >> bit) & 1) |
+                    (((plane1 >> bit) & 1) << 1) |
+                    (((plane2 >> bit) & 1) << 2) |
+                    (((plane3 >> bit) & 1) << 3);
+                var red = paletteR[pixelIndex];
+                var green = paletteG[pixelIndex];
+                var blue = paletteB[pixelIndex];
 
-                    frameBuffer[topIndex] = red;
-                    frameBuffer[topIndex + 1] = green;
-                    frameBuffer[topIndex + 2] = blue;
-                    frameBuffer[topIndex + 3] = red;
-                    frameBuffer[topIndex + 4] = green;
-                    frameBuffer[topIndex + 5] = blue;
+                frameBuffer[topIndex] = red;
+                frameBuffer[topIndex + 1] = green;
+                frameBuffer[topIndex + 2] = blue;
+                frameBuffer[topIndex + 3] = red;
+                frameBuffer[topIndex + 4] = green;
+                frameBuffer[topIndex + 5] = blue;
 
-                    frameBuffer[bottomIndex] = red;
-                    frameBuffer[bottomIndex + 1] = green;
-                    frameBuffer[bottomIndex + 2] = blue;
-                    frameBuffer[bottomIndex + 3] = red;
-                    frameBuffer[bottomIndex + 4] = green;
-                    frameBuffer[bottomIndex + 5] = blue;
+                frameBuffer[bottomIndex] = red;
+                frameBuffer[bottomIndex + 1] = green;
+                frameBuffer[bottomIndex + 2] = blue;
+                frameBuffer[bottomIndex + 3] = red;
+                frameBuffer[bottomIndex + 4] = green;
+                frameBuffer[bottomIndex + 5] = blue;
 
-                    topIndex += 2 * BytesPerPixel;
-                    bottomIndex += 2 * BytesPerPixel;
-                }
+                topIndex += 2 * BytesPerPixel;
+                bottomIndex += 2 * BytesPerPixel;
             }
         }
     }
 
-    private void RenderMediumResolution(uint screenBaseAddress)
+    private void RenderMediumResolutionFrame(uint screenBaseAddress)
     {
-        for (var y = 0; y < MediumResHeight; y++)
+        for (var sourceLine = 0; sourceLine < MediumResHeight; sourceLine++)
+            RenderMediumResolutionLine(screenBaseAddress, sourceLine);
+    }
+
+    private void RenderMediumResolutionLine(uint screenBaseAddress, int sourceLine)
+    {
+        if (sourceLine < 0 || sourceLine >= MediumResHeight)
+            return;
+
+        var borderRed = m_paletteR[0];
+        var borderGreen = m_paletteG[0];
+        var borderBlue = m_paletteB[0];
+        var topOutputY = m_activeOriginY + sourceLine * 2;
+        var bottomOutputY = topOutputY + 1;
+        FillOutputRow(topOutputY, borderRed, borderGreen, borderBlue);
+        FillOutputRow(bottomOutputY, borderRed, borderGreen, borderBlue);
+
+        var lineAddress = unchecked(screenBaseAddress + (uint)(sourceLine * MediumResBytesPerLine));
+        for (var chunk = 0; chunk < MediumResWordsPerLine; chunk++)
         {
-            var lineAddress = unchecked(screenBaseAddress + (uint)(y * MediumResBytesPerLine));
-            for (var chunk = 0; chunk < MediumResWordsPerLine; chunk++)
+            var chunkAddress = unchecked(lineAddress + (uint)(chunk * 4));
+            var plane0 = m_bus.Read16BigEndian(chunkAddress);
+            var plane1 = m_bus.Read16BigEndian(chunkAddress + 2);
+            for (var bit = 15; bit >= 0; bit--)
             {
-                var chunkAddress = unchecked(lineAddress + (uint)(chunk * 4));
-                var plane0 = m_bus.Read16BigEndian(chunkAddress);
-                var plane1 = m_bus.Read16BigEndian(chunkAddress + 2);
-                for (var bit = 15; bit >= 0; bit--)
-                {
-                    var x = m_activeOriginX + chunk * 16 + (15 - bit);
-                    var pixelIndex =
-                        ((plane0 >> bit) & 1) |
-                        (((plane1 >> bit) & 1) << 1);
-                    WriteRgbAt(x, m_activeOriginY + y * 2, m_paletteR[pixelIndex], m_paletteG[pixelIndex], m_paletteB[pixelIndex]);
-                    WriteRgbAt(x, m_activeOriginY + y * 2 + 1, m_paletteR[pixelIndex], m_paletteG[pixelIndex], m_paletteB[pixelIndex]);
-                }
+                var x = m_activeOriginX + chunk * 16 + (15 - bit);
+                var pixelIndex =
+                    ((plane0 >> bit) & 1) |
+                    (((plane1 >> bit) & 1) << 1);
+                WriteRgbAt(x, topOutputY, m_paletteR[pixelIndex], m_paletteG[pixelIndex], m_paletteB[pixelIndex]);
+                WriteRgbAt(x, bottomOutputY, m_paletteR[pixelIndex], m_paletteG[pixelIndex], m_paletteB[pixelIndex]);
             }
         }
     }
 
-    private void RenderHighResolutionMonochrome(uint screenBaseAddress)
+    private void RenderHighResolutionMonochromeFrame(uint screenBaseAddress)
     {
-        for (var y = 0; y < HighResHeight; y++)
+        for (var rasterLine = 0; rasterLine < VisibleRasterLines; rasterLine++)
+            RenderHighResolutionMonochromePair(screenBaseAddress, rasterLine);
+    }
+
+    private void RenderHighResolutionMonochromePair(uint screenBaseAddress, int rasterLine)
+    {
+        var sourceTopLine = rasterLine * 2;
+        var sourceBottomLine = sourceTopLine + 1;
+        if (sourceTopLine >= HighResHeight)
+            return;
+
+        var outputTopY = m_activeOriginY + sourceTopLine;
+        var outputBottomY = m_activeOriginY + sourceBottomLine;
+        FillOutputRow(outputTopY, 255, 255, 255);
+        if (sourceBottomLine < HighResHeight)
+            FillOutputRow(outputBottomY, 255, 255, 255);
+
+        RenderHighResolutionMonochromeLine(screenBaseAddress, sourceTopLine, outputTopY);
+        if (sourceBottomLine < HighResHeight)
+            RenderHighResolutionMonochromeLine(screenBaseAddress, sourceBottomLine, outputBottomY);
+    }
+
+    private void RenderHighResolutionMonochromeLine(uint screenBaseAddress, int sourceLine, int outputY)
+    {
+        var lineAddress = unchecked(screenBaseAddress + (uint)(sourceLine * HighResBytesPerLine));
+        for (var chunk = 0; chunk < HighResWordsPerLine; chunk++)
         {
-            var lineAddress = unchecked(screenBaseAddress + (uint)(y * HighResBytesPerLine));
-            for (var chunk = 0; chunk < HighResWordsPerLine; chunk++)
+            var word = m_bus.Read16BigEndian(unchecked(lineAddress + (uint)(chunk * 2)));
+            for (var bit = 15; bit >= 0; bit--)
             {
-                var word = m_bus.Read16BigEndian(unchecked(lineAddress + (uint)(chunk * 2)));
-                for (var bit = 15; bit >= 0; bit--)
-                {
-                    var x = m_activeOriginX + chunk * 16 + (15 - bit);
-                    var on = ((word >> bit) & 1) != 0;
-                    var value = on ? (byte)0 : (byte)255;
-                    WriteRgbAt(x, m_activeOriginY + y, value, value, value);
-                }
+                var x = m_activeOriginX + chunk * 16 + (15 - bit);
+                var on = ((word >> bit) & 1) != 0;
+                var value = on ? (byte)0 : (byte)255;
+                WriteRgbAt(x, outputY, value, value, value);
             }
+        }
+    }
+
+    private void FillOutputRow(int y, byte red, byte green, byte blue)
+    {
+        if (y < 0 || y >= OutputHeight)
+            return;
+
+        var rowStart = y * OutputWidth * BytesPerPixel;
+        for (var x = 0; x < OutputWidth; x++)
+        {
+            var pixelIndex = rowStart + x * BytesPerPixel;
+            m_frameBuffer[pixelIndex] = red;
+            m_frameBuffer[pixelIndex + 1] = green;
+            m_frameBuffer[pixelIndex + 2] = blue;
         }
     }
 
@@ -350,8 +439,6 @@ public sealed class Shifter : IVideoSource
 
     private void ClearToColorIfNeeded(byte red, byte green, byte blue)
     {
-        // Safe while rendering is frame-based because active pixels are fully rewritten each frame.
-        // If rendering becomes row-based, this optimization must be revisited for border correctness.
         if (m_hasLastClearColor &&
             m_lastClearRed == red &&
             m_lastClearGreen == green &&
