@@ -202,11 +202,10 @@
                         CornerRadius="2"
                         Margin="8,0,0,0"
                         VerticalAlignment="Center"
-                        ToolTip.Tip="Drive activity"
-                        Tag="{Binding IsFloppyActivityIndicatorOn}">
+                        ToolTip.Tip="{Binding FloppyIndicatorTooltip}"
+                        Tag="{Binding FloppyIndicatorState}">
                     <Border.Styles>
                         <Style Selector="Border">
-                            <Setter Property="Opacity" Value="0.24" />
                             <Setter Property="BorderThickness" Value="1" />
                             <Setter Property="BorderBrush" Value="#2E7D32" />
                             <Setter Property="Background">
@@ -217,8 +216,17 @@
                                 </LinearGradientBrush>
                             </Setter>
                         </Style>
-                        <Style Selector="Border[Tag=True]">
-                            <Setter Property="Opacity" Value="1.0" />
+                        <Style Selector="Border[Tag=NoDisk]">
+                            <Setter Property="BorderBrush" Value="#7A4B00" />
+                            <Setter Property="Background">
+                                <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
+                                    <GradientStop Color="#4A3412" Offset="0.0" />
+                                    <GradientStop Color="#76541D" Offset="0.5" />
+                                    <GradientStop Color="#4A3412" Offset="1.0" />
+                                </LinearGradientBrush>
+                            </Setter>
+                        </Style>
+                        <Style Selector="Border[Tag=Active]">
                             <Setter Property="BorderBrush" Value="#B9FFCD" />
                             <Setter Property="Background">
                                 <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">

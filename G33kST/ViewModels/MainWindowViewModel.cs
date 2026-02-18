@@ -113,7 +113,25 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public bool IsRecordingAvailable => m_isRecordingAvailable;
 
     public string RecordingAvailabilityHint => m_recordingAvailabilityHint;
-    public bool IsFloppyActivityIndicatorOn => m_isFloppyActivityIndicatorOn;
+    public string FloppyIndicatorState =>
+        !m_machine.IsFloppyImageMounted(DriveAIndex)
+            ? "NoDisk"
+            : m_isFloppyActivityIndicatorOn
+                ? "Active"
+                : "Idle";
+
+    public string FloppyIndicatorTooltip
+    {
+        get
+        {
+            var mountedImageName = m_machine.GetMountedFloppyImageName(DriveAIndex);
+            if (string.IsNullOrWhiteSpace(mountedImageName))
+                return "Drive A: no disk mounted";
+            if (m_isFloppyActivityIndicatorOn)
+                return $"Drive A: activity ({mountedImageName})";
+            return $"Drive A: mounted ({mountedImageName})";
+        }
+    }
 
     public bool IsSoundEnabled => Settings.IsSoundEnabled;
 
@@ -186,6 +204,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
         m_runner.Reset();
         OnPropertyChanged(nameof(IsHighResolutionMode));
+        NotifyFloppyIndicatorChanged();
         Logger.Instance.Info("Machine hard reset.");
     }
 
@@ -374,6 +393,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         if (addToMru)
             FloppyMru.Add(imageFile);
         Settings.LastFloppyImagePath = imageFile.FullName;
+        NotifyFloppyIndicatorChanged();
 
         Logger.Instance.Info(wasMounted ? $"Drive A: floppy image replaced with '{imageFile.Name}'." : $"Drive A: mounted floppy image '{imageFile.Name}'.");
         Logger.Instance.Info($"Drive A image details: {imageSummary}.");
@@ -464,7 +484,10 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             }
 
             if (shouldHardReset && m_machine.IsFloppyImageMounted(DriveAIndex))
+            {
                 m_machine.UnmountFloppyImage(DriveAIndex);
+                NotifyFloppyIndicatorChanged();
+            }
 
             m_machine.LoadRom(romData, romFile.Name);
             if (updateSelection)
@@ -536,7 +559,13 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             return;
 
         m_isFloppyActivityIndicatorOn = shouldBeOn;
-        OnPropertyChanged(nameof(IsFloppyActivityIndicatorOn));
+        NotifyFloppyIndicatorChanged();
+    }
+
+    private void NotifyFloppyIndicatorChanged()
+    {
+        OnPropertyChanged(nameof(FloppyIndicatorState));
+        OnPropertyChanged(nameof(FloppyIndicatorTooltip));
     }
 
     private void CopyToBackFrame(byte[] frameBuffer)
