@@ -18,6 +18,7 @@ using DTC.Core;
 using DTC.Core.Commands;
 using DTC.Core.Extensions;
 using DTC.Core.Image;
+using DTC.Core.Recording;
 using DTC.Core.UI;
 using DTC.Core.ViewModels;
 using DTC.Emulation;
@@ -42,6 +43,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly NullAudioOutputDevice m_audioDevice;
     private readonly DisplayRecorder m_recorder;
     private readonly DirectoryInfo m_romStoreDir;
+    private readonly bool m_isRecordingAvailable;
+    private readonly string m_recordingAvailabilityHint;
     private byte[] m_backFrameBuffer;
     private byte[] m_frontFrameBuffer;
     private int m_isUiFrameUpdateQueued;
@@ -60,6 +63,14 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         m_screen.CrtBlendWeights = new CrtBlendWeights(CrtPreviousFrameBlendWeight, CrtCurrentFrameBlendWeight);
         m_audioDevice = new NullAudioOutputDevice(m_machine.Descriptor.AudioSampleRateHz);
         m_recorder = new DisplayRecorder();
+        m_isRecordingAvailable = RecordingSession.IsFfmpegAvailable(out var ffmpegReason);
+        m_recordingAvailabilityHint = m_isRecordingAvailable
+            ? string.Empty
+            : string.IsNullOrWhiteSpace(ffmpegReason)
+                ? "FFmpeg was not found on this system."
+                : ffmpegReason;
+        if (!m_isRecordingAvailable)
+            Logger.Instance.Warn($"Recording disabled: {m_recordingAvailabilityHint}");
         var frameBufferSize = m_machine.Video.FrameWidth * m_machine.Video.FrameHeight * m_machine.Video.FrameBytesPerPixel;
         m_backFrameBuffer = new byte[frameBufferSize];
         m_frontFrameBuffer = new byte[frameBufferSize];
@@ -98,6 +109,10 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public bool IsRecording => m_recorder.IsRecording;
 
     public bool IsRecordingIndicatorOn => m_recorder.IsIndicatorOn;
+
+    public bool IsRecordingAvailable => m_isRecordingAvailable;
+
+    public string RecordingAvailabilityHint => m_recordingAvailabilityHint;
     public bool IsFloppyActivityIndicatorOn => m_isFloppyActivityIndicatorOn;
 
     public bool IsSoundEnabled => Settings.IsSoundEnabled;
@@ -194,6 +209,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     public void StartRecordingCommand()
     {
+        if (!m_isRecordingAvailable)
+        {
+            DialogService.Instance.ShowMessage("Recording unavailable", m_recordingAvailabilityHint);
+            return;
+        }
         if (IsRecording)
             return;
 
