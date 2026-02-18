@@ -893,9 +893,6 @@ public sealed class AtariSTTests : TestsBase
             _ = bus.Read8(dataAddress);
     }
 
-    private static long CpuTicksForOneScanline(AtariST atariST) =>
-        (long)Math.Ceiling(atariST.Descriptor.CpuHz / (atariST.Descriptor.VideoHz * 262.0));
-
     private static long CpuTicksForOneMousePacket(AtariST atariST) =>
         (long)Math.Ceiling(atariST.Descriptor.CpuHz / 200.0);
 }

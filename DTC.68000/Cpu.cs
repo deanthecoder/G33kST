@@ -555,7 +555,7 @@ public sealed class Cpu : CpuBase
             }
         }
 
-        throw lastError ?? new BusErrorException(originalStackPointer, isRead: false);
+        throw lastError;
     }
 
     private IEnumerable<uint> GetFallbackExceptionStackCandidates(uint originalStackPointer)

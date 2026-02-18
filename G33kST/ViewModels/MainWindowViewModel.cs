@@ -43,7 +43,6 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly NullAudioOutputDevice m_audioDevice;
     private readonly DisplayRecorder m_recorder;
     private readonly DirectoryInfo m_romStoreDir;
-    private readonly bool m_isRecordingAvailable;
     private readonly string m_recordingAvailabilityHint;
     private byte[] m_backFrameBuffer;
     private byte[] m_frontFrameBuffer;
@@ -51,7 +50,6 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private bool m_isFloppyActivityIndicatorOn;
     private long m_lastFloppyCommandCount;
     private long m_floppyActivityVisibleUntilMs;
-    private bool m_isJoystickInputEnabled;
     private static readonly string[] FloppyFileExtensions = [".st", ".zip"];
     private static readonly string[] RomFileExtensions = [".img", ".rom", ".bin", ".zip"];
 
@@ -63,13 +61,13 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         m_screen.CrtBlendWeights = new CrtBlendWeights(CrtPreviousFrameBlendWeight, CrtCurrentFrameBlendWeight);
         m_audioDevice = new NullAudioOutputDevice(m_machine.Descriptor.AudioSampleRateHz);
         m_recorder = new DisplayRecorder();
-        m_isRecordingAvailable = RecordingSession.IsFfmpegAvailable(out var ffmpegReason);
-        m_recordingAvailabilityHint = m_isRecordingAvailable
+        IsRecordingAvailable = RecordingSession.IsFfmpegAvailable(out var ffmpegReason);
+        m_recordingAvailabilityHint = IsRecordingAvailable
             ? string.Empty
             : string.IsNullOrWhiteSpace(ffmpegReason)
                 ? "FFmpeg was not found on this system."
                 : ffmpegReason;
-        if (!m_isRecordingAvailable)
+        if (!IsRecordingAvailable)
             Logger.Instance.Warn($"Recording disabled: {m_recordingAvailabilityHint}");
         var frameBufferSize = m_machine.Video.FrameWidth * m_machine.Video.FrameHeight * m_machine.Video.FrameBytesPerPixel;
         m_backFrameBuffer = new byte[frameBufferSize];
@@ -110,9 +108,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     public bool IsRecordingIndicatorOn => m_recorder.IsIndicatorOn;
 
-    public bool IsRecordingAvailable => m_isRecordingAvailable;
+    public bool IsRecordingAvailable { get; }
 
-    public string RecordingAvailabilityHint => m_recordingAvailabilityHint;
     public string FloppyIndicatorState =>
         !m_machine.IsFloppyImageMounted(DriveAIndex)
             ? "NoDisk"
@@ -137,7 +134,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     public bool IsHighResolutionMode => m_machine.IsHighResolutionMode;
 
-    public bool IsJoystickInputEnabled => m_isJoystickInputEnabled;
+    public bool IsJoystickInputEnabled { get; private set; }
 
     public string WindowTitle => $"{AppTitle} - {m_machine.Descriptor.Name}";
 
@@ -228,7 +225,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     public void StartRecordingCommand()
     {
-        if (!m_isRecordingAvailable)
+        if (!IsRecordingAvailable)
         {
             DialogService.Instance.ShowMessage("Recording unavailable", m_recordingAvailabilityHint);
             return;
@@ -322,8 +319,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     public void ToggleJoystickInput()
     {
-        m_isJoystickInputEnabled = !m_isJoystickInputEnabled;
-        if (!m_isJoystickInputEnabled)
+        IsJoystickInputEnabled = !IsJoystickInputEnabled;
+        if (!IsJoystickInputEnabled)
             UpdateJoystickState(JoystickState.Neutral);
         OnPropertyChanged(nameof(IsJoystickInputEnabled));
     }

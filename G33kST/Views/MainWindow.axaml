@@ -80,7 +80,6 @@
                               Command="{Binding StartRecordingCommand}"
                               InputGesture="{OnPlatform 'ctrl+m', macOS='⌘+m'}"
                               IsEnabled="{Binding IsRecordingAvailable}"
-                              ToolTip.Tip="{Binding RecordingAvailabilityHint}"
                               IsVisible="{Binding !IsRecording}" />
                     <MenuItem Header="Stop _Recording..."
                               Command="{Binding StopRecordingCommand}"
