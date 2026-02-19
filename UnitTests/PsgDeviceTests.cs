@@ -22,6 +22,9 @@ public sealed class PsgDeviceTests
     private const byte ToneAFineRegister = 0x00;
     private const byte ToneACoarseRegister = 0x01;
     private const byte VolumeARegister = 0x08;
+    private const byte EnvelopeFineRegister = 0x0B;
+    private const byte EnvelopeCoarseRegister = 0x0C;
+    private const byte EnvelopeShapeRegister = 0x0D;
 
     [Test]
     public void ResetShouldDefaultPortAToDeselectFloppyDrives()
@@ -107,7 +110,32 @@ public sealed class PsgDeviceTests
         Assert.Multiple(() =>
         {
             Assert.That(samples, Is.Not.Empty);
-            Assert.That(samples.All(sample => Math.Abs(sample) < 0.0001), Is.True);
+            Assert.That(samples.Max() - samples.Min(), Is.LessThan(0.0001));
+        });
+    }
+
+    [Test]
+    public void WritingSameEnvelopeShapeShouldRetriggerEnvelope()
+    {
+        var samples = new List<double>();
+        var device = new PsgDevice((left, _) => samples.Add(left), cpuClockHz: 8_000_000, sampleRateHz: 44_100);
+        WriteRegister(device, MixerRegister, 0x3F); // Tone+noise disabled => constant carrier.
+        WriteRegister(device, VolumeARegister, 0x10); // Envelope-controlled level.
+        WriteRegister(device, EnvelopeFineRegister, 0x01);
+        WriteRegister(device, EnvelopeCoarseRegister, 0x00);
+        WriteRegister(device, EnvelopeShapeRegister, 0x09); // Fall to zero and hold.
+        device.AdvanceCycles(80_000);
+        var levelBeforeRetrigger = samples.TakeLast(16).Max(Math.Abs);
+
+        samples.Clear();
+        WriteRegister(device, EnvelopeShapeRegister, 0x09); // Same shape value.
+        device.AdvanceCycles(2_000);
+        var levelAfterRetrigger = samples.Max(Math.Abs);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(levelBeforeRetrigger, Is.LessThan(0.05));
+            Assert.That(levelAfterRetrigger, Is.GreaterThan(0.1));
         });
     }
 

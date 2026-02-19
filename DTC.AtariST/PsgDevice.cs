@@ -221,7 +221,9 @@ public sealed class PsgDevice : IMemDevice, IAudioSource
         var previous = m_registers[register];
         m_registers[register] = maskedValue;
 
-        if (register == EnvelopeShapeRegister && previous != maskedValue)
+        // On YM2149, any write to shape register retriggers the envelope generator,
+        // even when the value is unchanged.
+        if (register == EnvelopeShapeRegister)
         {
             m_envelopePosition = 0;
             m_envelopeCounterTicks = 0;
@@ -335,12 +337,11 @@ public sealed class PsgDevice : IMemDevice, IAudioSource
             var toneHighFraction = toneDisabled ? 1.0 : m_toneHighFraction[channel];
             var noisePasses = noiseDisabled || noiseHigh;
             var voiceHighFraction = noisePasses ? toneHighFraction : 0.0;
-            var signedVoice = voiceHighFraction * 2.0 - 1.0;
             var level = ResolveVoiceLevel(channel);
-            mixed += signedVoice * level;
+            mixed += voiceHighFraction * level;
         }
 
-        return Math.Clamp(mixed / VoiceCount, -1.0, 1.0);
+        return Math.Clamp(mixed / VoiceCount, 0.0, 1.0);
     }
 
     private double ResolveVoiceLevel(int channel)
@@ -370,7 +371,8 @@ public sealed class PsgDevice : IMemDevice, IAudioSource
     }
 
     private double GetNoiseStepTicks() =>
-        32.0 * GetNoisePeriod();
+        // YM2149 noise counter advances at half the master 250 kHz tick used by tone/envelope logic.
+        64.0 * GetNoisePeriod();
 
     private int GetEnvelopePeriod()
     {
@@ -379,7 +381,9 @@ public sealed class PsgDevice : IMemDevice, IAudioSource
     }
 
     private double GetEnvelopeStepTicks() =>
-        1024.0 * GetEnvelopePeriod();
+        // YM envelope counter advances at the same 250 kHz base tick as tone counters.
+        // With an 8 MHz CPU clock, that is one YM tick every 32 CPU cycles.
+        32.0 * GetEnvelopePeriod();
 
     private void StepNoiseShiftRegister()
     {
