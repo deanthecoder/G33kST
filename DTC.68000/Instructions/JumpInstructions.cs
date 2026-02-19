@@ -48,7 +48,7 @@ public static class JumpInstructions
     private static void ExecuteUnconditionalJump(Cpu cpu, ushort opcode)
     {
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
-        var controlEaCycles = InstructionTiming.GetControlEffectiveAddressCycles(ea);
+        var controlEaCycles = InstructionTiming.GetJumpControlEffectiveAddressCycles(ea);
         var targetAddress = EffectiveAddressControlResolver.ResolveControlTarget(cpu, ea);
         if ((targetAddress & 1) != 0)
         {
@@ -74,7 +74,7 @@ public static class JumpInstructions
     private static void ExecuteJumpToSubroutine(Cpu cpu, ushort opcode)
     {
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
-        var controlEaCycles = InstructionTiming.GetControlEffectiveAddressCycles(ea);
+        var controlEaCycles = InstructionTiming.GetJumpControlEffectiveAddressCycles(ea);
         var targetAddress = EffectiveAddressControlResolver.ResolveControlTarget(cpu, ea);
         if ((targetAddress & 1) != 0)
             throw new AddressErrorException(targetAddress, ".w", isRead: true, isProgramAccess: true);

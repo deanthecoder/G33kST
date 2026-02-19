@@ -10,6 +10,7 @@
 
 using DTC.M68000.Addressing;
 using DTC.M68000.Instructions;
+using System.Numerics;
 
 namespace DTC.M68000;
 
@@ -46,10 +47,25 @@ public static class InstructionTiming
         {
             EffectiveAddressMode.AddressRegisterIndirect => 0,
             EffectiveAddressMode.AddressRegisterIndirectDisplacement => 4,
-            EffectiveAddressMode.AddressRegisterIndirectIndex => 6,
+            EffectiveAddressMode.AddressRegisterIndirectIndex => 8,
             EffectiveAddressMode.Other when effectiveAddress.Register is 0 or 2 => 4,
             EffectiveAddressMode.Other when effectiveAddress.Register is 1 => 8,
-            EffectiveAddressMode.Other when effectiveAddress.Register is 3 => 6,
+            EffectiveAddressMode.Other when effectiveAddress.Register is 3 => 8,
+            _ => 0
+        };
+
+    /// <summary>
+    /// Returns control-EA timing used by JMP/JSR tables.
+    /// </summary>
+    public static uint GetJumpControlEffectiveAddressCycles(EffectiveAddress effectiveAddress) =>
+        effectiveAddress.Mode switch
+        {
+            EffectiveAddressMode.AddressRegisterIndirect => 0,
+            EffectiveAddressMode.AddressRegisterIndirectDisplacement => 2,
+            EffectiveAddressMode.AddressRegisterIndirectIndex => 6,
+            EffectiveAddressMode.Other when effectiveAddress.Register is 0 or 2 => 2,
+            EffectiveAddressMode.Other when effectiveAddress.Register == 1 => 4,
+            EffectiveAddressMode.Other when effectiveAddress.Register == 3 => 6,
             _ => 0
         };
 
@@ -114,12 +130,10 @@ public static class InstructionTiming
     /// Returns register-form shift/rotate timing for the given operand size and count source.
     /// Immediate-count form has a smaller base cost than register-count form on 68000.
     /// </summary>
-    public static uint GetRegisterShiftRotateCycles(OperandSize size, bool countFromRegister, int count)
+    public static uint GetRegisterShiftRotateCycles(OperandSize size, int count)
     {
         var effectiveCount = Math.Clamp(count, 0, 63);
         var baseCycles = size == OperandSize.Long ? 8u : 6u;
-        if (countFromRegister)
-            baseCycles += 2;
 
         return baseCycles + (uint)effectiveCount * 2;
     }
@@ -129,7 +143,7 @@ public static class InstructionTiming
     /// The table format is <c>8 + &lt;ea&gt;</c>, where this helper provides the EA component.
     /// </summary>
     public static uint GetMemoryShiftRotateCycles(EffectiveAddress effectiveAddress) =>
-        8u + GetControlEffectiveAddressCycles(effectiveAddress);
+        8u + GetDataEffectiveAddressCycles(OperandSize.Word, effectiveAddress);
 
     /// <summary>
     /// Returns a coarse MOVE timing estimate based on source/destination EA costs.
@@ -138,9 +152,13 @@ public static class InstructionTiming
     public static uint GetMoveCycles(OperandSize size, EffectiveAddress source, EffectiveAddress destination)
     {
         const uint baseCycles = 4;
-        return baseCycles
+        var cycles = baseCycles
              + GetDataEffectiveAddressCycles(size, source)
              + GetDataEffectiveAddressCycles(size, destination);
+        if (destination.Mode == EffectiveAddressMode.AddressRegisterIndirectPreDecrement)
+            cycles -= 2;
+
+        return cycles;
     }
 
     /// <summary>
@@ -158,8 +176,19 @@ public static class InstructionTiming
     /// </summary>
     public static uint GetUnaryModifyCycles(OperandSize size, EffectiveAddress destination)
     {
-        var baseCycles = size == OperandSize.Long ? 6u : 4u;
+        if (destination.Mode == EffectiveAddressMode.DataRegisterDirect)
+            return size == OperandSize.Long ? 6u : 4u;
+
+        var baseCycles = size == OperandSize.Long ? 12u : 8u;
         return baseCycles + GetDataEffectiveAddressCycles(size, destination);
+    }
+
+    /// <summary>
+    /// Returns CLR timing. CLR has higher memory-form costs than other unary modify instructions.
+    /// </summary>
+    public static uint GetClearCycles(OperandSize size, EffectiveAddress destination)
+    {
+        return GetUnaryModifyCycles(size, destination);
     }
 
     /// <summary>
@@ -167,7 +196,7 @@ public static class InstructionTiming
     /// </summary>
     public static uint GetUnaryTestCycles(OperandSize size, EffectiveAddress source)
     {
-        var baseCycles = size == OperandSize.Long ? 6u : 4u;
+        var baseCycles = 4u;
         return baseCycles + GetDataEffectiveAddressCycles(size, source);
     }
 
@@ -184,7 +213,10 @@ public static class InstructionTiming
     /// </summary>
     public static uint GetAddSubtractImmediateCycles(OperandSize size, EffectiveAddress destination)
     {
-        var baseCycles = size == OperandSize.Long ? 12u : 8u;
+        if (destination.Mode == EffectiveAddressMode.DataRegisterDirect)
+            return size == OperandSize.Long ? 16u : 8u;
+
+        var baseCycles = size == OperandSize.Long ? 20u : 12u;
         return baseCycles + GetDataEffectiveAddressCycles(size, destination);
     }
 
@@ -193,15 +225,29 @@ public static class InstructionTiming
     /// </summary>
     public static uint GetCompareImmediateCycles(OperandSize size, EffectiveAddress destination)
     {
-        var baseCycles = size == OperandSize.Long ? 12u : 8u;
+        var baseCycles = size == OperandSize.Long
+            ? destination.Mode == EffectiveAddressMode.DataRegisterDirect ? 14u : 12u
+            : 8u;
         return baseCycles + GetDataEffectiveAddressCycles(size, destination);
     }
 
     /// <summary>
     /// Returns ORI/ANDI/EORI to CCR/SR timing.
     /// </summary>
-    public static uint GetImmediateStatusCycles(bool targetsStatusRegister) =>
-        targetsStatusRegister ? 20u : 12u;
+    public static uint GetImmediateStatusCycles() =>
+        20u;
+
+    /// <summary>
+    /// Returns ORI/ANDI/EORI immediate-to-EA timing.
+    /// </summary>
+    public static uint GetLogicalImmediateCycles(OperandSize size, EffectiveAddress destination)
+    {
+        if (destination.Mode == EffectiveAddressMode.DataRegisterDirect)
+            return size == OperandSize.Long ? 16u : 8u;
+
+        var baseCycles = size == OperandSize.Long ? 20u : 12u;
+        return baseCycles + GetDataEffectiveAddressCycles(size, destination);
+    }
 
     /// <summary>
     /// Returns coarse BTST/BCHG/BCLR/BSET timing.
@@ -210,15 +256,17 @@ public static class InstructionTiming
     {
         if (destination.Mode == EffectiveAddressMode.DataRegisterDirect)
         {
-            var registerBase = modifiesDestination ? 8u : 6u;
-            if (immediateBitNumber)
-                registerBase += 2;
-            return registerBase;
+            if (!modifiesDestination)
+                return immediateBitNumber ? 10u : 6u;
+            return immediateBitNumber ? 12u : 8u;
         }
 
-        var memoryBase = modifiesDestination ? 8u : 6u;
-        if (immediateBitNumber)
-            memoryBase += 4;
+        uint memoryBase;
+        if (!modifiesDestination)
+            memoryBase = immediateBitNumber ? 8u : 4u;
+        else
+            memoryBase = immediateBitNumber ? 12u : 8u;
+
         return memoryBase + GetDataEffectiveAddressCycles(OperandSize.Byte, destination);
     }
 
@@ -229,9 +277,33 @@ public static class InstructionTiming
     {
         var wordsPerRegister = size == OperandSize.Long ? 2u : 1u;
         var transferCyclesPerRegister = size == OperandSize.Long ? 8u : 4u;
-        var baseCycles = memoryToRegisters ? 8u : 4u;
+        var baseCycles = memoryToRegisters
+            ? 12u
+            : effectiveAddress.Mode == EffectiveAddressMode.AddressRegisterIndirectPreDecrement
+                ? size == OperandSize.Word ? 6u : 4u
+                : 8u;
         var extensionCycles = GetMovemEaCycles(effectiveAddress, wordsPerRegister);
         return baseCycles + extensionCycles + (uint)registerCount * transferCyclesPerRegister;
+    }
+
+    /// <summary>
+    /// Returns Scc timing for register and memory destinations.
+    /// </summary>
+    public static uint GetSetOnConditionCycles(EffectiveAddress destination) =>
+        destination.Mode == EffectiveAddressMode.DataRegisterDirect
+            ? 4u
+            : 8u + GetDataEffectiveAddressCycles(OperandSize.Byte, destination);
+
+    /// <summary>
+    /// Returns CHK.W timing.
+    /// </summary>
+    public static uint GetCheckCycles(EffectiveAddress source, bool trapped, bool useLongTrapPath = false)
+    {
+        var eaCycles = GetDataEffectiveAddressCycles(OperandSize.Word, source);
+        if (!trapped)
+            return 10u + eaCycles;
+
+        return (useLongTrapPath ? 40u : 38u) + eaCycles;
     }
 
     /// <summary>
@@ -266,19 +338,101 @@ public static class InstructionTiming
     /// Returns NBCD timing.
     /// </summary>
     public static uint GetNegateDecimalCycles(EffectiveAddress destination) =>
-        6u + GetDataEffectiveAddressCycles(OperandSize.Byte, destination);
+        destination.Mode == EffectiveAddressMode.DataRegisterDirect
+            ? 6u
+            : 8u + GetDataEffectiveAddressCycles(OperandSize.Byte, destination);
 
     /// <summary>
     /// Returns coarse MULx timing.
     /// </summary>
-    public static uint GetMultiplyCycles(EffectiveAddress source) =>
-        38u + GetDataEffectiveAddressCycles(OperandSize.Word, source);
+    public static uint GetUnsignedMultiplyCycles(EffectiveAddress source, ushort multiplier) =>
+        38u + (uint)(BitOperations.PopCount(multiplier) * 2) + GetDataEffectiveAddressCycles(OperandSize.Word, source);
 
     /// <summary>
-    /// Returns coarse DIVx timing.
+    /// Returns cycle-accurate MULS.W timing based on source data pattern.
     /// </summary>
-    public static uint GetDivideCycles(EffectiveAddress source) =>
-        76u + GetDataEffectiveAddressCycles(OperandSize.Word, source);
+    public static uint GetSignedMultiplyCycles(EffectiveAddress source, short multiplier)
+    {
+        var bits = (ushort)multiplier;
+        var transitions = BitOperations.PopCount((uint)((bits ^ (bits << 1)) & 0xFFFF));
+        return 38u + (uint)(transitions * 2) + GetDataEffectiveAddressCycles(OperandSize.Word, source);
+    }
+
+    /// <summary>
+    /// Returns cycle-accurate DIVU.W timing based on dividend/divisor values.
+    /// </summary>
+    public static uint GetUnsignedDivideCycles(EffectiveAddress source, uint dividend, ushort divisor)
+    {
+        var eaCycles = GetDataEffectiveAddressCycles(OperandSize.Word, source);
+        if (divisor == 0)
+            return GetDivideByZeroTrapCycles();
+
+        if (dividend >> 16 >= divisor)
+            return 10u + eaCycles;
+
+        uint microcycles = 38;
+        var shiftedDivisor = (uint)divisor << 16;
+        var work = dividend;
+        for (var i = 0; i < 15; i++)
+        {
+            var previous = work;
+            work <<= 1;
+
+            if ((previous & 0x80000000) != 0)
+            {
+                work -= shiftedDivisor;
+            }
+            else
+            {
+                microcycles += 2;
+                if (work >= shiftedDivisor)
+                {
+                    work -= shiftedDivisor;
+                    microcycles--;
+                }
+            }
+        }
+
+        return microcycles * 2 + eaCycles;
+    }
+
+    /// <summary>
+    /// Returns cycle-accurate DIVS.W timing based on dividend/divisor values.
+    /// </summary>
+    public static uint GetSignedDivideCycles(EffectiveAddress source, int dividend, short divisor)
+    {
+        var eaCycles = GetDataEffectiveAddressCycles(OperandSize.Word, source);
+        if (divisor == 0)
+            return GetDivideByZeroTrapCycles();
+
+        uint microcycles = 6;
+        if (dividend < 0)
+            microcycles++;
+
+        var absoluteDividend = (uint)Math.Abs((long)dividend);
+        var absoluteDivisor = (uint)Math.Abs((int)divisor);
+        if (absoluteDividend >> 16 >= absoluteDivisor)
+            return (microcycles + 2) * 2 + eaCycles;
+
+        var absoluteQuotient = absoluteDividend / absoluteDivisor;
+        microcycles += 55;
+        if (divisor >= 0)
+        {
+            if (dividend >= 0)
+                microcycles--;
+            else
+                microcycles++;
+        }
+
+        for (var i = 0; i < 15; i++)
+        {
+            if ((short)absoluteQuotient >= 0)
+                microcycles++;
+            absoluteQuotient = (absoluteQuotient << 1) & 0xFFFF;
+        }
+
+        return microcycles * 2 + eaCycles;
+    }
 
     /// <summary>
     /// Returns divide-by-zero trap entry timing.

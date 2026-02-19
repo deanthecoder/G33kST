@@ -117,13 +117,12 @@ public static class ShiftRotateInstructions
         var size = DecodeRegisterSize(opcode) ?? throw new InvalidOperationException($"Invalid shift/rotate size for opcode 0x{opcode:X4}.");
         var destinationRegisterIndex = opcode & 0x07;
         var count = DecodeRegisterCount(cpu, opcode);
-        var countFromRegister = (opcode & 0x0020) != 0;
         var destinationValue = ReadDataRegister(cpu, destinationRegisterIndex, size);
         var outcome = ExecuteShiftRotate(destinationValue, size, count, operation, cpu.Registers.ExtendFlag);
 
         WriteDataRegister(cpu, destinationRegisterIndex, size, outcome.Result);
         ApplyFlags(cpu.Registers, outcome, size);
-        cpu.InternalWait(InstructionTiming.GetRegisterShiftRotateCycles(size, countFromRegister, count));
+        cpu.InternalWait(InstructionTiming.GetRegisterShiftRotateCycles(size, count));
     }
 
     private static void ExecuteMemoryForm(Cpu cpu, ushort opcode, ShiftRotateOperation operation)

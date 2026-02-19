@@ -74,8 +74,13 @@ public static class ConditionInstructions
         var isConditionTrue = ConditionCodeEvaluator.Evaluate(conditionCode, cpu.Registers);
         EffectiveAddressByteAccess.WriteByte(cpu, destination, isConditionTrue ? (byte)0xFF : (byte)0x00);
 
-        // Base Scc timing: register-direct is cheaper than memory forms.
-        cpu.InternalWait(destination.Mode == EffectiveAddressMode.DataRegisterDirect ? 4u : 8u);
+        if (destination.Mode == EffectiveAddressMode.DataRegisterDirect && isConditionTrue)
+        {
+            cpu.InternalWait(6);
+            return;
+        }
+
+        cpu.InternalWait(InstructionTiming.GetSetOnConditionCycles(destination));
     }
 
     /// <summary>

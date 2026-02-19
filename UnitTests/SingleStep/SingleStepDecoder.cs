@@ -25,15 +25,6 @@ public static class SingleStepDecoder
     private const uint StateMagic = 0x01234567;
     private const uint TransactionsMagic = 0x456789AB;
 
-    private static SingleStepDecodeResult DecodeGroup(SingleStepInstructionGroup group) =>
-        DecodeGroup(GetGroupName(group), GetPattern(group));
-
-    private static SingleStepDecodeResult DecodeGroup(string groupName, string pattern)
-    {
-        var sourceFiles = SingleStepPaths.TestDataRoot.GetFiles(pattern, SearchOption.TopDirectoryOnly);
-        return DecodeFiles(groupName, sourceFiles);
-    }
-
     public static SingleStepDecodeResult DecodeFiles(string groupName, IReadOnlyList<FileInfo> sourceFiles)
     {
         SingleStepPaths.EnsureTestDataAvailable();
@@ -274,18 +265,4 @@ public static class SingleStepDecoder
         var json = JsonSerializer.Serialize(tests, options);
         outputFile.WriteAllText(json);
     }
-
-    private static string GetGroupName(SingleStepInstructionGroup group) =>
-        group switch
-        {
-            SingleStepInstructionGroup.Move => "MOVE",
-            _ => throw new ArgumentOutOfRangeException(nameof(group), group, null)
-        };
-
-    private static string GetPattern(SingleStepInstructionGroup group) =>
-        group switch
-        {
-            SingleStepInstructionGroup.Move => "MOVE*.json.bin",
-            _ => throw new ArgumentOutOfRangeException(nameof(group), group, null)
-        };
 }

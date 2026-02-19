@@ -192,7 +192,11 @@ public static class AddSubtractInstructions
         InstructionOperandAccess.WriteDataRegister(cpu, destinationRegisterIndex, size, result);
         FlagMath.ApplyAdd(cpu.Registers, size, destination, source, result);
         cpu.Registers.ExtendFlag = cpu.Registers.CarryFlag;
-        var baseCycles = size == OperandSize.Long ? 6u : 4u;
+        var isLongFastSource = sourceEa.Mode is EffectiveAddressMode.DataRegisterDirect or EffectiveAddressMode.AddressRegisterDirect
+            || (sourceEa.Mode == EffectiveAddressMode.Other && sourceEa.Register == 4);
+        var baseCycles = size == OperandSize.Long
+            ? isLongFastSource ? 8u : 6u
+            : 4u;
         cpu.InternalWait(baseCycles + InstructionTiming.GetDataEffectiveAddressCycles(size, sourceEa));
     }
 
@@ -212,7 +216,7 @@ public static class AddSubtractInstructions
         cpu.Registers.ExtendFlag = cpu.Registers.CarryFlag;
         var baseCycles = size == OperandSize.Long ? 12u : 8u;
         if (destinationEa.Mode == EffectiveAddressMode.DataRegisterDirect)
-            baseCycles = size == OperandSize.Long ? 6u : 4u;
+            baseCycles = size == OperandSize.Long ? 8u : 4u;
 
         cpu.InternalWait(baseCycles + InstructionTiming.GetDataEffectiveAddressCycles(size, destinationEa));
     }
@@ -228,7 +232,11 @@ public static class AddSubtractInstructions
         InstructionOperandAccess.WriteDataRegister(cpu, destinationRegisterIndex, size, result);
         FlagMath.ApplySubtract(cpu.Registers, size, destination, source, result);
         cpu.Registers.ExtendFlag = cpu.Registers.CarryFlag;
-        var baseCycles = size == OperandSize.Long ? 6u : 4u;
+        var isLongFastSource = sourceEa.Mode is EffectiveAddressMode.DataRegisterDirect or EffectiveAddressMode.AddressRegisterDirect
+            || (sourceEa.Mode == EffectiveAddressMode.Other && sourceEa.Register == 4);
+        var baseCycles = size == OperandSize.Long
+            ? isLongFastSource ? 8u : 6u
+            : 4u;
         cpu.InternalWait(baseCycles + InstructionTiming.GetDataEffectiveAddressCycles(size, sourceEa));
     }
 
@@ -248,7 +256,7 @@ public static class AddSubtractInstructions
         cpu.Registers.ExtendFlag = cpu.Registers.CarryFlag;
         var baseCycles = size == OperandSize.Long ? 12u : 8u;
         if (destinationEa.Mode == EffectiveAddressMode.DataRegisterDirect)
-            baseCycles = size == OperandSize.Long ? 6u : 4u;
+            baseCycles = size == OperandSize.Long ? 8u : 4u;
 
         cpu.InternalWait(baseCycles + InstructionTiming.GetDataEffectiveAddressCycles(size, destinationEa));
     }
@@ -266,7 +274,11 @@ public static class AddSubtractInstructions
         var destinationRegisterIndex = (opcode >> 9) & 0x07;
         var destinationValue = cpu.Registers.GetAddressRegister(destinationRegisterIndex);
         cpu.Registers.SetAddressRegister(destinationRegisterIndex, destinationValue + sourceValue);
-        var baseCycles = size == OperandSize.Long ? 6u : 8u;
+        var isLongFastSource = sourceEa.Mode is EffectiveAddressMode.DataRegisterDirect or EffectiveAddressMode.AddressRegisterDirect
+            || (sourceEa.Mode == EffectiveAddressMode.Other && sourceEa.Register == 4);
+        var baseCycles = size == OperandSize.Long
+            ? isLongFastSource ? 8u : 6u
+            : 8u;
         cpu.InternalWait(baseCycles + InstructionTiming.GetDataEffectiveAddressCycles(size, sourceEa));
     }
 
@@ -283,7 +295,11 @@ public static class AddSubtractInstructions
         var destinationRegisterIndex = (opcode >> 9) & 0x07;
         var destinationValue = cpu.Registers.GetAddressRegister(destinationRegisterIndex);
         cpu.Registers.SetAddressRegister(destinationRegisterIndex, destinationValue - sourceValue);
-        var baseCycles = size == OperandSize.Long ? 6u : 8u;
+        var isLongFastSource = sourceEa.Mode is EffectiveAddressMode.DataRegisterDirect or EffectiveAddressMode.AddressRegisterDirect
+            || (sourceEa.Mode == EffectiveAddressMode.Other && sourceEa.Register == 4);
+        var baseCycles = size == OperandSize.Long
+            ? isLongFastSource ? 8u : 6u
+            : 8u;
         cpu.InternalWait(baseCycles + InstructionTiming.GetDataEffectiveAddressCycles(size, sourceEa));
     }
 

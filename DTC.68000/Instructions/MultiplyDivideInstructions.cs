@@ -83,7 +83,7 @@ public static class MultiplyDivideInstructions
 
         cpu.Registers.SetDataRegister(destinationRegisterIndex, result);
         FlagMath.ApplyLogicalLong(cpu.Registers, result);
-        cpu.InternalWait(InstructionTiming.GetMultiplyCycles(sourceEa));
+        cpu.InternalWait(InstructionTiming.GetUnsignedMultiplyCycles(sourceEa, source));
     }
 
     /// <summary>
@@ -99,7 +99,7 @@ public static class MultiplyDivideInstructions
 
         cpu.Registers.SetDataRegister(destinationRegisterIndex, result);
         FlagMath.ApplyLogicalLong(cpu.Registers, result);
-        cpu.InternalWait(InstructionTiming.GetMultiplyCycles(sourceEa));
+        cpu.InternalWait(InstructionTiming.GetSignedMultiplyCycles(sourceEa, source));
     }
 
     /// <summary>
@@ -117,6 +117,7 @@ public static class MultiplyDivideInstructions
 
         var destinationRegisterIndex = (opcode >> 9) & 0x07;
         var dividend = cpu.Registers.GetDataRegister(destinationRegisterIndex);
+        var cycles = InstructionTiming.GetUnsignedDivideCycles(sourceEa, dividend, divisor);
         var quotient = dividend / divisor;
         if (quotient > 0xFFFF)
         {
@@ -124,7 +125,7 @@ public static class MultiplyDivideInstructions
             cpu.Registers.ZeroFlag = false;
             cpu.Registers.OverflowFlag = true;
             cpu.Registers.CarryFlag = false;
-            cpu.InternalWait(InstructionTiming.GetDivideCycles(sourceEa));
+            cpu.InternalWait(cycles);
             return;
         }
 
@@ -135,7 +136,7 @@ public static class MultiplyDivideInstructions
         cpu.Registers.ZeroFlag = (quotient & 0xFFFF) == 0;
         cpu.Registers.OverflowFlag = false;
         cpu.Registers.CarryFlag = false;
-        cpu.InternalWait(InstructionTiming.GetDivideCycles(sourceEa));
+        cpu.InternalWait(cycles);
     }
 
     /// <summary>
@@ -153,6 +154,7 @@ public static class MultiplyDivideInstructions
 
         var destinationRegisterIndex = (opcode >> 9) & 0x07;
         var dividend = unchecked((int)cpu.Registers.GetDataRegister(destinationRegisterIndex));
+        var cycles = InstructionTiming.GetSignedDivideCycles(sourceEa, dividend, divisor);
         var quotient = dividend / divisor;
         if (quotient is < short.MinValue or > short.MaxValue)
         {
@@ -160,7 +162,7 @@ public static class MultiplyDivideInstructions
             cpu.Registers.ZeroFlag = false;
             cpu.Registers.OverflowFlag = true;
             cpu.Registers.CarryFlag = false;
-            cpu.InternalWait(InstructionTiming.GetDivideCycles(sourceEa));
+            cpu.InternalWait(cycles);
             return;
         }
 
@@ -171,7 +173,7 @@ public static class MultiplyDivideInstructions
         cpu.Registers.ZeroFlag = quotient == 0;
         cpu.Registers.OverflowFlag = false;
         cpu.Registers.CarryFlag = false;
-        cpu.InternalWait(InstructionTiming.GetDivideCycles(sourceEa));
+        cpu.InternalWait(cycles);
     }
 
     private static void EnterDivideByZero(Cpu cpu)

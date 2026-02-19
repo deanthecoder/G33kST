@@ -42,7 +42,11 @@ public static class BitwiseLogicalInstructionHelpers
 
         InstructionOperandAccess.WriteDataRegister(cpu, destinationRegisterIndex, size, result);
         ApplyLogicalFlags(cpu.Registers, size, result);
-        var baseCycles = size == OperandSize.Long ? 6u : 4u;
+        var isLongFastSource = sourceEa.Mode is EffectiveAddressMode.DataRegisterDirect or EffectiveAddressMode.AddressRegisterDirect
+            || (sourceEa.Mode == EffectiveAddressMode.Other && sourceEa.Register == 4);
+        var baseCycles = size == OperandSize.Long
+            ? isLongFastSource ? 8u : 6u
+            : 4u;
         cpu.InternalWait(baseCycles + InstructionTiming.GetDataEffectiveAddressCycles(size, sourceEa));
     }
 
@@ -64,7 +68,7 @@ public static class BitwiseLogicalInstructionHelpers
         ApplyLogicalFlags(cpu.Registers, size, result);
         var baseCycles = size == OperandSize.Long ? 12u : 8u;
         if (destinationEa.Mode == EffectiveAddressMode.DataRegisterDirect)
-            baseCycles = size == OperandSize.Long ? 6u : 4u;
+            baseCycles = size == OperandSize.Long ? 8u : 4u;
 
         cpu.InternalWait(baseCycles + InstructionTiming.GetDataEffectiveAddressCycles(size, destinationEa));
     }
@@ -84,8 +88,7 @@ public static class BitwiseLogicalInstructionHelpers
         DestinationOperandAccess.WriteUnsigned(cpu, destination, destinationSize, result);
         DestinationOperandAccess.ApplyPostIncrement(cpu, destination);
         ApplyLogicalFlags(cpu.Registers, size, result);
-        var baseCycles = size == OperandSize.Long ? 16u : 8u;
-        cpu.InternalWait(baseCycles + InstructionTiming.GetDataEffectiveAddressCycles(size, destinationEa));
+        cpu.InternalWait(InstructionTiming.GetLogicalImmediateCycles(size, destinationEa));
     }
 
     private static uint ReadImmediate(Cpu cpu, OperandSize size) =>

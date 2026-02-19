@@ -112,7 +112,7 @@ public static class ImmediateInstructions
         var currentCcr = (ushort)(cpu.Registers.StatusRegister & ConditionCodeRegisterMask);
         var resultCcr = (ushort)(currentCcr | immediate);
         cpu.Registers.StatusRegister = (ushort)((cpu.Registers.StatusRegister & ~ConditionCodeRegisterMask) | resultCcr);
-        cpu.InternalWait(InstructionTiming.GetImmediateStatusCycles(targetsStatusRegister: false));
+        cpu.InternalWait(InstructionTiming.GetImmediateStatusCycles());
     }
 
     /// <summary>
@@ -129,7 +129,7 @@ public static class ImmediateInstructions
         var immediate = cpu.FetchPcWord();
         var result = (ushort)((cpu.Registers.StatusRegister | immediate) & ValidStatusRegisterMask);
         cpu.Registers.StatusRegister = result;
-        cpu.InternalWait(InstructionTiming.GetImmediateStatusCycles(targetsStatusRegister: true));
+        cpu.InternalWait(InstructionTiming.GetImmediateStatusCycles());
     }
 
     /// <summary>
@@ -141,7 +141,7 @@ public static class ImmediateInstructions
         var currentCcr = (ushort)(cpu.Registers.StatusRegister & ConditionCodeRegisterMask);
         var resultCcr = (ushort)(currentCcr & immediate);
         cpu.Registers.StatusRegister = (ushort)((cpu.Registers.StatusRegister & ~ConditionCodeRegisterMask) | resultCcr);
-        cpu.InternalWait(InstructionTiming.GetImmediateStatusCycles(targetsStatusRegister: false));
+        cpu.InternalWait(InstructionTiming.GetImmediateStatusCycles());
     }
 
     /// <summary>
@@ -158,7 +158,7 @@ public static class ImmediateInstructions
         var immediate = cpu.FetchPcWord();
         var result = (ushort)(cpu.Registers.StatusRegister & immediate & ValidStatusRegisterMask);
         cpu.Registers.StatusRegister = result;
-        cpu.InternalWait(InstructionTiming.GetImmediateStatusCycles(targetsStatusRegister: true));
+        cpu.InternalWait(InstructionTiming.GetImmediateStatusCycles());
     }
 
     /// <summary>
@@ -170,7 +170,7 @@ public static class ImmediateInstructions
         var currentCcr = (ushort)(cpu.Registers.StatusRegister & ConditionCodeRegisterMask);
         var resultCcr = (ushort)(currentCcr ^ immediate);
         cpu.Registers.StatusRegister = (ushort)((cpu.Registers.StatusRegister & ~ConditionCodeRegisterMask) | resultCcr);
-        cpu.InternalWait(InstructionTiming.GetImmediateStatusCycles(targetsStatusRegister: false));
+        cpu.InternalWait(InstructionTiming.GetImmediateStatusCycles());
     }
 
     /// <summary>
@@ -187,7 +187,7 @@ public static class ImmediateInstructions
         var immediate = cpu.FetchPcWord();
         var result = (ushort)((cpu.Registers.StatusRegister ^ immediate) & ValidStatusRegisterMask);
         cpu.Registers.StatusRegister = result;
-        cpu.InternalWait(InstructionTiming.GetImmediateStatusCycles(targetsStatusRegister: true));
+        cpu.InternalWait(InstructionTiming.GetImmediateStatusCycles());
     }
 
     /// <summary>

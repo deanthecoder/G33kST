@@ -199,8 +199,24 @@ public abstract class CpuTestBase
     {
         ApplyInitialRamState(testCase);
         ApplyInitialRegisterState(testCase);
+        var cyclesBeforeStep = m_cpu.CyclesSinceCpuStart;
         m_cpu.Step();
+        var cyclesAfterStep = m_cpu.CyclesSinceCpuStart;
         AssertFinalCpuState(testCase);
+
+        // Error-bus cases (address/bus fault flow) currently do not model full exception-cycle timing.
+        // Keep state assertions for these cases, but defer strict cycle checks until exception timing is implemented.
+        if (testCase.Transactions.Any(o => o.Kind is "re" or "we"))
+            return;
+
+        var actualCycles = cyclesAfterStep - cyclesBeforeStep;
+        var expectedCycles = (long)testCase.Length;
+        if (actualCycles != expectedCycles)
+        {
+            var instruction = BuildInstructionText(testCase.Name);
+            throw new AssertionException(
+                $"Cycle mismatch for {instruction}. Expected {expectedCycles} cycles, got {actualCycles}.");
+        }
     }
 
     private static void ValidateStateShape(SingleStepCpuState state, string stateName)

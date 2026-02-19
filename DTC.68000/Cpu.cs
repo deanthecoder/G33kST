@@ -388,6 +388,7 @@ public sealed class Cpu : CpuBase
         Registers.StatusRegister = (ushort)((oldStatus & ~TraceFlagMask) | SupervisorFlagMask);
         Registers.ProgramCounter = Read32(PrivilegeViolationVectorAddress);
         RefreshPrefetchQueue();
+        InternalWait(34);
     }
 
     /// <summary>

@@ -118,7 +118,7 @@ public static class LogicalInstructions
         var ea = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         EffectiveAddressByteAccess.WriteByte(cpu, ea, 0);
         FlagMath.ApplyClear(cpu.Registers);
-        cpu.InternalWait(InstructionTiming.GetUnaryModifyCycles(OperandSize.Byte, ea));
+        cpu.InternalWait(InstructionTiming.GetClearCycles(OperandSize.Byte, ea));
     }
 
     /// <summary>
@@ -132,7 +132,7 @@ public static class LogicalInstructions
         WriteUnsigned(cpu, destination, OperandSize.Word, 0);
         ApplyPostIncrement(cpu, destination);
         FlagMath.ApplyClear(cpu.Registers);
-        cpu.InternalWait(InstructionTiming.GetUnaryModifyCycles(OperandSize.Word, ea));
+        cpu.InternalWait(InstructionTiming.GetClearCycles(OperandSize.Word, ea));
     }
 
     /// <summary>
@@ -146,7 +146,7 @@ public static class LogicalInstructions
         WriteUnsigned(cpu, destination, OperandSize.Long, 0);
         ApplyPostIncrement(cpu, destination);
         FlagMath.ApplyClear(cpu.Registers);
-        cpu.InternalWait(InstructionTiming.GetUnaryModifyCycles(OperandSize.Long, ea));
+        cpu.InternalWait(InstructionTiming.GetClearCycles(OperandSize.Long, ea));
     }
 
     /// <summary>

@@ -165,7 +165,10 @@ public static class SystemInstructions
         _ = DestinationOperandAccess.ReadUnsigned(cpu, destination, DestinationOperandSize.Word);
         DestinationOperandAccess.WriteUnsigned(cpu, destination, DestinationOperandSize.Word, cpu.Registers.StatusRegister);
         DestinationOperandAccess.ApplyPostIncrement(cpu, destination);
-        cpu.InternalWait(6);
+        var cycles = destinationEa.Mode == EffectiveAddressMode.DataRegisterDirect
+            ? 6u
+            : 8u + InstructionTiming.GetDataEffectiveAddressCycles(OperandSize.Word, destinationEa);
+        cpu.InternalWait(cycles);
     }
 
     /// <summary>
@@ -177,7 +180,7 @@ public static class SystemInstructions
         var value = (ushort)(EffectiveAddressWordAccess.ReadWord(cpu, source) & ConditionCodeRegisterMask);
         var statusRegister = cpu.Registers.StatusRegister;
         cpu.Registers.StatusRegister = (ushort)((statusRegister & ~ConditionCodeRegisterMask) | value);
-        cpu.InternalWait(12);
+        cpu.InternalWait(12 + InstructionTiming.GetDataEffectiveAddressCycles(OperandSize.Word, source));
     }
 
     /// <summary>
@@ -191,7 +194,7 @@ public static class SystemInstructions
         var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var value = EffectiveAddressWordAccess.ReadWord(cpu, source);
         cpu.Registers.StatusRegister = (ushort)(value & ValidStatusRegisterMask);
-        cpu.InternalWait(12);
+        cpu.InternalWait(12 + InstructionTiming.GetDataEffectiveAddressCycles(OperandSize.Word, source));
     }
 
     /// <summary>
@@ -334,33 +337,60 @@ public static class SystemInstructions
         var registerIndex = (opcode >> 9) & 0x07;
         var value = (short)cpu.Registers.GetDataRegister(registerIndex);
         FlagMath.ApplyCheck(cpu.Registers, value < 0);
+        var valueWord = (ushort)value;
         if (value < 0)
         {
+            var boundWord = (ushort)bound;
+            var compareResult = (ushort)(valueWord - boundWord);
+            var overflow = ((valueWord ^ boundWord) & (valueWord ^ compareResult) & 0x8000) != 0;
+            var negative = (compareResult & 0x8000) != 0;
+            var zero = compareResult == 0;
+            var greaterThan = !zero && negative == overflow;
+
+            // Some CHK negative-value traps still take the "upper-bound compare" micro-path first.
+            // That path is 2 cycles faster than the pure lower-bound trap path on 68000.
+            var useLongTrapPath = !(overflow || greaterThan);
             EnterExceptionVector(cpu, CheckInstructionVectorAddress);
+            cpu.InternalWait(InstructionTiming.GetCheckCycles(source, trapped: true, useLongTrapPath));
             return;
         }
 
         if (value > bound)
+        {
             EnterExceptionVector(cpu, CheckInstructionVectorAddress);
+            cpu.InternalWait(InstructionTiming.GetCheckCycles(source, trapped: true));
+            return;
+        }
+
+        cpu.InternalWait(InstructionTiming.GetCheckCycles(source, trapped: false));
     }
 
     /// <summary>
     /// Executes <c>ILLEGAL</c>, entering illegal-instruction vector 4.
     /// </summary>
-    private static void ExecuteIllegalInstruction(Cpu cpu, ushort opcode) =>
+    private static void ExecuteIllegalInstruction(Cpu cpu, ushort opcode)
+    {
         EnterExceptionVector(cpu, IllegalInstructionVectorAddress, useCurrentInstructionAddress: true);
+        cpu.InternalWait(34);
+    }
 
     /// <summary>
     /// Executes a line-A emulator trap by entering vector 10.
     /// </summary>
-    private static void ExecuteLineAEmulator(Cpu cpu, ushort opcode) =>
+    private static void ExecuteLineAEmulator(Cpu cpu, ushort opcode)
+    {
         EnterExceptionVector(cpu, LineAEmulatorVectorAddress, useCurrentInstructionAddress: true);
+        cpu.InternalWait(34);
+    }
 
     /// <summary>
     /// Executes a line-F emulator trap by entering vector 11.
     /// </summary>
-    private static void ExecuteLineFEmulator(Cpu cpu, ushort opcode) =>
+    private static void ExecuteLineFEmulator(Cpu cpu, ushort opcode)
+    {
         EnterExceptionVector(cpu, LineFEmulatorVectorAddress, useCurrentInstructionAddress: true);
+        cpu.InternalWait(34);
+    }
 
     /// <summary>
     /// Executes <c>TRAP #n</c>, entering trap vector <c>32 + n</c>.

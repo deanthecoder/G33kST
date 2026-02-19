@@ -45,6 +45,13 @@ Initial target: **Atari 520 STFM**
 ### Trace bit
 - Implement the trace (T) bit as standard 68000 behaviour (trace exception after instruction completes) so debuggers/monitors don’t misbehave.
 
+### Timing architecture note
+- Revisit cycle accounting design as timing accuracy work progresses.
+- Specifically evaluate whether `Cpu.Read*`/`Cpu.Write*` should advance cycles directly (bus-access-driven timing) versus relying only on instruction-level `InternalWait`.
+- If changed, keep raw bus access methods usable for debugger/introspection flows without incurring emulation-time side effects.
+- Validate decisions against SingleStep timing data and exception-path timing tests.
+- `RunJsonTestCase` currently skips strict cycle assertions for `re`/`we` transaction cases; re-enable full timing checks for those once exception/bus-error cycle modeling is implemented.
+
 ## Coding Conventions
 Follow the repository’s established style. When in doubt, align with these preferences:
 - C# style:

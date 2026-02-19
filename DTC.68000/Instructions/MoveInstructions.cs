@@ -17,11 +17,11 @@ namespace DTC.M68000.Instructions;
 /// </summary>
 public static class MoveInstructions
 {
-    private static readonly Instruction s_instrMoveByte = new("MOVE.B <ea>,<ea>", ExecuteMoveByte);
-    private static readonly Instruction s_instrMoveWord = new("MOVE.W <ea>,<ea>", ExecuteMoveWord);
-    private static readonly Instruction s_instrMoveLong = new("MOVE.L <ea>,<ea>", ExecuteMoveLong);
-    private static readonly Instruction s_instrMoveAddressWord = new("MOVEA.W <ea>,An", ExecuteMoveAddressWord);
-    private static readonly Instruction s_instrMoveAddressLong = new("MOVEA.L <ea>,An", ExecuteMoveAddressLong);
+    private static readonly Instruction InstrMoveByte = new("MOVE.B <ea>,<ea>", ExecuteMoveByte);
+    private static readonly Instruction InstrMoveWord = new("MOVE.W <ea>,<ea>", ExecuteMoveWord);
+    private static readonly Instruction InstrMoveLong = new("MOVE.L <ea>,<ea>", ExecuteMoveLong);
+    private static readonly Instruction InstrMoveAddressWord = new("MOVEA.W <ea>,An", ExecuteMoveAddressWord);
+    private static readonly Instruction InstrMoveAddressLong = new("MOVEA.L <ea>,An", ExecuteMoveAddressLong);
 
     /// <summary>
     /// Decodes byte-sized MOVE opcodes handled by this module.
@@ -32,7 +32,7 @@ public static class MoveInstructions
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
         if (!EffectiveAddressByteAccess.SupportsByteRead(source))
             return null;
-        return EffectiveAddressByteAccess.SupportsByteWrite(destination) ? s_instrMoveByte : null;
+        return EffectiveAddressByteAccess.SupportsByteWrite(destination) ? InstrMoveByte : null;
     }
 
     /// <summary>
@@ -43,10 +43,10 @@ public static class MoveInstructions
         var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
         if (destination.Mode == EffectiveAddressMode.AddressRegisterDirect)
-            return EffectiveAddressWordAccess.SupportsWordRead(source) ? s_instrMoveAddressWord : null;
+            return EffectiveAddressWordAccess.SupportsWordRead(source) ? InstrMoveAddressWord : null;
         if (!EffectiveAddressWordAccess.SupportsWordRead(source))
             return null;
-        return EffectiveAddressWordAccess.SupportsWordWrite(destination) ? s_instrMoveWord : null;
+        return EffectiveAddressWordAccess.SupportsWordWrite(destination) ? InstrMoveWord : null;
     }
 
     /// <summary>
@@ -57,10 +57,10 @@ public static class MoveInstructions
         var source = EffectiveAddressDecoder.DecodeLowSixBits(opcode);
         var destination = EffectiveAddressDecoder.DecodeMoveDestination(opcode);
         if (destination.Mode == EffectiveAddressMode.AddressRegisterDirect)
-            return EffectiveAddressLongAccess.SupportsLongRead(source) ? s_instrMoveAddressLong : null;
+            return EffectiveAddressLongAccess.SupportsLongRead(source) ? InstrMoveAddressLong : null;
         if (!EffectiveAddressLongAccess.SupportsLongRead(source))
             return null;
-        return EffectiveAddressLongAccess.SupportsLongWrite(destination) ? s_instrMoveLong : null;
+        return EffectiveAddressLongAccess.SupportsLongWrite(destination) ? InstrMoveLong : null;
     }
 
     /// <summary>
