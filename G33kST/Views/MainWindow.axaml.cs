@@ -505,23 +505,21 @@ public partial class MainWindow : Window
     private static bool TryGetFirstSupportedDroppedFile(DragEventArgs e, out FileInfo file)
     {
         file = null;
-        if (e?.Data == null)
-            return false;
 
-        var storageItems = e.Data.GetFiles();
-        if (storageItems != null)
+        var storageItems = e?.Data.GetFiles();
+        if (storageItems == null)
+            return false;
+        
+        foreach (var storageItem in storageItems)
         {
-            foreach (var storageItem in storageItems)
-            {
-                var localPath = storageItem.TryGetLocalPath();
-                if (string.IsNullOrWhiteSpace(localPath))
-                    continue;
-                var droppedFile = new FileInfo(localPath);
-                if (!IsSupportedDroppedFile(droppedFile))
-                    continue;
-                file = droppedFile;
-                return true;
-            }
+            var localPath = storageItem.TryGetLocalPath();
+            if (string.IsNullOrWhiteSpace(localPath))
+                continue;
+            var droppedFile = new FileInfo(localPath);
+            if (!IsSupportedDroppedFile(droppedFile))
+                continue;
+            file = droppedFile;
+            return true;
         }
 
         return false;

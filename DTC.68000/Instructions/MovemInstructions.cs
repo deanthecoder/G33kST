@@ -147,7 +147,7 @@ public static class MovemInstructions
         if (source.HasPostIncrement)
             cpu.Registers.SetAddressRegister(
                 source.PostIncrementRegisterIndex,
-                unchecked(source.PostIncrementBaseAddress + (transferredRegisterCount * step)));
+                unchecked(source.PostIncrementBaseAddress + transferredRegisterCount * step));
 
         cpu.InternalWait(InstructionTiming.GetMovemCycles(size, memoryToRegisters: true, ea, registerCount));
     }

@@ -53,9 +53,7 @@ public sealed class SystemControlDevice : IMemDevice
     public byte Read8(uint address)
     {
         var index = (int)(address - BaseAddress);
-        if (index is < 0 or >= 16)
-            return 0xFF;
-        return m_registers[index];
+        return index is < 0 or >= 16 ? (byte)0xFF : m_registers[index];
     }
 
     /// <inheritdoc />

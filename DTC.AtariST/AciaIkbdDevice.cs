@@ -51,7 +51,7 @@ public sealed class AciaIkbdDevice : IMemDevice
     private const byte IkbdResetParameter = 0x01;
     private const byte IkbdResetCompleteCode = 0xF1;
     private const byte IkbdMouseModeRelative = 0x08;
-    private readonly object m_stateSync = new();
+    private readonly Lock m_stateSync = new();
     private readonly Queue<byte> m_keyboardReceiveQueue = [];
     private readonly byte[] m_lastJoystickStateBytes = new byte[2];
     private readonly byte[] m_pendingCommandParameters = new byte[8];

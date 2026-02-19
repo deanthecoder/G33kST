@@ -85,12 +85,11 @@ public static class AddSubtractWithExtendInstructions
         var sourceRegisterIndex = (byte)(opcode & 0x07);
         var destinationRegisterIndex = (byte)((opcode >> 9) & 0x07);
         var source = ReadMemoryPredecrement(cpu, sourceRegisterIndex, size).Value;
-        var destinationOperand = ReadMemoryPredecrement(cpu, destinationRegisterIndex, size);
-        var destination = destinationOperand.Value;
+        var (destination, address) = ReadMemoryPredecrement(cpu, destinationRegisterIndex, size);
         var extendInput = cpu.Registers.ExtendFlag ? 1ul : 0ul;
         var result = AddWithExtend(source, destination, extendInput, size);
 
-        WriteMemoryPredecrement(cpu, destinationOperand.Address, size, result.Result);
+        WriteMemoryPredecrement(cpu, address, size, result.Result);
         ApplyExtendArithmeticFlags(cpu.Registers, result);
         cpu.InternalWait(InstructionTiming.GetAddSubtractWithExtendCycles(size, memoryForm: true));
     }

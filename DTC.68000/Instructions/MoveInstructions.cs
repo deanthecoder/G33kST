@@ -255,14 +255,14 @@ public static class MoveInstructions
     }
 
     private static int DestinationFrameProgramCounterAdjust(EffectiveAddress destination) =>
-        2 - (2 * DestinationExtensionWordCount(destination));
+        2 - 2 * DestinationExtensionWordCount(destination);
 
     private static int DestinationFrameProgramCounterAdjustLong(EffectiveAddress source, EffectiveAddress destination)
     {
         if (destination.Mode == EffectiveAddressMode.Other && destination.Register == 1 && SourceUsesHighWordAddressErrorFlags(source))
             return DestinationFrameProgramCounterAdjust(destination);
 
-        return 2 - (2 * DestinationExtensionWordCountLong(destination));
+        return 2 - 2 * DestinationExtensionWordCountLong(destination);
     }
 
     private static int DestinationExtensionWordCount(EffectiveAddress destination) =>

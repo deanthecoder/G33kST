@@ -121,7 +121,7 @@ public static class InstructionTiming
         if (countFromRegister)
             baseCycles += 2;
 
-        return baseCycles + ((uint)effectiveCount * 2);
+        return baseCycles + (uint)effectiveCount * 2;
     }
 
     /// <summary>

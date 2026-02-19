@@ -438,7 +438,7 @@ public sealed class EmuTOSTests : TestsBase
         image[0] = 0xEB;
         image[1] = 0x3C;
         image[2] = 0x90;
-        var oemName = "G33KST  ";
+        const string oemName = "G33KST  ";
         for (var i = 0; i < oemName.Length; i++)
             image[3 + i] = (byte)oemName[i];
         image[510] = 0x55;
@@ -505,21 +505,19 @@ public sealed class EmuTOSTests : TestsBase
         var bytesPerPixel = frameBuffer.Length / Math.Max(1, width * height);
         if (bytesPerPixel < 3 || frameBuffer.Length < width * height * bytesPerPixel)
             return false;
-        if (width <= (MenuBarScanMarginX * 2) || height <= MenuBarScanTop)
+        if (width <= MenuBarScanMarginX * 2 || height <= MenuBarScanTop)
             return false;
 
-        var startX = MenuBarScanMarginX;
         var endX = width - MenuBarScanMarginX;
-        var startY = MenuBarScanTop;
-        var endY = Math.Min(height, startY + MenuBarScanHeight);
+        var endY = Math.Min(height, MenuBarScanTop + MenuBarScanHeight);
         var inkPixels = 0;
 
-        for (var y = startY; y < endY; y++)
+        for (var y = MenuBarScanTop; y < endY; y++)
         {
             var rowOffset = y * width * bytesPerPixel;
-            for (var x = startX; x < endX; x++)
+            for (var x = MenuBarScanMarginX; x < endX; x++)
             {
-                var pixelOffset = rowOffset + (x * bytesPerPixel);
+                var pixelOffset = rowOffset + x * bytesPerPixel;
                 var red = frameBuffer[pixelOffset];
                 var green = frameBuffer[pixelOffset + 1];
                 var blue = frameBuffer[pixelOffset + 2];
@@ -621,7 +619,7 @@ public sealed class EmuTOSTests : TestsBase
                 var rowStart = y * rowStride;
                 for (var x = 0; x < m_width; x++)
                 {
-                    var pixelOffset = rowStart + (x * m_bytesPerPixel);
+                    var pixelOffset = rowStart + x * m_bytesPerPixel;
                     if (frameBuffer[pixelOffset] <= 192)
                         continue;
                     rowBrightPixels++;

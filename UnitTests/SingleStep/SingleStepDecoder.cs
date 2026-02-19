@@ -25,10 +25,10 @@ public static class SingleStepDecoder
     private const uint StateMagic = 0x01234567;
     private const uint TransactionsMagic = 0x456789AB;
 
-    public static SingleStepDecodeResult DecodeGroup(SingleStepInstructionGroup group) =>
+    private static SingleStepDecodeResult DecodeGroup(SingleStepInstructionGroup group) =>
         DecodeGroup(GetGroupName(group), GetPattern(group));
 
-    public static SingleStepDecodeResult DecodeGroup(string groupName, string pattern)
+    private static SingleStepDecodeResult DecodeGroup(string groupName, string pattern)
     {
         var sourceFiles = SingleStepPaths.TestDataRoot.GetFiles(pattern, SearchOption.TopDirectoryOnly);
         return DecodeFiles(groupName, sourceFiles);
@@ -52,21 +52,6 @@ public static class SingleStepDecoder
         }
 
         return new SingleStepDecodeResult(groupName, decodedFiles, decodedGroupDir);
-    }
-
-    public static IReadOnlyList<SingleStepTestCase> LoadDecodedTests(SingleStepInstructionGroup group)
-    {
-        var decodeResult = DecodeGroup(group);
-        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        var tests = new List<SingleStepTestCase>();
-
-        foreach (var file in decodeResult.Files)
-        {
-            var fileTests = ReadJson(file.DecodedFile, options);
-            tests.AddRange(fileTests);
-        }
-
-        return tests;
     }
 
     public static IReadOnlyList<SingleStepTestCase> LoadDecodedTests(FileInfo decodedFile)
@@ -275,8 +260,7 @@ public static class SingleStepDecoder
     private static List<SingleStepTestCase> ReadJson(FileInfo decodedFile, JsonSerializerOptions options)
     {
         using var stream = decodedFile.OpenRead();
-        var tests = JsonSerializer.Deserialize<List<SingleStepTestCase>>(stream, options);
-        return tests ?? [];
+        return JsonSerializer.Deserialize<List<SingleStepTestCase>>(stream, options) ?? [];
     }
 
     private static void WriteJson(FileInfo outputFile, List<SingleStepTestCase> tests)

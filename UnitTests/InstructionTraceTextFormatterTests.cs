@@ -24,7 +24,7 @@ public sealed class InstructionTraceTextFormatterTests : TestsBase
         cpu.Registers.SetDataRegister(2, 0x11223344);
         cpu.Registers.SetDataRegister(5, 0x99AABBCC);
         var instruction = new Instruction("EXG Dn,Dm", (_, _) => { });
-        var opcode = (ushort)0xC545; // high register = D2, low register = D5.
+        const ushort opcode = 0xC545; // high register = D2, low register = D5.
 
         var text = InstructionTraceTextFormatter.Format(opcode, instruction, cpu, 0x000100);
 

@@ -159,7 +159,7 @@ public sealed class FloppyDmaFdcDeviceTests
     {
         var device = new FloppyDmaFdcDevice(driveAPresent: true, driveBPresent: false);
 
-        var mounted = device.TryMountImage(1, new byte[] { 0x01 }, "drive-b");
+        var mounted = device.TryMountImage(1, [0x01], "drive-b");
 
         Assert.Multiple(() =>
         {
@@ -209,8 +209,10 @@ public sealed class FloppyDmaFdcDeviceTests
     [Test]
     public void ReadSectorStatusShouldNotSetLostDataBitOnSuccessfulTransfer()
     {
-        var device = new FloppyDmaFdcDevice(driveAPresent: true, driveBPresent: false);
-        device.DmaWrite8 = (_, _) => { };
+        var device = new FloppyDmaFdcDevice(driveAPresent: true, driveBPresent: false)
+        {
+            DmaWrite8 = (_, _) => { }
+        };
         Assert.That(device.TryMountImage(0, new byte[80 * 2 * 9 * 512], "disk"), Is.True);
         device.ApplyPortA(0x05);
         WriteWord(device, ControlRegisterAddress, FdcTrackAccessControl);
@@ -446,7 +448,7 @@ public sealed class FloppyDmaFdcDeviceTests
         {
             Assert.That(stats.CommandCount, Is.EqualTo(1));
             Assert.That(stats.LastCommand, Is.EqualTo(RestoreCommand));
-            Assert.That(traceLines.Count, Is.GreaterThan(0));
+            Assert.That(traceLines, Is.Not.Empty);
             Assert.That(traceLines.Any(line => line.Contains("RESTORE", StringComparison.Ordinal)), Is.True);
         });
     }

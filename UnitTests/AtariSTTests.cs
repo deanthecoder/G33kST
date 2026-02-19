@@ -236,7 +236,7 @@ public sealed class AtariSTTests : TestsBase
     {
         var atariST = new AtariST();
 
-        Assert.That(() => atariST.LoadRom(Array.Empty<byte>(), "test.rom"), Throws.TypeOf<ArgumentException>());
+        Assert.That(() => atariST.LoadRom([], "test.rom"), Throws.TypeOf<ArgumentException>());
     }
 
     [Test]
@@ -257,11 +257,10 @@ public sealed class AtariSTTests : TestsBase
         atariST.LoadRom(romData, "tos.img");
 
         Assert.That(atariST.HasLoadedCartridge, Is.True);
+
         // Verify ROM data was copied
-        for (int i = 0; i < romData.Length; i++)
-        {
+        for (var i = 0; i < romData.Length; i++)
             Assert.That(atariST.Rom.Data[i], Is.EqualTo(romData[i]), $"ROM byte at offset {i} should match");
-        }
     }
 
     [Test]
@@ -350,7 +349,7 @@ public sealed class AtariSTTests : TestsBase
     public void TryMountFloppyImageShouldMountInDriveA()
     {
         var atariST = new AtariST();
-        var mounted = atariST.TryMountFloppyImage(0, new byte[] { 0x01, 0x02 }, "disk-a");
+        var mounted = atariST.TryMountFloppyImage(0, [0x01, 0x02], "disk-a");
 
         Assert.Multiple(() =>
         {
@@ -364,7 +363,7 @@ public sealed class AtariSTTests : TestsBase
     public void UnmountFloppyImageShouldClearDriveAImage()
     {
         var atariST = new AtariST();
-        _ = atariST.TryMountFloppyImage(0, new byte[] { 0x01, 0x02 }, "disk-a");
+        _ = atariST.TryMountFloppyImage(0, [0x01, 0x02], "disk-a");
 
         atariST.UnmountFloppyImage(0);
 
@@ -379,7 +378,7 @@ public sealed class AtariSTTests : TestsBase
     public void ResetShouldKeepMountedDriveAFloppyImage()
     {
         var atariST = new AtariST();
-        _ = atariST.TryMountFloppyImage(0, new byte[] { 0x01, 0x02 }, "disk-a");
+        _ = atariST.TryMountFloppyImage(0, [0x01, 0x02], "disk-a");
 
         atariST.Reset();
 
@@ -673,7 +672,7 @@ public sealed class AtariSTTests : TestsBase
         atariST.AdvanceDevices(oneFrameTicks);
         var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * bytesPerPixel];
         atariST.Video.CopyToFrameBuffer(frameBuffer);
-        var firstPixelOffset = ((shifter.ActiveOriginY * atariST.Video.FrameWidth) + shifter.ActiveOriginX) * bytesPerPixel;
+        var firstPixelOffset = (shifter.ActiveOriginY * atariST.Video.FrameWidth + shifter.ActiveOriginX) * bytesPerPixel;
 
         Assert.Multiple(() =>
         {
@@ -729,7 +728,7 @@ public sealed class AtariSTTests : TestsBase
         atariST.AdvanceDevices(oneFrameTicks);
         var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * bytesPerPixel];
         atariST.Video.CopyToFrameBuffer(frameBuffer);
-        var firstPixelOffset = ((shifter.ActiveOriginY * atariST.Video.FrameWidth) + shifter.ActiveOriginX) * bytesPerPixel;
+        var firstPixelOffset = (shifter.ActiveOriginY * atariST.Video.FrameWidth + shifter.ActiveOriginX) * bytesPerPixel;
 
         Assert.Multiple(() =>
         {
@@ -783,7 +782,7 @@ public sealed class AtariSTTests : TestsBase
         atariST.AdvanceDevices(oneFrameTicks);
         var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * bytesPerPixel];
         atariST.Video.CopyToFrameBuffer(frameBuffer);
-        var firstPixelOffset = ((shifter.ActiveOriginY * atariST.Video.FrameWidth) + shifter.ActiveOriginX) * bytesPerPixel;
+        var firstPixelOffset = (shifter.ActiveOriginY * atariST.Video.FrameWidth + shifter.ActiveOriginX) * bytesPerPixel;
 
         Assert.Multiple(() =>
         {
@@ -832,7 +831,7 @@ public sealed class AtariSTTests : TestsBase
         bus.Write16BigEndian(screenBaseAddress + 4, 0x0000);
         bus.Write16BigEndian(screenBaseAddress + 6, 0x0000);
 
-        var line1Address = screenBaseAddress + lowResBytesPerLine;
+        const uint line1Address = screenBaseAddress + lowResBytesPerLine;
         bus.Write16BigEndian(line1Address, 0x8000);
         bus.Write16BigEndian(line1Address + 2, 0x0000);
         bus.Write16BigEndian(line1Address + 4, 0x0000);
@@ -856,9 +855,9 @@ public sealed class AtariSTTests : TestsBase
 
         var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * bytesPerPixel];
         atariST.Video.CopyToFrameBuffer(frameBuffer);
-        var line0PixelOffset = ((shifter.ActiveOriginY * atariST.Video.FrameWidth) + shifter.ActiveOriginX) * bytesPerPixel;
+        var line0PixelOffset = (shifter.ActiveOriginY * atariST.Video.FrameWidth + shifter.ActiveOriginX) * bytesPerPixel;
         var line1OutputY = shifter.ActiveOriginY + 2;
-        var line1PixelOffset = ((line1OutputY * atariST.Video.FrameWidth) + shifter.ActiveOriginX) * bytesPerPixel;
+        var line1PixelOffset = (line1OutputY * atariST.Video.FrameWidth + shifter.ActiveOriginX) * bytesPerPixel;
 
         Assert.Multiple(() =>
         {

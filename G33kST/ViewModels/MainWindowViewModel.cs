@@ -126,9 +126,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             var mountedImageName = m_machine.GetMountedFloppyImageName(DriveAIndex);
             if (string.IsNullOrWhiteSpace(mountedImageName))
                 return "Drive A: no disk mounted";
-            if (m_isFloppyActivityIndicatorOn)
-                return $"Drive A: activity ({mountedImageName})";
-            return $"Drive A: mounted ({mountedImageName})";
+            return m_isFloppyActivityIndicatorOn ? $"Drive A: activity ({mountedImageName})" : $"Drive A: mounted ({mountedImageName})";
         }
     }
 
@@ -391,7 +389,6 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
         if (addToMru)
             FloppyMru.Add(imageFile);
-        Settings.LastFloppyImagePath = imageFile.FullName;
         NotifyFloppyIndicatorChanged();
 
         Logger.Instance.Info(wasMounted ? $"Drive A: floppy image replaced with '{imageFile.Name}'." : $"Drive A: mounted floppy image '{imageFile.Name}'.");
@@ -682,8 +679,6 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         var safeName = Path.GetFileName(romFileName ?? string.Empty).ToSafeFileName();
         if (string.IsNullOrWhiteSpace(safeName))
             safeName = $"rom_{DateTime.Now:yyyyMMdd_HHmmss}.img";
-        if (Path.HasExtension(safeName))
-            return safeName;
-        return $"{safeName}.img";
+        return Path.HasExtension(safeName) ? safeName : $"{safeName}.img";
     }
 }

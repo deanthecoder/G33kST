@@ -128,10 +128,10 @@ public sealed class FloppyImageLoaderTests
         image[510] = 0x55;
         image[511] = 0xAA;
 
-        var rootDirOffset = (reservedSectors + (fatCount * sectorsPerFat)) * bytesPerSector;
+        const int rootDirOffset = (reservedSectors + fatCount * sectorsPerFat) * bytesPerSector;
         for (var index = 0; index < fileNames.Length; index++)
         {
-            var entryOffset = rootDirOffset + (index * 32);
+            var entryOffset = rootDirOffset + index * 32;
             if (entryOffset + 32 > image.Length)
                 break;
             WriteDosName(image.AsSpan(entryOffset, 11), fileNames[index]);

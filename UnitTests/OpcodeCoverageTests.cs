@@ -24,7 +24,7 @@ public sealed class OpcodeCoverageTests : TestsBase
             if (InstructionDecoder.Decode((ushort)opcode) == null)
                 unimplemented.Add((ushort)opcode);
 
-        var totalOpcodes = ushort.MaxValue + 1;
+        const int totalOpcodes = ushort.MaxValue + 1;
         var implementedCount = totalOpcodes - unimplemented.Count;
         var implementedPercent = implementedCount * 100.0 / (ushort.MaxValue + 1);
         TestContext.Progress.WriteLine($"Opcode decode coverage: {implementedCount}/65536 ({implementedPercent:F2}%).");

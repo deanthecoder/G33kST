@@ -40,7 +40,6 @@ public sealed class Cpu : CpuBase
     private ushort m_prefetch0;
     private ushort m_prefetch1;
     private bool m_hasPrefetch;
-    private bool m_isStopped;
     private uint m_stoppedResumeProgramCounter;
     private byte m_pendingInterruptLevel;
     private uint m_resetSupervisorStackPointer;
@@ -58,7 +57,7 @@ public sealed class Cpu : CpuBase
     /// <summary>
     /// Gets a value indicating whether the CPU is halted by a <c>STOP</c> instruction.
     /// </summary>
-    public bool IsStopped => m_isStopped;
+    public bool IsStopped { get; private set; }
 
     /// <summary>
     /// Optional callback for interrupt acknowledge cycles.
@@ -96,7 +95,7 @@ public sealed class Cpu : CpuBase
         Registers.ProgramCounter = Bus.Read32BigEndian(ResetProgramCounterVectorAddress);
         Registers.StatusRegister = InitialStatusRegister;
         m_hasPrefetch = false;
-        m_isStopped = false;
+        IsStopped = false;
         m_stoppedResumeProgramCounter = 0;
         m_pendingInterruptLevel = 0;
     }
@@ -131,7 +130,7 @@ public sealed class Cpu : CpuBase
 
         // Single-step tests reuse a CPU instance across many independent cases.
         // Seeding a new prefetch pair defines a fresh instruction context, so clear transient latches.
-        m_isStopped = false;
+        IsStopped = false;
         m_stoppedResumeProgramCounter = 0;
         m_pendingInterruptLevel = 0;
     }
@@ -285,7 +284,7 @@ public sealed class Cpu : CpuBase
             return;
         }
 
-        if (m_isStopped)
+        if (IsStopped)
         {
             // STOP halts instruction execution but machine time still advances.
             InternalWait(StopIdleCyclesPerStep);
@@ -344,7 +343,7 @@ public sealed class Cpu : CpuBase
     /// </summary>
     public void EnterStoppedState(uint resumeProgramCounter)
     {
-        m_isStopped = true;
+        IsStopped = true;
         m_stoppedResumeProgramCounter = resumeProgramCounter;
     }
 
@@ -406,11 +405,11 @@ public sealed class Cpu : CpuBase
         if (!isAccepted)
             return false;
 
-        var interruptReturnProgramCounter = m_isStopped
+        var interruptReturnProgramCounter = IsStopped
             ? m_stoppedResumeProgramCounter
             : Registers.ProgramCounter;
         m_pendingInterruptLevel = 0;
-        m_isStopped = false;
+        IsStopped = false;
         m_stoppedResumeProgramCounter = 0;
         var acknowledgeResult = InterruptAcknowledge?.Invoke(level) ?? InterruptAcknowledgeResult.Autovector();
         var vectorAddress = acknowledgeResult.Type switch
@@ -596,10 +595,7 @@ public sealed class Cpu : CpuBase
     private static uint EnsureEvenBusAddress(uint address, string size, bool isRead)
     {
         var normalized = EffectiveAddressMath.NormalizeAddress24(address);
-        if ((normalized & 1) == 0)
-            return normalized;
-
-        throw new AddressErrorException(address, size, isRead);
+        return (normalized & 1) == 0 ? normalized : throw new AddressErrorException(address, size, isRead);
     }
 
     private ushort FetchPrefetchedWord()

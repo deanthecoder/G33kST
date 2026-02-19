@@ -156,8 +156,9 @@ public sealed class MfpDevice : IMemDevice
     /// Signals a pending interrupt from GPIP5 (the line used by floppy FDC completion on ST machines).
     /// Returns <c>true</c> when the interrupt is both enabled and unmasked and therefore raised.
     /// </summary>
-    public bool RaiseGpip5Interrupt() =>
-        RaiseInterrupt(InterruptEnableB, InterruptMaskB, InterruptPendingB, Gpip5InterruptMask, Gpip5SourceNumber);
+    private void RaiseGpip5Interrupt() =>
+        RaiseInterrupt(InterruptEnableB, InterruptMaskB, InterruptPendingB, Gpip5InterruptMask,
+            Gpip5SourceNumber);
 
     /// <summary>
     /// Sets the monitor detect input line.

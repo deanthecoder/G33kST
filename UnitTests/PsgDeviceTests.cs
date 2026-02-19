@@ -71,7 +71,7 @@ public sealed class PsgDeviceTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(samples.Count, Is.GreaterThan(0));
+            Assert.That(samples, Is.Not.Empty);
             Assert.That(samples.Max() - samples.Min(), Is.GreaterThan(0.05));
         });
     }
@@ -106,7 +106,7 @@ public sealed class PsgDeviceTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(samples.Count, Is.GreaterThan(0));
+            Assert.That(samples, Is.Not.Empty);
             Assert.That(samples.All(sample => Math.Abs(sample) < 0.0001), Is.True);
         });
     }

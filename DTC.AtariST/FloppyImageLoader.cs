@@ -56,7 +56,7 @@ public static class FloppyImageLoader
             var buffer = new byte[(int)entry.Length];
             using var stream = entry.Open();
             stream.ReadExactly(buffer.AsSpan());
-            if (buffer == null || buffer.Length == 0)
+            if (buffer.Length == 0)
                 continue;
 
             imageName = Path.GetFileNameWithoutExtension(entry.Name);
@@ -98,12 +98,8 @@ public static class FloppyImageLoader
         return description.ToString();
     }
 
-    private static bool IsSupportedExtension(string extension)
-    {
-        if (string.IsNullOrWhiteSpace(extension))
-            return false;
-        return SupportedImageExtensions.Contains(extension);
-    }
+    private static bool IsSupportedExtension(string extension) =>
+        !string.IsNullOrWhiteSpace(extension) && SupportedImageExtensions.Contains(extension);
 
     private static ushort ReadUInt16LittleEndian(byte[] buffer, int offset) =>
         BinaryPrimitives.ReadUInt16LittleEndian(buffer.AsSpan(offset, sizeof(ushort)));
@@ -157,7 +153,7 @@ public static class FloppyImageLoader
         fileCount = 0;
         sampleNames = [];
         var rootDirByteLength = bootSector.RootEntryCount * 32;
-        var rootDirOffset = (bootSector.ReservedSectorCount + (bootSector.FatCount * bootSector.SectorsPerFat)) * SectorSizeBytes;
+        var rootDirOffset = (bootSector.ReservedSectorCount + bootSector.FatCount * bootSector.SectorsPerFat) * SectorSizeBytes;
         if (rootDirOffset < 0 || rootDirOffset + rootDirByteLength > imageData.Length)
             return false;
 

@@ -795,7 +795,7 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
         if (sectorOneBased < 1 || sectorOneBased > geometry.SectorsPerTrack)
             return false;
 
-        linearSectorIndex = ((track * geometry.Sides) + side) * geometry.SectorsPerTrack + (sectorOneBased - 1);
+        linearSectorIndex = (track * geometry.Sides + side) * geometry.SectorsPerTrack + (sectorOneBased - 1);
         return true;
     }
 

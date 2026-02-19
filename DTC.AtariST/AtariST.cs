@@ -105,16 +105,11 @@ public sealed class AtariST : IMachine
     public bool IsHighResolutionMode => m_monitorType == AtariMonitorType.Monochrome;
 
     public AtariST()
-        : this(AtariSTOptions.Default, null)
+        : this(AtariSTOptions.Default)
     {
     }
 
-    public AtariST(AtariSTOptions options)
-        : this(options, null)
-    {
-    }
-
-    public AtariST(AtariSTOptions options, Action<double, double> audioSampleSink)
+    public AtariST(AtariSTOptions options, Action<double, double> audioSampleSink = null)
     {
         var options1 = options ?? AtariSTOptions.Default;
         ValidateOptions(options1);
@@ -175,8 +170,10 @@ public sealed class AtariST : IMachine
         SetBootVideoMode(bus);
 
         // Create CPU
-        Cpu = new Cpu(bus);
-        Cpu.InterruptAcknowledge = ResolveInterruptAcknowledge;
+        Cpu = new Cpu(bus)
+        {
+            InterruptAcknowledge = ResolveInterruptAcknowledge
+        };
 
         // Create minimal low-resolution video source.
         m_video = new Shifter(bus, Descriptor.CpuHz, Descriptor.VideoHz);
@@ -190,8 +187,7 @@ public sealed class AtariST : IMachine
         m_shifterRegisters.Reset();
         m_psg.Reset();
         m_floppyController.Reset();
-        if (m_rtc != null)
-            m_rtc.Reset();
+        m_rtc?.Reset();
         m_mfp.Reset();
         m_mfp.SetMonitorType(m_monitorType);
         SetBootVideoMode(Cpu.Bus);
@@ -475,13 +471,7 @@ public sealed class AtariST : IMachine
             m_isLeftMouseButtonPressed = isLeftButtonPressed;
             m_isRightMouseButtonPressed = isRightButtonPressed;
 
-            if (!hasPreviousPosition)
-            {
-                if (buttonsChanged)
-                    EnqueueMousePacketNoLock(0, 0, isLeftButtonPressed, isRightButtonPressed);
-                return;
-            }
-            if (deltaX == 0 && deltaY == 0)
+            if (!hasPreviousPosition || deltaX == 0 && deltaY == 0)
             {
                 if (buttonsChanged)
                     EnqueueMousePacketNoLock(0, 0, isLeftButtonPressed, isRightButtonPressed);
@@ -533,10 +523,7 @@ public sealed class AtariST : IMachine
             return InterruptAcknowledgeResult.Autovector();
 
         var acknowledgeQueue = m_pendingAcknowledgeByLevel[level];
-        if (acknowledgeQueue.Count > 0)
-            return acknowledgeQueue.Dequeue();
-
-        return InterruptAcknowledgeResult.Autovector();
+        return acknowledgeQueue.Count > 0 ? acknowledgeQueue.Dequeue() : InterruptAcknowledgeResult.Autovector();
     }
 
     private static void ValidateOptions(AtariSTOptions options)
@@ -657,7 +644,7 @@ public sealed class AtariST : IMachine
         if (cpuTicks <= 0)
             return 0;
 
-        var numerator = (cpuTicks * MfpInputClockHz) + m_mfpTickRemainder;
+        var numerator = cpuTicks * MfpInputClockHz + m_mfpTickRemainder;
         var scaledTicks = numerator / m_cpuClockHz;
         m_mfpTickRemainder = numerator % m_cpuClockHz;
         return scaledTicks <= 0 ? 0 : (int)Math.Min(scaledTicks, int.MaxValue);

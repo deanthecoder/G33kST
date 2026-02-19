@@ -57,12 +57,6 @@ public sealed class Settings : UserSettingsBase
         set => Set(value);
     }
 
-    public string LastFloppyImagePath
-    {
-        get => Get<string>();
-        set => Set(value);
-    }
-
     public string SelectedRomPath
     {
         get => Get<string>();

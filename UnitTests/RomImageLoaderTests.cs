@@ -82,7 +82,7 @@ public sealed class RomImageLoaderTests
             {
                 var entry = archive.CreateEntry("README.txt");
                 using var stream = entry.Open();
-                stream.Write(new byte[] { 1, 2, 3 });
+                stream.Write([1, 2, 3]);
             }
 
             var (_, romData) = RomImageLoader.ReadRomData(zipFile);

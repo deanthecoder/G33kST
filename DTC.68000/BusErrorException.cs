@@ -42,6 +42,6 @@ public sealed class BusErrorException : Exception
     {
         var operation = isRead ? "read" : "write";
         var accessSpace = isProgramAccess ? "program" : "data";
-        return $"Bus error during {operation} at 0x{(address & 0x00FF_FFFF):X6} ({accessSpace} space).";
+        return $"Bus error during {operation} at 0x{address & 0x00FF_FFFF:X6} ({accessSpace} space).";
     }
 }

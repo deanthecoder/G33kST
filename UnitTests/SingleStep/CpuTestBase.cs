@@ -257,10 +257,7 @@ public abstract class CpuTestBase
         while (start + count < message.Length && count < 4 && Uri.IsHexDigit(message[start + count]))
             count++;
 
-        if (count == 0)
-            return false;
-
-        return ushort.TryParse(message.Substring(start, count), System.Globalization.NumberStyles.HexNumber, null, out opcode);
+        return count != 0 && ushort.TryParse(message.AsSpan(start, count), System.Globalization.NumberStyles.HexNumber, null, out opcode);
     }
 
     private static bool TryExtractOpcodeFromName(string name, out ushort opcode)

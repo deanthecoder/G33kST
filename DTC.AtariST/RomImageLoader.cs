@@ -62,10 +62,6 @@ public static class RomImageLoader
         return (romName, null);
     }
 
-    private static bool IsSupportedRomExtension(string extension)
-    {
-        if (string.IsNullOrWhiteSpace(extension))
-            return false;
-        return SupportedRomExtensions.Contains(extension);
-    }
+    private static bool IsSupportedRomExtension(string extension) =>
+        !string.IsNullOrWhiteSpace(extension) && SupportedRomExtensions.Contains(extension);
 }

@@ -70,11 +70,10 @@ public sealed class Mc68000OpcodeSuiteTests : TestsBase
 
     private static SuiteRunResult RunSuite(string sectionName)
     {
-        var suiteAssets = AllSuiteAssets.Value;
-        var listing = suiteAssets.Listing;
+        var (binaryFile, listing) = AllSuiteAssets.Value;
 
         var bus = new Bus(0x1000000);
-        LoadBinary(bus, suiteAssets.BinaryFile);
+        LoadBinary(bus, binaryFile);
         var cpu = new Cpu(bus);
         var instructionTrace = new InstructionTraceDebugger(1024, FormatTraceLine);
         cpu.AddDebugger(instructionTrace);
@@ -196,10 +195,7 @@ public sealed class Mc68000OpcodeSuiteTests : TestsBase
         var listing = ParseListing(listingFile);
         if (listing.AllDoneAddress is null)
             throw new InvalidOperationException("Could not find ALL_DONE label in listing.");
-        if (listing.TestEntries.Count == 0)
-            throw new InvalidOperationException("Could not find jsr op_* test entry sequence in listing.");
-
-        return new SuiteAssets(suiteBinaryFile, listing);
+        return listing.TestEntries.Count == 0 ? throw new InvalidOperationException("Could not find jsr op_* test entry sequence in listing.") : new SuiteAssets(suiteBinaryFile, listing);
     }
 
     private static DirectoryInfo ResolveSuiteDirectory() =>

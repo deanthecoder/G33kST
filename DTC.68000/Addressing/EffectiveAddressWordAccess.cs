@@ -267,10 +267,7 @@ public static class EffectiveAddressWordAccess
     private static uint EnsureEvenReadAddress(uint address, int frameProgramCounterAdjust, bool isProgramAccess)
     {
         var normalized = EffectiveAddressMath.NormalizeAddress24(address);
-        if ((normalized & 1) == 0)
-            return normalized;
-
-        throw new AddressErrorException(address, ".w", isRead: true, isProgramAccess: isProgramAccess, frameProgramCounterAdjust: frameProgramCounterAdjust);
+        return (normalized & 1) == 0 ? normalized : throw new AddressErrorException(address, ".w", isRead: true, isProgramAccess: isProgramAccess, frameProgramCounterAdjust: frameProgramCounterAdjust);
     }
 
     /// <summary>
@@ -279,9 +276,6 @@ public static class EffectiveAddressWordAccess
     private static uint EnsureEvenWriteAddress(uint address)
     {
         var normalized = EffectiveAddressMath.NormalizeAddress24(address);
-        if ((normalized & 1) == 0)
-            return normalized;
-
-        throw new AddressErrorException(address, ".w", isRead: false);
+        return (normalized & 1) == 0 ? normalized : throw new AddressErrorException(address, ".w", isRead: false);
     }
 }

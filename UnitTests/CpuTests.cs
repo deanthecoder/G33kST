@@ -1005,6 +1005,7 @@ public sealed class CpuTests : TestsBase
             Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000200));
             Assert.That(cpu.Registers.StackPointer, Is.Not.InRange(0x00FF8A00, 0x00FF8A3F));
         });
+        return;
 
         static void WriteLong(Bus localBus, uint address, uint value)
         {

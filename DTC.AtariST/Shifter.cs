@@ -59,10 +59,6 @@ public sealed class Shifter : IVideoSource
     private bool m_hasLastClearColor;
     private double m_lineTickAccumulator;
     private int m_currentRasterLine;
-    private int m_activeWidth = LowResWidth;
-    private int m_activeHeight = LowResHeight;
-    private int m_activeOriginX = BorderWidth;
-    private int m_activeOriginY = BorderHeight;
 
     /// <summary>
     /// Creates an Atari ST video source.
@@ -88,22 +84,22 @@ public sealed class Shifter : IVideoSource
     /// <summary>
     /// Gets the active source width for the last rendered frame before scaling to output.
     /// </summary>
-    public int ActiveWidth => m_activeWidth;
+    public int ActiveWidth { get; private set; } = LowResWidth;
 
     /// <summary>
     /// Gets the active source height for the last rendered frame before scaling to output.
     /// </summary>
-    public int ActiveHeight => m_activeHeight;
+    public int ActiveHeight { get; private set; } = LowResHeight;
 
     /// <summary>
     /// Gets the X offset where the active picture starts in the output framebuffer.
     /// </summary>
-    public int ActiveOriginX => m_activeOriginX;
+    public int ActiveOriginX { get; private set; } = BorderWidth;
 
     /// <summary>
     /// Gets the Y offset where the active picture starts in the output framebuffer.
     /// </summary>
-    public int ActiveOriginY => m_activeOriginY;
+    public int ActiveOriginY { get; private set; } = BorderHeight;
 
     /// <summary>
     /// Gets whether the current raster line is in the display-enable range.
@@ -120,10 +116,10 @@ public sealed class Shifter : IVideoSource
     {
         m_lineTickAccumulator = 0;
         m_currentRasterLine = 0;
-        m_activeWidth = LowResWidth;
-        m_activeHeight = LowResHeight;
-        m_activeOriginX = BorderWidth;
-        m_activeOriginY = BorderHeight;
+        ActiveWidth = LowResWidth;
+        ActiveHeight = LowResHeight;
+        ActiveOriginX = BorderWidth;
+        ActiveOriginY = BorderHeight;
         m_hasLastClearColor = false;
         BeginFrame();
         if (GetVideoMode() == 0)
@@ -184,36 +180,36 @@ public sealed class Shifter : IVideoSource
         switch (mode)
         {
             case 0:
-                m_activeWidth = LowResWidth;
-                m_activeHeight = LowResHeight;
-                m_activeOriginX = BorderWidth;
-                m_activeOriginY = BorderHeight;
+                ActiveWidth = LowResWidth;
+                ActiveHeight = LowResHeight;
+                ActiveOriginX = BorderWidth;
+                ActiveOriginY = BorderHeight;
                 RefreshPalette();
                 ClearToColorIfNeeded(m_paletteR[0], m_paletteG[0], m_paletteB[0]);
                 break;
 
             case 1:
-                m_activeWidth = MediumResWidth;
-                m_activeHeight = MediumResHeight;
-                m_activeOriginX = BorderWidth;
-                m_activeOriginY = BorderHeight;
+                ActiveWidth = MediumResWidth;
+                ActiveHeight = MediumResHeight;
+                ActiveOriginX = BorderWidth;
+                ActiveOriginY = BorderHeight;
                 RefreshPalette();
                 ClearToColorIfNeeded(m_paletteR[0], m_paletteG[0], m_paletteB[0]);
                 break;
 
             case 2:
-                m_activeWidth = HighResWidth;
-                m_activeHeight = HighResHeight;
-                m_activeOriginX = BorderWidth;
-                m_activeOriginY = BorderHeight;
+                ActiveWidth = HighResWidth;
+                ActiveHeight = HighResHeight;
+                ActiveOriginX = BorderWidth;
+                ActiveOriginY = BorderHeight;
                 ClearToColorIfNeeded(255, 255, 255);
                 break;
 
             default:
-                m_activeWidth = 0;
-                m_activeHeight = 0;
-                m_activeOriginX = 0;
-                m_activeOriginY = 0;
+                ActiveWidth = 0;
+                ActiveHeight = 0;
+                ActiveOriginX = 0;
+                ActiveOriginY = 0;
                 ClearToColorIfNeeded(0, 0, 0);
                 break;
         }
@@ -250,7 +246,7 @@ public sealed class Shifter : IVideoSource
         var borderRed = m_paletteR[0];
         var borderGreen = m_paletteG[0];
         var borderBlue = m_paletteB[0];
-        var topOutputY = m_activeOriginY + sourceLine * 2;
+        var topOutputY = ActiveOriginY + sourceLine * 2;
         var bottomOutputY = topOutputY + 1;
         FillOutputRow(topOutputY, borderRed, borderGreen, borderBlue);
         FillOutputRow(bottomOutputY, borderRed, borderGreen, borderBlue);
@@ -260,7 +256,7 @@ public sealed class Shifter : IVideoSource
         var paletteG = m_paletteG;
         var paletteB = m_paletteB;
         const int outputStride = OutputWidth * BytesPerPixel;
-        var activeOriginXBytes = m_activeOriginX * BytesPerPixel;
+        var activeOriginXBytes = ActiveOriginX * BytesPerPixel;
         var lineAddress = unchecked(screenBaseAddress + (uint)(sourceLine * LowResBytesPerLine));
         var outputTopRowIndex = topOutputY * outputStride + activeOriginXBytes;
         var outputBottomRowIndex = bottomOutputY * outputStride + activeOriginXBytes;
@@ -318,7 +314,7 @@ public sealed class Shifter : IVideoSource
         var borderRed = m_paletteR[0];
         var borderGreen = m_paletteG[0];
         var borderBlue = m_paletteB[0];
-        var topOutputY = m_activeOriginY + sourceLine * 2;
+        var topOutputY = ActiveOriginY + sourceLine * 2;
         var bottomOutputY = topOutputY + 1;
         FillOutputRow(topOutputY, borderRed, borderGreen, borderBlue);
         FillOutputRow(bottomOutputY, borderRed, borderGreen, borderBlue);
@@ -331,7 +327,7 @@ public sealed class Shifter : IVideoSource
             var plane1 = m_bus.Read16BigEndian(chunkAddress + 2);
             for (var bit = 15; bit >= 0; bit--)
             {
-                var x = m_activeOriginX + chunk * 16 + (15 - bit);
+                var x = ActiveOriginX + chunk * 16 + (15 - bit);
                 var pixelIndex =
                     ((plane0 >> bit) & 1) |
                     (((plane1 >> bit) & 1) << 1);
@@ -354,8 +350,8 @@ public sealed class Shifter : IVideoSource
         if (sourceTopLine >= HighResHeight)
             return;
 
-        var outputTopY = m_activeOriginY + sourceTopLine;
-        var outputBottomY = m_activeOriginY + sourceBottomLine;
+        var outputTopY = ActiveOriginY + sourceTopLine;
+        var outputBottomY = ActiveOriginY + sourceBottomLine;
         FillOutputRow(outputTopY, 255, 255, 255);
         if (sourceBottomLine < HighResHeight)
             FillOutputRow(outputBottomY, 255, 255, 255);
@@ -373,7 +369,7 @@ public sealed class Shifter : IVideoSource
             var word = m_bus.Read16BigEndian(unchecked(lineAddress + (uint)(chunk * 2)));
             for (var bit = 15; bit >= 0; bit--)
             {
-                var x = m_activeOriginX + chunk * 16 + (15 - bit);
+                var x = ActiveOriginX + chunk * 16 + (15 - bit);
                 var on = ((word >> bit) & 1) != 0;
                 var value = on ? (byte)0 : (byte)255;
                 WriteRgbAt(x, outputY, value, value, value);

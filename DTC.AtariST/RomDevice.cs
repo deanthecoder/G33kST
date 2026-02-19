@@ -9,7 +9,6 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using DTC.Emulation;
-using DTC.Emulation.Snapshot;
 
 namespace DTC.AtariST;
 
@@ -42,12 +41,4 @@ public sealed class RomDevice : IMemDevice
     {
         // ROM is read-only, ignore writes
     }
-
-    public int GetStateSize() => Data.Length;
-
-    public void SaveState(ref StateWriter writer) =>
-        writer.WriteBytes(Data);
-
-    public void LoadState(ref StateReader reader) =>
-        reader.ReadBytes(Data);
 }
