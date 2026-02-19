@@ -269,6 +269,17 @@ public partial class MainWindow : Window
         if (m_pressedMachineKeys.ContainsKey(e.Key))
             return;
 
+        if (IsImmediateHoldModifierKey(e.Key))
+        {
+            ViewModel.UpdateKeyboardState(scanCode, isPressed: true);
+            m_pressedMachineKeys[e.Key] = new HeldKeyState(scanCode, holdActivationTick: 0)
+            {
+                IsHeld = true
+            };
+            e.Handled = true;
+            return;
+        }
+
         // Immediate press/release gives one clean character.
         ViewModel.UpdateKeyboardState(scanCode, isPressed: true);
         ViewModel.UpdateKeyboardState(scanCode, isPressed: false);
@@ -472,6 +483,9 @@ public partial class MainWindow : Window
 
     private static bool IsJoystickControlKey(Key key) =>
         key is Key.Up or Key.Down or Key.Left or Key.Right or Key.Z or Key.A;
+
+    private static bool IsImmediateHoldModifierKey(Key key) =>
+        key is Key.LeftShift or Key.RightShift or Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt;
 
     private static long MsToTicks(int milliseconds) =>
         milliseconds * Stopwatch.Frequency / 1000;
