@@ -437,6 +437,8 @@ public sealed class FloppyDmaFdcDeviceTests
     public void FloppyTraceShouldCaptureRecentCommandFlow()
     {
         var device = new FloppyDmaFdcDevice(driveAPresent: true, driveBPresent: false);
+        device.SetTraceEnabled(true);
+        
         device.ApplyPortA(0x05);
         WriteWord(device, ControlRegisterAddress, FdcStatusAccessControl);
         WriteWord(device, DataRegisterAddress, RestoreCommand);

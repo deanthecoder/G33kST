@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using DTC.Emulation;
+using System.Runtime.CompilerServices;
 
 namespace DTC.AtariST;
 
@@ -79,6 +80,7 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
     private long m_successfulReadSectorCommandCount;
     private long m_dmaBytesWritten;
     private string m_lastTraceLine = string.Empty;
+    private bool m_isTraceEnabled;
 
     /// <inheritdoc />
     public uint FromAddr => BaseAddress;
@@ -95,6 +97,28 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
     /// Callback used to write DMA transfer bytes into system memory.
     /// </summary>
     public Action<uint, byte> DmaWrite8 { private get; set; }
+    
+    /// <summary>
+    /// Sets whether floppy trace lines are captured.
+    /// </summary>
+    /// <remarks>
+    /// Disabled by default so normal emulation stays allocation-light.
+    /// </remarks>
+    public void SetTraceEnabled(bool value)
+    {
+        lock (m_stateLock)
+        {
+            if (m_isTraceEnabled == value)
+                return;
+
+            m_isTraceEnabled = value;
+            if (m_isTraceEnabled)
+                return;
+
+            m_traceLines.Clear();
+            m_lastTraceLine = string.Empty;
+        }
+    }
 
     public FloppyDmaFdcDevice(bool driveAPresent = true, bool driveBPresent = false)
     {
@@ -477,7 +501,7 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
                 if (driveConnected)
                 {
                     m_fdcTrackRegister = m_fdcDataRegister;
-                    CompleteCommand(0, hasDmaError: false, $"Seek track={m_fdcTrackRegister}.");
+                    CompleteCommand(0, hasDmaError: false, "Seek.");
                 }
                 else
                     CompleteCommand(FdcRecordNotFoundMask, hasDmaError: true, "Seek failed: no selected drive.");
@@ -498,7 +522,7 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
                 CompleteCommand(
                     driveConnected ? (byte)0 : FdcRecordNotFoundMask,
                     hasDmaError: !driveConnected,
-                    driveConnected ? $"Step-in track={m_fdcTrackRegister}." : "Step-in failed: no selected drive.");
+                    driveConnected ? "Step-in." : "Step-in failed: no selected drive.");
                 return;
 
             case 0x60: // Step out.
@@ -508,7 +532,7 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
                 CompleteCommand(
                     driveConnected ? (byte)0 : FdcRecordNotFoundMask,
                     hasDmaError: !driveConnected,
-                    driveConnected ? $"Step-out track={m_fdcTrackRegister}." : "Step-out failed: no selected drive.");
+                    driveConnected ? "Step-out." : "Step-out failed: no selected drive.");
                 return;
 
             case 0x80: // Read sector (single).
@@ -554,7 +578,7 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
                 return;
 
             default:
-                CompleteCommand(0, hasDmaError: false, $"Unhandled opcode 0x{opcode:X2} treated as no-op.");
+                CompleteCommand(0, hasDmaError: false, "Unhandled opcode treated as no-op.");
                 return;
         }
     }
@@ -633,6 +657,18 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
         };
 
     private void AddTraceLine(string message)
+    {
+        if (m_isTraceEnabled)
+            AddTraceLineCore(message);
+    }
+
+    private void AddTraceLine([InterpolatedStringHandlerArgument("")] FloppyTraceInterpolatedStringHandler message)
+    {
+        if (message.IsEnabled)
+            AddTraceLineCore(message.ToStringAndClear());
+    }
+
+    private void AddTraceLineCore(string message)
     {
         var line = $"{m_commandCount,6} | {message}";
         m_lastTraceLine = line;
@@ -943,6 +979,46 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
         m_interruptLineIsActiveLow = activeLow;
         AddTraceLine(activeLow ? "IRQ line asserted (active low)." : "IRQ line cleared.");
         InterruptLineChanged?.Invoke(activeLow);
+    }
+
+    [InterpolatedStringHandler]
+    private ref struct FloppyTraceInterpolatedStringHandler
+    {
+        private DefaultInterpolatedStringHandler m_handler;
+
+        public bool IsEnabled { get; }
+
+        public FloppyTraceInterpolatedStringHandler(int literalLength, int formattedCount, FloppyDmaFdcDevice device, out bool shouldAppend)
+        {
+            shouldAppend = device.m_isTraceEnabled;
+            IsEnabled = shouldAppend;
+            m_handler = shouldAppend
+                ? new DefaultInterpolatedStringHandler(literalLength, formattedCount)
+                : default;
+        }
+
+        public void AppendLiteral(string value)
+        {
+            if (IsEnabled)
+                m_handler.AppendLiteral(value);
+        }
+
+        public void AppendFormatted<T>(T value)
+        {
+            if (IsEnabled)
+                m_handler.AppendFormatted(value);
+        }
+
+        public void AppendFormatted<T>(T value, string format)
+        {
+            if (IsEnabled)
+                m_handler.AppendFormatted(value, format);
+        }
+
+        public string ToStringAndClear() =>
+            IsEnabled
+                ? m_handler.ToStringAndClear()
+                : string.Empty;
     }
 
     private readonly record struct FloppyGeometry(int Tracks, int Sides, int SectorsPerTrack);

@@ -362,10 +362,7 @@ public sealed class AciaIkbdDevice : IMemDevice
         }
 
         if (command == IkbdInterrogateJoystickStateCommand)
-        {
             QueueJoystickInterrogationResponseNoLock();
-            return;
-        }
     }
 
     private static bool TryGetIkbdCommandParameterCount(byte command, out int parameterCount)
