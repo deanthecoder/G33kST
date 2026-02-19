@@ -40,6 +40,7 @@ public sealed class AciaIkbdDevice : IMemDevice
     private const byte IkbdSetJoystickEventModeCommand = 0x14;
     private const byte IkbdSetJoystickInterrogateModeCommand = 0x15;
     private const byte IkbdInterrogateJoystickStateCommand = 0x16;
+    private const byte JoystickInterrogationHeader = 0xFD;
     private const byte JoystickPacketHeaderPort0 = 0xFE;
     private const byte JoystickPacketHeaderPort1 = 0xFF;
     private const byte JoystickBitUp = 0x01;
@@ -342,18 +343,29 @@ public sealed class AciaIkbdDevice : IMemDevice
         }
 
         if (command == IkbdPauseOutputCommand)
+        {
             m_outputPaused = true;
+            return;
+        }
 
         if (command == IkbdSetJoystickEventModeCommand)
         {
             m_joystickEventModeEnabled = true;
+            QueueActiveJoystickStatePacketsNoLock();
             return;
         }
 
         if (command == IkbdSetJoystickInterrogateModeCommand)
+        {
             m_joystickEventModeEnabled = false;
+            return;
+        }
+
         if (command == IkbdInterrogateJoystickStateCommand)
+        {
             QueueJoystickInterrogationResponseNoLock();
+            return;
+        }
     }
 
     private static bool TryGetIkbdCommandParameterCount(byte command, out int parameterCount)
@@ -401,8 +413,25 @@ public sealed class AciaIkbdDevice : IMemDevice
         if (m_outputPaused)
             return;
 
-        EnqueueKeyboardByteNoLock(JoystickPacketHeaderPort0);
+        EnqueueKeyboardByteNoLock(JoystickInterrogationHeader);
         EnqueueKeyboardByteNoLock(m_lastJoystickStateBytes[0]);
+        EnqueueKeyboardByteNoLock(m_lastJoystickStateBytes[1]);
+    }
+
+    private void QueueActiveJoystickStatePacketsNoLock()
+    {
+        if (m_outputPaused || !m_joystickEventModeEnabled)
+            return;
+        if (m_lastJoystickStateBytes[0] != 0)
+        {
+            EnqueueKeyboardByteNoLock(JoystickPacketHeaderPort0);
+            EnqueueKeyboardByteNoLock(m_lastJoystickStateBytes[0]);
+        }
+        if (m_lastJoystickStateBytes[1] == 0)
+            return;
+
+        EnqueueKeyboardByteNoLock(JoystickPacketHeaderPort1);
+        EnqueueKeyboardByteNoLock(m_lastJoystickStateBytes[1]);
     }
 
     private void RefreshInterruptLineNoLock()

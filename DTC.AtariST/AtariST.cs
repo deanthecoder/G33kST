@@ -38,6 +38,7 @@ public sealed class AtariST : IMachine
     private const byte HighResolutionModeValue = 0x02;
     private const int MouseDragActivationThresholdPixels = 2;
     private const int MaxQueuedMousePackets = 128;
+    private const byte HostJoystickPortIndex = 1; // ST games typically use joystick port 1.
     private const uint RealTimeClockFromAddress = 0x00FFFC20;
     private const uint RealTimeClockToAddress = 0x00FFFC3F;
     private const byte SyntheticVblInterruptLevel = 4;
@@ -325,7 +326,7 @@ public sealed class AtariST : IMachine
     }
 
     /// <summary>
-    /// Updates joystick 0 state and queues IKBD joystick event packets.
+    /// Updates the host joystick state and queues IKBD joystick packets for ST joystick port 1.
     /// </summary>
     public void UpdateJoystickState(JoystickState state)
     {
@@ -342,7 +343,7 @@ public sealed class AtariST : IMachine
                 return;
 
             m_joystickState = state;
-            m_aciaIkbd.QueueJoystickState(0, state);
+            m_aciaIkbd.QueueJoystickState(HostJoystickPortIndex, state);
         }
     }
 
@@ -632,7 +633,7 @@ public sealed class AtariST : IMachine
             return;
 
         m_joystickState = JoystickState.Neutral;
-        m_aciaIkbd.QueueJoystickState(0, m_joystickState);
+        m_aciaIkbd.QueueJoystickState(HostJoystickPortIndex, m_joystickState);
     }
 
     /// <summary>

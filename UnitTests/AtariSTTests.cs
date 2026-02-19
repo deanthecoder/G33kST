@@ -478,7 +478,7 @@ public sealed class AtariSTTests : TestsBase
 
         Assert.Multiple(() =>
         {
-            Assert.That(header, Is.EqualTo(0xFE));
+            Assert.That(header, Is.EqualTo(0xFF));
             Assert.That(state, Is.EqualTo(0x89));
         });
     }

@@ -237,6 +237,31 @@ public sealed class AciaIkbdDeviceTests
     }
 
     [Test]
+    public void SetJoystickEventModeShouldReEmitCurrentActiveState()
+    {
+        var device = new AciaIkbdDevice();
+        const byte setJoystickInterrogateModeCommand = 0x15;
+        const byte setJoystickEventModeCommand = 0x14;
+
+        device.Write8(KeyboardDataAddress, setJoystickInterrogateModeCommand);
+        device.QueueJoystickState(1, new JoystickState(
+            IsUpPressed: false,
+            IsDownPressed: false,
+            IsLeftPressed: false,
+            IsRightPressed: false,
+            IsFirePressed: true));
+        device.Write8(KeyboardDataAddress, setJoystickEventModeCommand);
+        var header = device.Read8(KeyboardDataAddress);
+        var state = device.Read8(KeyboardDataAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(header, Is.EqualTo(0xFF));
+            Assert.That(state, Is.EqualTo(0x80));
+        });
+    }
+
+    [Test]
     public void JoystickInterrogateCommandShouldReturnLatestState()
     {
         var device = new AciaIkbdDevice();
@@ -250,14 +275,22 @@ public sealed class AciaIkbdDeviceTests
             IsLeftPressed: false,
             IsRightPressed: true,
             IsFirePressed: true));
+        device.QueueJoystickState(1, new JoystickState(
+            IsUpPressed: true,
+            IsDownPressed: false,
+            IsLeftPressed: false,
+            IsRightPressed: true,
+            IsFirePressed: true));
         device.Write8(KeyboardDataAddress, interrogateJoystickStateCommand);
         var header = device.Read8(KeyboardDataAddress);
-        var state = device.Read8(KeyboardDataAddress);
+        var joystick0State = device.Read8(KeyboardDataAddress);
+        var joystick1State = device.Read8(KeyboardDataAddress);
 
         Assert.Multiple(() =>
         {
-            Assert.That(header, Is.EqualTo(0xFE));
-            Assert.That(state, Is.EqualTo(0x89));
+            Assert.That(header, Is.EqualTo(0xFD));
+            Assert.That(joystick0State, Is.EqualTo(0x89));
+            Assert.That(joystick1State, Is.EqualTo(0x89));
         });
     }
 
@@ -283,12 +316,14 @@ public sealed class AciaIkbdDeviceTests
             IsFirePressed: false));
         device.Write8(KeyboardDataAddress, interrogateJoystickStateCommand);
         var header = device.Read8(KeyboardDataAddress);
-        var state = device.Read8(KeyboardDataAddress);
+        var joystick0State = device.Read8(KeyboardDataAddress);
+        var joystick1State = device.Read8(KeyboardDataAddress);
 
         Assert.Multiple(() =>
         {
-            Assert.That(header, Is.EqualTo(0xFE));
-            Assert.That(state, Is.EqualTo(0x06), "Expected latest state (Down + Left) to be returned.");
+            Assert.That(header, Is.EqualTo(0xFD));
+            Assert.That(joystick0State, Is.EqualTo(0x06), "Expected latest joystick 0 state (Down + Left) to be returned.");
+            Assert.That(joystick1State, Is.EqualTo(0x00));
         });
     }
 
@@ -312,12 +347,14 @@ public sealed class AciaIkbdDeviceTests
         device.Write8(KeyboardDataAddress, setJoystickInterrogateModeCommand);
         device.Write8(KeyboardDataAddress, interrogateJoystickStateCommand);
         var header = device.Read8(KeyboardDataAddress);
-        var state = device.Read8(KeyboardDataAddress);
+        var joystick0State = device.Read8(KeyboardDataAddress);
+        var joystick1State = device.Read8(KeyboardDataAddress);
 
         Assert.Multiple(() =>
         {
-            Assert.That(header, Is.EqualTo(0xFE));
-            Assert.That(state, Is.EqualTo(0x00));
+            Assert.That(header, Is.EqualTo(0xFD));
+            Assert.That(joystick0State, Is.EqualTo(0x00));
+            Assert.That(joystick1State, Is.EqualTo(0x00));
         });
     }
 
