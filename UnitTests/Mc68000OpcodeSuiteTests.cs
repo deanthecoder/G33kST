@@ -41,6 +41,8 @@ public sealed class Mc68000OpcodeSuiteTests : TestsBase
         ["op_BCLR"],
         StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> IgnoredOpcodeSuiteSections = new(
+        // These remain ignored because they currently diverge between opcode-suite expectations
+        // and our validated behavior against SingleStep/known emulator references.
         ["op_SBCD", "op_DIVU", "op_DIVS"],
         StringComparer.OrdinalIgnoreCase);
     private static readonly Lazy<SuiteAssets> AllSuiteAssets = new(LoadSuiteAssets);

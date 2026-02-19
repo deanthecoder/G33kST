@@ -191,20 +191,27 @@ public static class DecimalInstructions
 
     private static BcdResult SubtractPackedBcd(byte destination, byte source, int extendIn)
     {
+        // Model SBCD/NBCD borrow and flags the same way as proven 68000-compatible cores:
+        // low nibble adjust first, then high-byte borrow adjust, then carry from adjusted borrow.
         var lowNibbleDifference = (destination & 0x0F) - (source & 0x0F) - extendIn;
-        var binaryResult = destination - source - extendIn;
-        var result = binaryResult;
-        if (lowNibbleDifference < 0)
+        var highNibbleDifference = (destination & 0xF0) - (source & 0xF0);
+        var intermediate = highNibbleDifference + lowNibbleDifference;
+        var result = intermediate;
+        var decimalCorrection = 0;
+        if ((lowNibbleDifference & 0xF0) != 0)
+        {
             result -= 0x06;
+            decimalCorrection = 0x06;
+        }
 
-        var hasHighBorrow = binaryResult < 0;
-        if (hasHighBorrow)
+        var binaryDifference = (destination & 0xFF) - (source & 0xFF) - extendIn;
+        if ((binaryDifference & 0x100) != 0)
             result -= 0x60;
 
-        // Carry/extend follows decimal borrow semantics.
-        var carry = binaryResult < (lowNibbleDifference < 0 ? 6 : 0);
+        var carryDifference = (destination & 0xFF) - (source & 0xFF) - decimalCorrection - extendIn;
+        var carry = (carryDifference & 0x300) != 0;
         result &= 0xFF;
-        var overflow = (binaryResult & ~result & 0x80) != 0;
+        var overflow = (intermediate & 0x80) != 0 && (result & 0x80) == 0;
         return new BcdResult((byte)result, carry, overflow);
     }
 
