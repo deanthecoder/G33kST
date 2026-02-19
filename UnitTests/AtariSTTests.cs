@@ -56,6 +56,19 @@ public sealed class AtariSTTests : TestsBase
     }
 
     [Test]
+    public void ConstructorShouldExposeAudioSource()
+    {
+        var atariST = new AtariST();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(atariST.Audio, Is.Not.Null);
+            Assert.That(atariST.Audio.ChannelCount, Is.EqualTo(3));
+            Assert.That(atariST.Audio.SampleRateHz, Is.EqualTo(atariST.Descriptor.AudioSampleRateHz));
+        });
+    }
+
+    [Test]
     public void ConstructorShouldUseAtariStOptionsRamSize()
     {
         var options = new AtariSTOptions

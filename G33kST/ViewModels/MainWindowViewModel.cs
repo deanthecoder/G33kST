@@ -22,6 +22,7 @@ using DTC.Core.Recording;
 using DTC.Core.UI;
 using DTC.Core.ViewModels;
 using DTC.Emulation;
+using DTC.Emulation.Audio;
 using DTC.Emulation.Recording;
 
 namespace G33kST.ViewModels;
@@ -40,7 +41,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly AtariST m_machine;
     private readonly MachineRunner m_runner;
     private readonly LcdScreen m_screen;
-    private readonly NullAudioOutputDevice m_audioDevice;
+    private readonly IAudioOutputDevice m_audioDevice;
     private readonly DisplayRecorder m_recorder;
     private readonly DirectoryInfo m_romStoreDir;
     private readonly string m_recordingAvailabilityHint;
@@ -55,11 +56,12 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     public MainWindowViewModel()
     {
-        m_machine = new AtariST(AtariSTOptions.Default);
+        var sampleRateHz = new AtariSTDescriptor().AudioSampleRateHz;
+        m_audioDevice = CreateAudioOutputDevice(sampleRateHz, out var audioSampleSink);
+        m_machine = new AtariST(AtariSTOptions.Default, audioSampleSink);
         m_runner = new MachineRunner(m_machine, () => m_machine.Descriptor.CpuHz, OnMachineRunnerError);
         m_screen = new LcdScreen(m_machine.Video.FrameWidth, m_machine.Video.FrameHeight);
         m_screen.CrtBlendWeights = new CrtBlendWeights(CrtPreviousFrameBlendWeight, CrtCurrentFrameBlendWeight);
-        m_audioDevice = new NullAudioOutputDevice(m_machine.Descriptor.AudioSampleRateHz);
         m_recorder = new DisplayRecorder();
         IsRecordingAvailable = RecordingSession.IsFfmpegAvailable(out var ffmpegReason);
         m_recordingAvailabilityHint = IsRecordingAvailable
@@ -616,6 +618,22 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         Logger.Instance.Info("Recent floppy trace:");
         foreach (var line in traceLines)
             Logger.Instance.Info($"  {line}");
+    }
+
+    private static IAudioOutputDevice CreateAudioOutputDevice(int sampleRateHz, out Action<double, double> audioSampleSink)
+    {
+        try
+        {
+            var soundDevice = new SoundDevice(sampleRateHz);
+            audioSampleSink = soundDevice.AddSample;
+            return soundDevice;
+        }
+        catch (Exception exception)
+        {
+            audioSampleSink = null;
+            Logger.Instance.Warn($"Audio output unavailable, continuing in silent mode: {exception.Message}");
+            return new NullAudioOutputDevice(sampleRateHz);
+        }
     }
 
     private static FileInfo FindBundledRom()

@@ -87,7 +87,7 @@ public sealed class AtariST : IMachine
     // Minimal Shifter-backed video path.
     public IVideoSource Video => m_video;
 
-    public IAudioSource Audio => null;
+    public IAudioSource Audio => m_psg;
 
     public IMachineSnapshotter Snapshotter => null;
 
@@ -105,11 +105,16 @@ public sealed class AtariST : IMachine
     public bool IsHighResolutionMode => m_monitorType == AtariMonitorType.Monochrome;
 
     public AtariST()
-        : this(AtariSTOptions.Default)
+        : this(AtariSTOptions.Default, null)
     {
     }
 
     public AtariST(AtariSTOptions options)
+        : this(options, null)
+    {
+    }
+
+    public AtariST(AtariSTOptions options, Action<double, double> audioSampleSink)
     {
         var options1 = options ?? AtariSTOptions.Default;
         ValidateOptions(options1);
@@ -142,7 +147,7 @@ public sealed class AtariST : IMachine
         bus.Attach(m_aciaIkbd);
         m_shifterRegisters = new ShifterRegistersDevice();
         bus.Attach(m_shifterRegisters);
-        m_psg = new PsgDevice();
+        m_psg = new PsgDevice(audioSampleSink, (int)m_cpuClockHz, Descriptor.AudioSampleRateHz);
         m_psg.PortAChanged += OnPsgPortAChanged;
         bus.Attach(m_psg);
         m_floppyController = new FloppyDmaFdcDevice(driveAPresent: true, driveBPresent: false);
@@ -239,6 +244,7 @@ public sealed class AtariST : IMachine
 
     public void AdvanceDevices(long deltaTicks)
     {
+        m_psg.AdvanceCycles(deltaTicks);
         m_video.Advance(deltaTicks, OnHblank, OnVblank);
         FlushPendingMousePacketsOnCadence(deltaTicks);
         var mfpTicks = ScaleCpuTicksForMfp(deltaTicks);
