@@ -23,6 +23,7 @@ using DTC.Core.UI;
 using DTC.Core.ViewModels;
 using DTC.Emulation;
 using DTC.Emulation.Audio;
+using DTC.Emulation.Debuggers;
 using DTC.Emulation.Recording;
 
 namespace G33kST.ViewModels;
@@ -35,6 +36,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private const string AppTitle = "G33kST";
     private const int DriveAIndex = 0;
     private const int FloppyLedHoldMs = 130;
+    private const int CpuHistoryCapacity = 8192;
     private const byte CrtPreviousFrameBlendWeight = 2;
     private const byte CrtCurrentFrameBlendWeight = 3;
     private readonly Lock m_frameUpdateLock = new();
@@ -43,6 +45,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly LcdScreen m_screen;
     private readonly IAudioOutputDevice m_audioDevice;
     private readonly DisplayRecorder m_recorder;
+    private readonly InstructionTraceDebugger m_cpuHistoryTrace;
     private readonly DirectoryInfo m_romStoreDir;
     private readonly string m_recordingAvailabilityHint;
     private byte[] m_backFrameBuffer;
@@ -59,6 +62,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         var sampleRateHz = new AtariSTDescriptor().AudioSampleRateHz;
         m_audioDevice = CreateAudioOutputDevice(sampleRateHz, out var audioSampleSink);
         m_machine = new AtariST(AtariSTOptions.Default, audioSampleSink);
+        m_cpuHistoryTrace = new InstructionTraceDebugger(CpuHistoryCapacity, FormatCpuHistoryLine)
+        {
+            IsEnabled = Settings.IsCpuHistoryTracked
+        };
+        m_machine.Cpu.AddDebugger(m_cpuHistoryTrace);
         m_runner = new MachineRunner(m_machine, () => m_machine.Descriptor.CpuHz, OnMachineRunnerError);
         m_screen = new LcdScreen(m_machine.Video.FrameWidth, m_machine.Video.FrameHeight);
         m_screen.CrtBlendWeights = new CrtBlendWeights(CrtPreviousFrameBlendWeight, CrtCurrentFrameBlendWeight);
@@ -337,11 +345,34 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public void OpenProjectPage() =>
         new Uri("https://github.com/deanthecoder/G33kST").Open();
 
-    public void TrackCpuHistory() =>
+    public void TrackCpuHistory()
+    {
         Settings.IsCpuHistoryTracked = !Settings.IsCpuHistoryTracked;
+        m_cpuHistoryTrace.IsEnabled = Settings.IsCpuHistoryTracked;
+        if (Settings.IsCpuHistoryTracked)
+        {
+            m_cpuHistoryTrace.Clear();
+            Logger.Instance.Info("CPU history tracking enabled.");
+            return;
+        }
 
-    public void DumpCpuHistory() =>
-        Console.WriteLine("CPU history tracking is not wired yet for the Atari ST core.");
+        Logger.Instance.Info("CPU history tracking disabled.");
+    }
+
+    public void DumpCpuHistory()
+    {
+        var lines = m_cpuHistoryTrace.GetRecentLines();
+        if (lines.Count == 0)
+        {
+            Logger.Instance.Info("CPU history is empty.");
+            return;
+        }
+
+        var logDir = Logger.Instance.File.Directory ?? new DirectoryInfo(AppContext.BaseDirectory);
+        var dumpFile = logDir.GetFile($"cpu_history_{DateTime.Now:yyyyMMdd_HHmmss}.log");
+        dumpFile.WriteAllText(string.Join(Environment.NewLine, lines));
+        Logger.Instance.Info($"CPU history dumped ({lines.Count:N0} lines): {dumpFile.FullName}");
+    }
 
     public void ReportCpuClockTicks() =>
         Console.WriteLine($"CPU clock ticks: {m_machine.CpuTicks}");
@@ -594,6 +625,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             case nameof(Settings.IsCrtEmulationEnabled):
                 m_screen.FrameBuffer.IsCrt = Settings.IsCrtEmulationEnabled;
                 return;
+            case nameof(Settings.IsCpuHistoryTracked):
+                m_cpuHistoryTrace.IsEnabled = Settings.IsCpuHistoryTracked;
+                return;
         }
     }
 
@@ -631,6 +665,14 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             Logger.Instance.Warn($"Audio output unavailable, continuing in silent mode: {exception.Message}");
             return new NullAudioOutputDevice(sampleRateHz);
         }
+    }
+
+    private static string FormatCpuHistoryLine(CpuBase cpu, uint opcodeAddress, ushort opcode, string instructionText)
+    {
+        var suffix = string.IsNullOrWhiteSpace(instructionText)
+            ? string.Empty
+            : $" {instructionText}";
+        return $"{opcodeAddress:X6}: {opcode:X4}{suffix}";
     }
 
     private static FileInfo FindBundledRom()
