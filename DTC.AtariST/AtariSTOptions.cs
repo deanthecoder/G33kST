@@ -36,4 +36,12 @@ public sealed class AtariSTOptions
     /// Keep this disabled for STFM.
     /// </summary>
     public bool HasRealTimeClock { get; init; }
+
+    /// <summary>
+    /// Speeds up floppy command completion for faster boot/test loops.
+    /// </summary>
+    /// <remarks>
+    /// When enabled, floppy timing latency is bypassed so commands complete immediately.
+    /// </remarks>
+    public bool AccelerateFloppyAccess { get; init; }
 }

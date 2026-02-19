@@ -44,6 +44,7 @@ public sealed class AtariST : IMachine
     private const byte SyntheticVblInterruptLevel = 4;
     private const long MfpInputClockHz = 2_457_600;
     private const double IkbdMousePacketHz = 200.0;
+    private const double FloppyTransferSpeedMultiplier = 1.5;
     private readonly Shifter m_video;
     private readonly AciaIkbdDevice m_aciaIkbd;
     private readonly ShifterRegistersDevice m_shifterRegisters;
@@ -146,7 +147,12 @@ public sealed class AtariST : IMachine
         m_psg = new PsgDevice(audioSampleSink, (int)m_cpuClockHz, Descriptor.AudioSampleRateHz);
         m_psg.PortAChanged += OnPsgPortAChanged;
         bus.Attach(m_psg);
-        m_floppyController = new FloppyDmaFdcDevice(driveAPresent: true, driveBPresent: false);
+        var floppyTimingCpuHz = options1.AccelerateFloppyAccess ? 0 : m_cpuClockHz;
+        m_floppyController = new FloppyDmaFdcDevice(
+            driveAPresent: true,
+            driveBPresent: false,
+            cpuHz: floppyTimingCpuHz,
+            transferSpeedMultiplier: FloppyTransferSpeedMultiplier);
         m_floppyController.ConfigureDmaAddressLimit(options1.RamSizeBytes);
         m_floppyController.DmaWrite8 = (address, value) => bus.Write8(address, value);
         m_floppyController.InterruptLineChanged += OnFloppyInterruptLineChanged;
@@ -243,6 +249,7 @@ public sealed class AtariST : IMachine
     {
         m_psg.AdvanceCycles(deltaTicks);
         m_video.Advance(deltaTicks, OnHblank, OnVblank);
+        m_floppyController.Advance(deltaTicks);
         FlushPendingMousePacketsOnCadence(deltaTicks);
         var mfpTicks = ScaleCpuTicksForMfp(deltaTicks);
         if (mfpTicks > 0)

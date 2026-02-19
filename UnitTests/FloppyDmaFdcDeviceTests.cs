@@ -94,6 +94,28 @@ public sealed class FloppyDmaFdcDeviceTests
     }
 
     [Test]
+    public void TimedModeShouldDelayInterruptAssertionUntilCyclesAdvance()
+    {
+        var device = new FloppyDmaFdcDevice(driveAPresent: true, driveBPresent: false, cpuHz: 8_000_000, transferSpeedMultiplier: 1.5);
+        device.ApplyPortA(0x05);
+        var transitions = new List<bool>();
+        device.InterruptLineChanged += isActiveLow => transitions.Add(isActiveLow);
+
+        WriteWord(device, ControlRegisterAddress, FdcStatusAccessControl);
+        WriteWord(device, DataRegisterAddress, RestoreCommand);
+
+        device.Advance(5_000);
+        Assert.That(transitions, Is.Empty, "Completion IRQ should not assert before command latency elapses.");
+
+        device.Advance(50_000);
+        Assert.That(transitions, Is.EqualTo(new[] { true }));
+
+        WriteWord(device, ControlRegisterAddress, FdcStatusAccessControl);
+        _ = ReadWord(device, DataRegisterAddress);
+        Assert.That(transitions, Is.EqualTo(new[] { true, false }));
+    }
+
+    [Test]
     public void StatusReadAfterCommandShouldPreserveTrackZeroBit()
     {
         var device = new FloppyDmaFdcDevice(driveAPresent: true, driveBPresent: false);

@@ -44,12 +44,21 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
     private const int MaxTraceLines = 256;
     private const uint DmaTransferAddressMaskSt = 0x003F_FFFF;
     private const uint DmaAddressMaskSt = 0x003F_FFFE;
+    private const double DefaultTransferSpeedMultiplier = 1.5;
+    private const double FloppyRotationRpm = 300.0;
+    private const int DefaultSectorsPerTrackTiming = 9;
+    private const double TypeICommandBaseMilliseconds = 2.0;
+    private const double TypeIiWriteRejectMilliseconds = 3.0;
+    private const double TypeIiiForceInterruptMilliseconds = 0.2;
     private static readonly int[] PreferredSectorSizes = [9, 10, 11, 8, 12];
     private readonly Lock m_stateLock = new();
     private readonly bool[] m_drivePresent;
     private readonly byte[][] m_mountedImageByDrive;
     private readonly string[] m_mountedImageNameByDrive;
     private readonly bool[] m_writeProtectedByDrive;
+    private readonly long m_cpuHz;
+    private readonly double m_transferSpeedMultiplier;
+    private readonly bool m_hasTimingModel;
     private readonly Queue<string> m_traceLines = [];
     private ushort m_controlRegister;
     private byte m_dataHighByte;
@@ -81,6 +90,11 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
     private long m_dmaBytesWritten;
     private string m_lastTraceLine = string.Empty;
     private bool m_isTraceEnabled;
+    private bool m_hasPendingCompletion;
+    private long m_pendingCompletionTicks;
+    private byte m_pendingCompletionStatus;
+    private bool m_pendingCompletionHasDmaError;
+    private string m_pendingCompletionDetail = string.Empty;
 
     /// <inheritdoc />
     public uint FromAddr => BaseAddress;
@@ -120,12 +134,15 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
         }
     }
 
-    public FloppyDmaFdcDevice(bool driveAPresent = true, bool driveBPresent = false)
+    public FloppyDmaFdcDevice(bool driveAPresent = true, bool driveBPresent = false, long cpuHz = 0, double transferSpeedMultiplier = DefaultTransferSpeedMultiplier)
     {
         m_drivePresent = [driveAPresent, driveBPresent];
         m_mountedImageByDrive = new byte[m_drivePresent.Length][];
         m_mountedImageNameByDrive = new string[m_drivePresent.Length];
         m_writeProtectedByDrive = new bool[m_drivePresent.Length];
+        m_cpuHz = Math.Max(0, cpuHz);
+        m_transferSpeedMultiplier = transferSpeedMultiplier <= 0 ? DefaultTransferSpeedMultiplier : transferSpeedMultiplier;
+        m_hasTimingModel = m_cpuHz > 0;
         Reset();
     }
 
@@ -168,6 +185,27 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
     {
         lock (m_stateLock)
             m_dmaAddressLimitExclusive = addressLimitExclusive == 0 ? 1 : addressLimitExclusive;
+    }
+
+    /// <summary>
+    /// Advances pending FDC command completion timing.
+    /// </summary>
+    public void Advance(long deltaTicks)
+    {
+        if (deltaTicks <= 0)
+            return;
+
+        lock (m_stateLock)
+        {
+            if (!m_hasPendingCompletion)
+                return;
+
+            m_pendingCompletionTicks -= deltaTicks;
+            if (m_pendingCompletionTicks > 0)
+                return;
+
+            CompletePendingCommandNoLock();
+        }
     }
 
     /// <summary>
@@ -259,6 +297,11 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
             m_statusWordRepresentsTypeI = true;
             m_traceLines.Clear();
             m_lastTraceLine = string.Empty;
+            m_hasPendingCompletion = false;
+            m_pendingCompletionTicks = 0;
+            m_pendingCompletionStatus = 0;
+            m_pendingCompletionHasDmaError = false;
+            m_pendingCompletionDetail = string.Empty;
             m_selectedSide = 0;
             m_selectedDrive = -1;
             SetInterruptLine(activeLow: false);
@@ -469,13 +512,21 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
 
     private void ExecuteCommand(byte command)
     {
+        var opcode = (byte)(command & FdcTypeOpcodeMask);
+        if (m_hasPendingCompletion && opcode != 0xD0)
+        {
+            AddTraceLine($"Command 0x{command:X2} ignored while previous command is still in progress.");
+            return;
+        }
+
         m_commandCount++;
         m_lastCommand = command;
         m_statusWordRepresentsTypeI = IsTypeICommand(command);
 
         // Starting a new command clears any previous completion IRQ state.
         SetInterruptLine(activeLow: false);
-        var opcode = (byte)(command & FdcTypeOpcodeMask);
+        if (opcode == 0xD0)
+            CancelPendingCompletionNoLock();
         if (opcode is 0x80 or 0x90)
             m_readSectorCommandCount++;
         var driveConnected = IsSelectedDrivePresent(out var selectedDrive);
@@ -484,27 +535,27 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
         switch (opcode)
         {
             case 0xD0: // Force interrupt.
-                CompleteCommand(0, hasDmaError: false, "Force interrupt.");
+                CompleteCommand(0, hasDmaError: false, "Force interrupt.", GetCommandDelayTicks(opcode, isMultiSectorRead: false));
                 return;
 
             case 0x00: // Restore.
                 if (driveConnected)
                 {
                     m_fdcTrackRegister = 0;
-                    CompleteCommand(0, hasDmaError: false, "Restore.");
+                    CompleteCommand(0, hasDmaError: false, "Restore.", GetCommandDelayTicks(opcode, isMultiSectorRead: false));
                 }
                 else
-                    CompleteCommand(FdcRecordNotFoundMask, hasDmaError: true, "Restore failed: no selected drive.");
+                    CompleteCommand(FdcRecordNotFoundMask, hasDmaError: true, "Restore failed: no selected drive.", GetCommandDelayTicks(opcode, isMultiSectorRead: false));
                 return;
 
             case 0x10: // Seek.
                 if (driveConnected)
                 {
                     m_fdcTrackRegister = m_fdcDataRegister;
-                    CompleteCommand(0, hasDmaError: false, "Seek.");
+                    CompleteCommand(0, hasDmaError: false, "Seek.", GetCommandDelayTicks(opcode, isMultiSectorRead: false));
                 }
                 else
-                    CompleteCommand(FdcRecordNotFoundMask, hasDmaError: true, "Seek failed: no selected drive.");
+                    CompleteCommand(FdcRecordNotFoundMask, hasDmaError: true, "Seek failed: no selected drive.", GetCommandDelayTicks(opcode, isMultiSectorRead: false));
                 return;
 
             case 0x20: // Step.
@@ -512,7 +563,8 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
                 CompleteCommand(
                     driveConnected ? (byte)0 : FdcRecordNotFoundMask,
                     hasDmaError: !driveConnected,
-                    driveConnected ? "Step." : "Step failed: no selected drive.");
+                    driveConnected ? "Step." : "Step failed: no selected drive.",
+                    GetCommandDelayTicks(opcode, isMultiSectorRead: false));
                 return;
 
             case 0x40: // Step in.
@@ -522,7 +574,8 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
                 CompleteCommand(
                     driveConnected ? (byte)0 : FdcRecordNotFoundMask,
                     hasDmaError: !driveConnected,
-                    driveConnected ? "Step-in." : "Step-in failed: no selected drive.");
+                    driveConnected ? "Step-in." : "Step-in failed: no selected drive.",
+                    GetCommandDelayTicks(opcode, isMultiSectorRead: false));
                 return;
 
             case 0x60: // Step out.
@@ -532,41 +585,42 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
                 CompleteCommand(
                     driveConnected ? (byte)0 : FdcRecordNotFoundMask,
                     hasDmaError: !driveConnected,
-                    driveConnected ? "Step-out." : "Step-out failed: no selected drive.");
+                    driveConnected ? "Step-out." : "Step-out failed: no selected drive.",
+                    GetCommandDelayTicks(opcode, isMultiSectorRead: false));
                 return;
 
             case 0x80: // Read sector (single).
             case 0x90: // Read sector (multi).
                 if (!driveConnected)
                 {
-                    CompleteCommand(FdcRecordNotFoundMask, hasDmaError: true, "Read sector failed: no selected drive.");
+                    CompleteCommand(FdcRecordNotFoundMask, hasDmaError: true, "Read sector failed: no selected drive.", GetCommandDelayTicks(opcode, isMultiSectorRead: opcode == 0x90));
                     return;
                 }
 
                 var isMultiSectorRead = opcode == 0x90;
                 if (TryReadSectorIntoDma(selectedDrive, isMultiSectorRead, out var readSectorHasDmaError))
-                    CompleteCommand(0, hasDmaError: readSectorHasDmaError, isMultiSectorRead ? "Read multi-sector." : "Read sector.");
+                    CompleteCommand(0, hasDmaError: readSectorHasDmaError, isMultiSectorRead ? "Read multi-sector." : "Read sector.", GetCommandDelayTicks(opcode, isMultiSectorRead));
                 else
-                    CompleteCommand(FdcRecordNotFoundMask, hasDmaError: true, "Read sector failed.");
+                    CompleteCommand(FdcRecordNotFoundMask, hasDmaError: true, "Read sector failed.", GetCommandDelayTicks(opcode, isMultiSectorRead));
                 return;
 
             case 0xA0: // Write sector (single).
             case 0xB0: // Write sector (multi).
                 // For now mounted media is read-only.
-                CompleteCommand(FdcWriteProtectMask, hasDmaError: true, "Write sector rejected: read-only media.");
+                CompleteCommand(FdcWriteProtectMask, hasDmaError: true, "Write sector rejected: read-only media.", GetCommandDelayTicks(opcode, isMultiSectorRead: opcode == 0xB0));
                 return;
 
             case 0xC0: // Read address.
                 if (!driveConnected)
                 {
-                    CompleteCommand(FdcRecordNotFoundMask, hasDmaError: true, "Read address failed: no selected drive.");
+                    CompleteCommand(FdcRecordNotFoundMask, hasDmaError: true, "Read address failed: no selected drive.", GetCommandDelayTicks(opcode, isMultiSectorRead: false));
                     return;
                 }
 
                 if (TryReadAddressIntoDma(selectedDrive, out var readAddressHasDmaError))
-                    CompleteCommand(0, hasDmaError: readAddressHasDmaError, "Read address.");
+                    CompleteCommand(0, hasDmaError: readAddressHasDmaError, "Read address.", GetCommandDelayTicks(opcode, isMultiSectorRead: false));
                 else
-                    CompleteCommand(FdcRecordNotFoundMask, hasDmaError: true, "Read address failed.");
+                    CompleteCommand(FdcRecordNotFoundMask, hasDmaError: true, "Read address failed.", GetCommandDelayTicks(opcode, isMultiSectorRead: false));
                 return;
 
             case 0xE0: // Read track.
@@ -574,16 +628,32 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
                 CompleteCommand(
                     driveConnected ? FdcRecordNotFoundMask : (byte)(FdcRecordNotFoundMask | FdcWriteProtectMask),
                     hasDmaError: true,
-                    "Track command not implemented.");
+                    "Track command not implemented.",
+                    GetCommandDelayTicks(opcode, isMultiSectorRead: false));
                 return;
 
             default:
-                CompleteCommand(0, hasDmaError: false, "Unhandled opcode treated as no-op.");
+                CompleteCommand(0, hasDmaError: false, "Unhandled opcode treated as no-op.", GetCommandDelayTicks(opcode, isMultiSectorRead: false));
                 return;
         }
     }
 
-    private void CompleteCommand(byte status, bool hasDmaError, string detail)
+    private void CompleteCommand(byte status, bool hasDmaError, string detail, long delayTicks = 0)
+    {
+        if (delayTicks > 0)
+        {
+            m_hasPendingCompletion = true;
+            m_pendingCompletionTicks = delayTicks;
+            m_pendingCompletionStatus = status;
+            m_pendingCompletionHasDmaError = hasDmaError;
+            m_pendingCompletionDetail = detail;
+            return;
+        }
+
+        CompleteCommandNoLock(status, hasDmaError, detail);
+    }
+
+    private void CompleteCommandNoLock(byte status, bool hasDmaError, string detail)
     {
         m_fdcStatusRegister = status;
         SetDmaErrorStatusNoLock(hasDmaError);
@@ -591,6 +661,56 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
         m_lastStatusWord = status;
         SetInterruptLine(activeLow: true);
         AddTraceLine($"{detail} status=0x{status:X2} dma=0x{BuildDmaStatusWord():X4}.");
+    }
+
+    private void CompletePendingCommandNoLock()
+    {
+        if (!m_hasPendingCompletion)
+            return;
+
+        var status = m_pendingCompletionStatus;
+        var hasDmaError = m_pendingCompletionHasDmaError;
+        var detail = m_pendingCompletionDetail;
+        CancelPendingCompletionNoLock();
+        CompleteCommandNoLock(status, hasDmaError, detail);
+    }
+
+    private void CancelPendingCompletionNoLock()
+    {
+        m_hasPendingCompletion = false;
+        m_pendingCompletionTicks = 0;
+        m_pendingCompletionStatus = 0;
+        m_pendingCompletionHasDmaError = false;
+        m_pendingCompletionDetail = string.Empty;
+    }
+
+    private long GetCommandDelayTicks(byte opcode, bool isMultiSectorRead)
+    {
+        if (!m_hasTimingModel)
+            return 0;
+
+        var milliseconds = opcode switch
+        {
+            0xD0 => TypeIiiForceInterruptMilliseconds,
+            0x00 or 0x10 or 0x20 or 0x30 or 0x40 or 0x50 or 0x60 or 0x70 => TypeICommandBaseMilliseconds,
+            0x80 => GetReadSectorDelayMilliseconds(1),
+            0x90 => GetReadSectorDelayMilliseconds(isMultiSectorRead ? Math.Max(1, (int)m_sectorCountRegister) : 1),
+            0xA0 or 0xB0 => TypeIiWriteRejectMilliseconds,
+            0xC0 => GetReadSectorDelayMilliseconds(1),
+            0xE0 or 0xF0 => GetReadSectorDelayMilliseconds(1),
+            _ => TypeICommandBaseMilliseconds
+        };
+
+        var cycles = milliseconds * m_cpuHz / 1000.0;
+        return Math.Max(1, (long)Math.Round(cycles));
+    }
+
+    private double GetReadSectorDelayMilliseconds(int sectorCount)
+    {
+        var sectors = Math.Max(1, sectorCount);
+        var sectorsPerSecond = (FloppyRotationRpm / 60.0) * DefaultSectorsPerTrackTiming;
+        var millisecondsPerSectorSlot = 1000.0 / sectorsPerSecond;
+        return (sectors * millisecondsPerSectorSlot) / m_transferSpeedMultiplier;
     }
 
     private byte BuildDriveStatus()

@@ -112,7 +112,10 @@ public sealed class EmuTOSTests : TestsBase
         if (romFile == null || !romFile.Exists)
             Assert.Ignore("EmuTOS ROM not found.");
 
-        var atariST = new AtariST();
+        var atariST = new AtariST(new AtariSTOptions
+        {
+            AccelerateFloppyAccess = true
+        });
         atariST.LoadRom(romFile.ReadAllBytes(), romFile.Name);
         var mounted = atariST.TryMountFloppyImage(0, CreateTestFloppyImage(), "integration");
         Assert.That(mounted, Is.True, "Expected drive A image to mount.");
