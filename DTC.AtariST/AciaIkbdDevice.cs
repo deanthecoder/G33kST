@@ -66,6 +66,7 @@ public sealed class AciaIkbdDevice : IMemDevice
     private byte m_keyboardControl;
     private bool m_keyboardInterruptLineActive;
     private bool m_keyboardInterruptReassertPending;
+    private volatile bool m_hasDeferredAdvanceWork;
 
     /// <inheritdoc />
     public uint FromAddr => BaseAddress;
@@ -96,6 +97,7 @@ public sealed class AciaIkbdDevice : IMemDevice
 
             m_keyboardReceiveQueue.Clear();
             m_keyboardInterruptReassertPending = false;
+            m_hasDeferredAdvanceWork = false;
             RefreshInterruptLineNoLock();
         }
     }
@@ -107,6 +109,9 @@ public sealed class AciaIkbdDevice : IMemDevice
     /// </summary>
     public void Advance()
     {
+        if (!m_hasDeferredAdvanceWork)
+            return;
+
         lock (m_stateSync)
             TryReassertKeyboardInterruptNoLock();
     }
@@ -196,6 +201,7 @@ public sealed class AciaIkbdDevice : IMemDevice
             m_lastJoystickStateBytes[0] = 0;
             m_lastJoystickStateBytes[1] = 0;
             m_keyboardInterruptReassertPending = false;
+            m_hasDeferredAdvanceWork = false;
             EnqueueKeyboardByteNoLock(IkbdResetCompleteCode);
         }
     }
@@ -264,6 +270,7 @@ public sealed class AciaIkbdDevice : IMemDevice
         if (ShouldDeferInterruptReassertNoLock())
         {
             m_keyboardInterruptReassertPending = true;
+            m_hasDeferredAdvanceWork = true;
             if (m_keyboardInterruptLineActive)
             {
                 m_keyboardInterruptLineActive = false;
@@ -296,6 +303,7 @@ public sealed class AciaIkbdDevice : IMemDevice
         m_pendingCommandParameterIndex = 0;
         m_keyboardControl = 0;
         m_keyboardInterruptReassertPending = false;
+        m_hasDeferredAdvanceWork = false;
         RefreshInterruptLineNoLock();
     }
 
@@ -340,6 +348,7 @@ public sealed class AciaIkbdDevice : IMemDevice
                 m_lastJoystickStateBytes[0] = 0;
                 m_lastJoystickStateBytes[1] = 0;
                 m_keyboardInterruptReassertPending = false;
+                m_hasDeferredAdvanceWork = false;
                 EnqueueKeyboardByteNoLock(IkbdResetCompleteCode);
             }
             return;
@@ -444,7 +453,10 @@ public sealed class AciaIkbdDevice : IMemDevice
     {
         m_keyboardReceiveQueue.Enqueue(value);
         if (m_keyboardReceiveQueue.Count == 1)
+        {
             m_keyboardInterruptReassertPending = false;
+            m_hasDeferredAdvanceWork = false;
+        }
         RefreshInterruptLineNoLock();
         KeyboardDataReady?.Invoke(this, EventArgs.Empty);
     }
@@ -457,6 +469,7 @@ public sealed class AciaIkbdDevice : IMemDevice
         {
             m_keyboardReceiveQueue.Clear();
             m_keyboardInterruptReassertPending = false;
+            m_hasDeferredAdvanceWork = false;
         }
 
         EnqueueKeyboardByteNoLock(JoystickInterrogationHeader);
@@ -504,17 +517,20 @@ public sealed class AciaIkbdDevice : IMemDevice
         if (m_keyboardInterruptLineActive)
         {
             m_keyboardInterruptReassertPending = false;
+            m_hasDeferredAdvanceWork = false;
             return;
         }
 
         if (!ShouldDeferInterruptReassertNoLock())
         {
             m_keyboardInterruptReassertPending = false;
+            m_hasDeferredAdvanceWork = false;
             RefreshInterruptLineNoLock();
             return;
         }
 
         m_keyboardInterruptReassertPending = false;
+        m_hasDeferredAdvanceWork = false;
         m_keyboardInterruptLineActive = true;
         KeyboardInterruptLineChanged?.Invoke(true);
     }

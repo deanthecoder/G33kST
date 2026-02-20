@@ -430,6 +430,75 @@ public sealed class AtariSTTests : TestsBase
     }
 
     [Test]
+    public void InjectKeyboardScanCodeShouldNotQueueDuplicateInterruptsBeforeConsumption()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        var bus = atariST.Cpu.Bus;
+        const uint interruptEnableBRegister = 0x00FFFA09;
+        const uint interruptMaskBRegister = 0x00FFFA15;
+        const uint keyboardAciaControlRegister = 0x00FFFC00;
+        bus.Write8(interruptEnableBRegister, 0x40);
+        bus.Write8(interruptMaskBRegister, 0x40);
+        bus.Write8(keyboardAciaControlRegister, 0x80);
+
+        atariST.InjectKeyboardScanCode(0x1C);
+        atariST.InjectKeyboardScanCode(0x1D);
+
+        var interruptCount = 0;
+        for (var i = 0; i < 4; i++)
+        {
+            if (!atariST.TryConsumeInterrupt())
+                break;
+            interruptCount++;
+            atariST.RequestInterrupt();
+        }
+
+        Assert.That(interruptCount, Is.EqualTo(1));
+    }
+
+    [Test]
+    public void InterruptAcknowledgeShouldPreserveMultiplePendingLevel6VectorsInOrder()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        var bus = atariST.Cpu.Bus;
+        const uint interruptEnableBRegister = 0x00FFFA09;
+        const uint interruptMaskBRegister = 0x00FFFA15;
+        const uint vectorRegister = 0x00FFFA17;
+        const uint timerCdControlRegister = 0x00FFFA1D;
+        const uint timerDDataRegister = 0x00FFFA25;
+        const uint keyboardAciaControlRegister = 0x00FFFC00;
+
+        bus.Write8(vectorRegister, 0x50);
+        bus.Write8(interruptEnableBRegister, 0x50); // GPIP4 + Timer D.
+        bus.Write8(interruptMaskBRegister, 0x50);
+        bus.Write8(keyboardAciaControlRegister, 0x80);
+        bus.Write8(timerDDataRegister, 0x01);
+        bus.Write8(timerCdControlRegister, 0x01);
+
+        atariST.InjectKeyboardScanCode(0x1C); // GPIP4 -> vector 0x56.
+        var cpuTicksForOneTimerDStep = (long)Math.Ceiling(4.0 * atariST.Descriptor.CpuHz / 2_457_600.0);
+        atariST.AdvanceDevices(cpuTicksForOneTimerDStep); // Timer D -> vector 0x54.
+
+        Assert.That(atariST.TryConsumeInterrupt(), Is.True);
+        atariST.RequestInterrupt();
+        Assert.That(atariST.TryConsumeInterrupt(), Is.True);
+        atariST.RequestInterrupt();
+
+        var firstAcknowledge = atariST.Cpu.InterruptAcknowledge?.Invoke(6) ?? InterruptAcknowledgeResult.Autovector();
+        var secondAcknowledge = atariST.Cpu.InterruptAcknowledge?.Invoke(6) ?? InterruptAcknowledgeResult.Autovector();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(firstAcknowledge.Type, Is.EqualTo(InterruptAcknowledgeType.VectorNumber));
+            Assert.That(firstAcknowledge.VectorNumber, Is.EqualTo(0x56));
+            Assert.That(secondAcknowledge.Type, Is.EqualTo(InterruptAcknowledgeType.VectorNumber));
+            Assert.That(secondAcknowledge.VectorNumber, Is.EqualTo(0x54));
+        });
+    }
+
+    [Test]
     public void InjectKeyboardKeyStateShouldQueueMakeAndBreakCodes()
     {
         var atariST = new AtariST();

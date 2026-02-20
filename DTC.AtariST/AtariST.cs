@@ -45,6 +45,8 @@ public sealed class AtariST : IMachine
     private const int HighResolutionHeight = 400;
     private const int MouseDragActivationThresholdPixels = 2;
     private const int MaxQueuedMousePackets = 128;
+    private const int MaxPendingInterrupts = 256;
+    private const int MaxPendingAcknowledgePerLevel = 64;
     private const byte HostJoystickPortIndex = 1; // ST games typically use joystick port 1.
     private const byte HostJoystickPortZeroIndex = 0;
     private const uint RealTimeClockFromAddress = 0x00FFFC20;
@@ -62,8 +64,10 @@ public sealed class AtariST : IMachine
     private readonly RtcDevice m_rtc;
     private readonly MfpDevice m_mfp;
     private readonly Lock m_mouseStateSync = new();
-    private readonly List<PendingInterrupt> m_pendingInterrupts = [];
-    private readonly Queue<InterruptAcknowledgeResult>[] m_pendingAcknowledgeByLevel = CreateAcknowledgeQueues();
+    private readonly List<PendingInterrupt> m_pendingInterrupts = new(MaxPendingInterrupts);
+    private readonly InterruptAcknowledgeResult[][] m_pendingAcknowledgeByLevel = CreatePendingAcknowledgeStorage();
+    private readonly int[] m_pendingAcknowledgeReadByLevel = new int[8];
+    private readonly int[] m_pendingAcknowledgeCountByLevel = new int[8];
     private byte m_latchedInterruptLevel;
     private InterruptAcknowledgeResult m_latchedInterruptAcknowledge;
     private bool m_hasLatchedInterrupt;
@@ -209,8 +213,8 @@ public sealed class AtariST : IMachine
         m_mfp.SetMonitorType(m_monitorType);
         SetBootVideoMode(Cpu.Bus);
         m_pendingInterrupts.Clear();
-        foreach (var queue in m_pendingAcknowledgeByLevel)
-            queue.Clear();
+        Array.Clear(m_pendingAcknowledgeReadByLevel, 0, m_pendingAcknowledgeReadByLevel.Length);
+        Array.Clear(m_pendingAcknowledgeCountByLevel, 0, m_pendingAcknowledgeCountByLevel.Length);
         m_pendingMousePackets.Clear();
         m_mousePacketTickAccumulator = 0;
         m_hasLatchedInterrupt = false;
@@ -298,7 +302,7 @@ public sealed class AtariST : IMachine
             return;
 
         Cpu.RequestInterrupt(m_latchedInterruptLevel);
-        m_pendingAcknowledgeByLevel[m_latchedInterruptLevel].Enqueue(m_latchedInterruptAcknowledge);
+        EnqueuePendingAcknowledge(m_latchedInterruptLevel, m_latchedInterruptAcknowledge);
         m_hasLatchedInterrupt = false;
         m_latchedInterruptLevel = 0;
         m_latchedInterruptAcknowledge = default;
@@ -551,7 +555,16 @@ public sealed class AtariST : IMachine
 
     private void EnqueueInterrupt(byte level, InterruptAcknowledgeResult acknowledgeResult)
     {
-        if (m_pendingInterrupts.Count >= int.MaxValue)
+        if (m_pendingInterrupts.Count > 0)
+        {
+            foreach (var pending in m_pendingInterrupts)
+            {
+                if (pending.Level != level || pending.AcknowledgeResult != acknowledgeResult)
+                    continue;
+                return;
+            }
+        }
+        if (m_pendingInterrupts.Count >= MaxPendingInterrupts)
             return;
         m_pendingInterrupts.Add(new PendingInterrupt(level, acknowledgeResult));
     }
@@ -560,9 +573,15 @@ public sealed class AtariST : IMachine
     {
         if (level >= m_pendingAcknowledgeByLevel.Length)
             return InterruptAcknowledgeResult.Autovector();
+        if (m_pendingAcknowledgeCountByLevel[level] == 0)
+            return InterruptAcknowledgeResult.Autovector();
 
-        var acknowledgeQueue = m_pendingAcknowledgeByLevel[level];
-        return acknowledgeQueue.Count > 0 ? acknowledgeQueue.Dequeue() : InterruptAcknowledgeResult.Autovector();
+        var readIndex = m_pendingAcknowledgeReadByLevel[level];
+        var acknowledgeResult = m_pendingAcknowledgeByLevel[level][readIndex];
+        var nextReadIndex = readIndex + 1;
+        m_pendingAcknowledgeReadByLevel[level] = nextReadIndex == MaxPendingAcknowledgePerLevel ? 0 : nextReadIndex;
+        m_pendingAcknowledgeCountByLevel[level]--;
+        return acknowledgeResult;
     }
 
     private static void ValidateOptions(AtariSTOptions options)
@@ -596,19 +615,35 @@ public sealed class AtariST : IMachine
         SetBootVideoMode(bus);
     }
 
-    private static Queue<InterruptAcknowledgeResult>[] CreateAcknowledgeQueues() =>
-    [
-        new Queue<InterruptAcknowledgeResult>(),
-        new Queue<InterruptAcknowledgeResult>(),
-        new Queue<InterruptAcknowledgeResult>(),
-        new Queue<InterruptAcknowledgeResult>(),
-        new Queue<InterruptAcknowledgeResult>(),
-        new Queue<InterruptAcknowledgeResult>(),
-        new Queue<InterruptAcknowledgeResult>(),
-        new Queue<InterruptAcknowledgeResult>()
-    ];
-
     private readonly record struct PendingInterrupt(byte Level, InterruptAcknowledgeResult AcknowledgeResult);
+
+    private void EnqueuePendingAcknowledge(byte level, InterruptAcknowledgeResult acknowledgeResult)
+    {
+        if (level >= m_pendingAcknowledgeByLevel.Length)
+            return;
+
+        var count = m_pendingAcknowledgeCountByLevel[level];
+        if (count >= MaxPendingAcknowledgePerLevel)
+            return;
+
+        var writeIndex = m_pendingAcknowledgeReadByLevel[level] + count;
+        if (writeIndex >= MaxPendingAcknowledgePerLevel)
+            writeIndex -= MaxPendingAcknowledgePerLevel;
+        m_pendingAcknowledgeByLevel[level][writeIndex] = acknowledgeResult;
+        m_pendingAcknowledgeCountByLevel[level] = count + 1;
+    }
+
+    private static InterruptAcknowledgeResult[][] CreatePendingAcknowledgeStorage() =>
+    [
+        new InterruptAcknowledgeResult[MaxPendingAcknowledgePerLevel],
+        new InterruptAcknowledgeResult[MaxPendingAcknowledgePerLevel],
+        new InterruptAcknowledgeResult[MaxPendingAcknowledgePerLevel],
+        new InterruptAcknowledgeResult[MaxPendingAcknowledgePerLevel],
+        new InterruptAcknowledgeResult[MaxPendingAcknowledgePerLevel],
+        new InterruptAcknowledgeResult[MaxPendingAcknowledgePerLevel],
+        new InterruptAcknowledgeResult[MaxPendingAcknowledgePerLevel],
+        new InterruptAcknowledgeResult[MaxPendingAcknowledgePerLevel]
+    ];
 
     private void ReleaseMouseButtonsNoLock()
     {
