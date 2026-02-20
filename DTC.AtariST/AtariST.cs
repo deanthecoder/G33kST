@@ -46,6 +46,7 @@ public sealed class AtariST : IMachine
     private const int MouseDragActivationThresholdPixels = 2;
     private const int MaxQueuedMousePackets = 128;
     private const byte HostJoystickPortIndex = 1; // ST games typically use joystick port 1.
+    private const byte HostJoystickPortZeroIndex = 0;
     private const uint RealTimeClockFromAddress = 0x00FFFC20;
     private const uint RealTimeClockToAddress = 0x00FFFC3F;
     private const byte SyntheticVblInterruptLevel = 4;
@@ -84,6 +85,7 @@ public sealed class AtariST : IMachine
     private readonly Queue<MousePacket> m_pendingMousePackets = [];
     private JoystickState m_joystickState;
     private AtariMonitorType m_monitorType;
+    private readonly bool m_isJoystickMirroredToPort0;
 
     public IMachineDescriptor Descriptor { get; } = new AtariSTDescriptor();
 
@@ -123,6 +125,7 @@ public sealed class AtariST : IMachine
         var options1 = options ?? AtariSTOptions.Default;
         ValidateOptions(options1);
         m_monitorType = options1.MonitorType;
+        m_isJoystickMirroredToPort0 = options1.MirrorJoystickToPort0;
         m_cpuClockHz = Math.Max(1, (long)Math.Round(Descriptor.CpuHz));
         m_mousePacketTicksPerSample = Math.Max(1.0, Descriptor.CpuHz / IkbdMousePacketHz);
 
@@ -254,6 +257,7 @@ public sealed class AtariST : IMachine
 
     public void AdvanceDevices(long deltaTicks)
     {
+        m_aciaIkbd.Advance();
         m_psg.AdvanceCycles(deltaTicks);
         m_video.Advance(deltaTicks, OnHblank, OnVblank);
         m_floppyController.Advance(deltaTicks);
@@ -329,6 +333,12 @@ public sealed class AtariST : IMachine
         m_aciaIkbd.QueueKeyboardByte(scanCode);
 
     /// <summary>
+    /// Clears pending IKBD receive bytes.
+    /// </summary>
+    public void ClearKeyboardInputQueue() =>
+        m_aciaIkbd.ClearReceiveQueue();
+
+    /// <summary>
     /// Injects one keyboard key state transition as an IKBD make/break scan code.
     /// </summary>
     public void InjectKeyboardKeyState(byte scanCode, bool isPressed)
@@ -358,6 +368,8 @@ public sealed class AtariST : IMachine
 
             m_joystickState = state;
             m_aciaIkbd.QueueJoystickState(HostJoystickPortIndex, state);
+            if (m_isJoystickMirroredToPort0)
+                m_aciaIkbd.QueueJoystickState(HostJoystickPortZeroIndex, state);
         }
     }
 
@@ -660,6 +672,8 @@ public sealed class AtariST : IMachine
 
         m_joystickState = JoystickState.Neutral;
         m_aciaIkbd.QueueJoystickState(HostJoystickPortIndex, m_joystickState);
+        if (m_isJoystickMirroredToPort0)
+            m_aciaIkbd.QueueJoystickState(HostJoystickPortZeroIndex, m_joystickState);
     }
 
     /// <summary>

@@ -65,6 +65,7 @@ public sealed class AciaIkbdDevice : IMemDevice
     private byte m_mouseMode = IkbdMouseModeRelative;
     private byte m_keyboardControl;
     private bool m_keyboardInterruptLineActive;
+    private bool m_keyboardInterruptReassertPending;
 
     /// <inheritdoc />
     public uint FromAddr => BaseAddress;
@@ -82,6 +83,33 @@ public sealed class AciaIkbdDevice : IMemDevice
     /// The value is <c>true</c> when the line is active (asserted low).
     /// </summary>
     public event Action<bool> KeyboardInterruptLineChanged;
+
+    /// <summary>
+    /// Clears any pending IKBD output bytes.
+    /// </summary>
+    public void ClearReceiveQueue()
+    {
+        lock (m_stateSync)
+        {
+            if (m_keyboardReceiveQueue.Count == 0)
+                return;
+
+            m_keyboardReceiveQueue.Clear();
+            m_keyboardInterruptReassertPending = false;
+            RefreshInterruptLineNoLock();
+        }
+    }
+
+    /// <summary>
+    /// Advances deferred ACIA line transitions.
+    /// This keeps multi-byte IKBD responses flowing one IRQ edge at a time rather than
+    /// collapsing low->high reasserts into the same read call.
+    /// </summary>
+    public void Advance()
+    {
+        lock (m_stateSync)
+            TryReassertKeyboardInterruptNoLock();
+    }
 
     /// <summary>
     /// Injects one keyboard data byte into the receive queue.
@@ -167,6 +195,7 @@ public sealed class AciaIkbdDevice : IMemDevice
             m_joystickEventModeEnabled = true;
             m_lastJoystickStateBytes[0] = 0;
             m_lastJoystickStateBytes[1] = 0;
+            m_keyboardInterruptReassertPending = false;
             EnqueueKeyboardByteNoLock(IkbdResetCompleteCode);
         }
     }
@@ -232,7 +261,18 @@ public sealed class AciaIkbdDevice : IMemDevice
             return 0x00;
 
         var value = m_keyboardReceiveQueue.Dequeue();
-        RefreshInterruptLineNoLock();
+        if (ShouldDeferInterruptReassertNoLock())
+        {
+            m_keyboardInterruptReassertPending = true;
+            if (m_keyboardInterruptLineActive)
+            {
+                m_keyboardInterruptLineActive = false;
+                KeyboardInterruptLineChanged?.Invoke(false);
+            }
+        }
+        else
+            RefreshInterruptLineNoLock();
+
         return value;
     }
 
@@ -255,6 +295,7 @@ public sealed class AciaIkbdDevice : IMemDevice
         m_pendingCommandParameterCount = 0;
         m_pendingCommandParameterIndex = 0;
         m_keyboardControl = 0;
+        m_keyboardInterruptReassertPending = false;
         RefreshInterruptLineNoLock();
     }
 
@@ -298,6 +339,7 @@ public sealed class AciaIkbdDevice : IMemDevice
                 m_joystickEventModeEnabled = true;
                 m_lastJoystickStateBytes[0] = 0;
                 m_lastJoystickStateBytes[1] = 0;
+                m_keyboardInterruptReassertPending = false;
                 EnqueueKeyboardByteNoLock(IkbdResetCompleteCode);
             }
             return;
@@ -401,6 +443,8 @@ public sealed class AciaIkbdDevice : IMemDevice
     private void EnqueueKeyboardByteNoLock(byte value)
     {
         m_keyboardReceiveQueue.Enqueue(value);
+        if (m_keyboardReceiveQueue.Count == 1)
+            m_keyboardInterruptReassertPending = false;
         RefreshInterruptLineNoLock();
         KeyboardDataReady?.Invoke(this, EventArgs.Empty);
     }
@@ -409,6 +453,11 @@ public sealed class AciaIkbdDevice : IMemDevice
     {
         if (m_outputPaused)
             return;
+        if (ShouldCoalesceQueuedJoystickInterrogationsNoLock())
+        {
+            m_keyboardReceiveQueue.Clear();
+            m_keyboardInterruptReassertPending = false;
+        }
 
         EnqueueKeyboardByteNoLock(JoystickInterrogationHeader);
         EnqueueKeyboardByteNoLock(m_lastJoystickStateBytes[0]);
@@ -439,6 +488,53 @@ public sealed class AciaIkbdDevice : IMemDevice
 
         m_keyboardInterruptLineActive = isActive;
         KeyboardInterruptLineChanged?.Invoke(isActive);
+    }
+
+    private bool ShouldDeferInterruptReassertNoLock()
+    {
+        if ((m_keyboardControl & InterruptRequestFlag) == 0)
+            return false;
+        return m_keyboardReceiveQueue.Count > 0;
+    }
+
+    private void TryReassertKeyboardInterruptNoLock()
+    {
+        if (!m_keyboardInterruptReassertPending)
+            return;
+        if (m_keyboardInterruptLineActive)
+        {
+            m_keyboardInterruptReassertPending = false;
+            return;
+        }
+
+        if (!ShouldDeferInterruptReassertNoLock())
+        {
+            m_keyboardInterruptReassertPending = false;
+            RefreshInterruptLineNoLock();
+            return;
+        }
+
+        m_keyboardInterruptReassertPending = false;
+        m_keyboardInterruptLineActive = true;
+        KeyboardInterruptLineChanged?.Invoke(true);
+    }
+
+    private bool ShouldCoalesceQueuedJoystickInterrogationsNoLock()
+    {
+        if (m_keyboardReceiveQueue.Count < 3)
+            return false;
+        if ((m_keyboardReceiveQueue.Count % 3) != 0)
+            return false;
+
+        var byteIndex = 0;
+        foreach (var queuedByte in m_keyboardReceiveQueue)
+        {
+            if ((byteIndex % 3) == 0 && queuedByte != JoystickInterrogationHeader)
+                return false;
+            byteIndex++;
+        }
+
+        return true;
     }
 
     private static AciaRegister GetRegister(uint address)

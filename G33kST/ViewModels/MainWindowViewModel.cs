@@ -63,7 +63,15 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     {
         var sampleRateHz = new AtariSTDescriptor().AudioSampleRateHz;
         m_audioDevice = CreateAudioOutputDevice(sampleRateHz, out var audioSampleSink);
-        m_machine = new AtariST(AtariSTOptions.Default, audioSampleSink);
+        var machineOptions = new AtariSTOptions
+        {
+            RamSizeBytes = AtariSTOptions.Default.RamSizeBytes,
+            MonitorType = AtariSTOptions.Default.MonitorType,
+            HasRealTimeClock = AtariSTOptions.Default.HasRealTimeClock,
+            AccelerateFloppyAccess = AtariSTOptions.Default.AccelerateFloppyAccess,
+            MirrorJoystickToPort0 = true
+        };
+        m_machine = new AtariST(machineOptions, audioSampleSink);
         m_cpuHistoryTrace = new InstructionTraceDebugger(CpuHistoryCapacity, FormatCpuHistoryLine)
         {
             IsEnabled = Settings.IsCpuHistoryTracked
@@ -179,6 +187,12 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     /// </summary>
     public void UpdateKeyboardState(byte scanCode, bool isPressed) =>
         m_machine.InjectKeyboardKeyState(scanCode, isPressed);
+
+    /// <summary>
+    /// Clears any queued IKBD keyboard/controller output bytes.
+    /// </summary>
+    public void ClearKeyboardInputQueue() =>
+        m_machine.ClearKeyboardInputQueue();
 
     /// <summary>
     /// Forwards host joystick state to IKBD joystick port 0.

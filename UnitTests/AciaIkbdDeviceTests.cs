@@ -206,6 +206,32 @@ public sealed class AciaIkbdDeviceTests
     }
 
     [Test]
+    public void ReadingOneByteOfJoystickPacketShouldRearmKeyboardInterruptForRemainingByteAfterAdvance()
+    {
+        var device = new AciaIkbdDevice();
+        var assertedCount = 0;
+        device.KeyboardInterruptLineChanged += isActiveLow =>
+        {
+            if (isActiveLow)
+                assertedCount++;
+        };
+        device.Write8(KeyboardStatusAddress, 0x80); // Enable receive IRQ signaling.
+
+        device.QueueJoystickState(0, new JoystickState(
+            IsUpPressed: false,
+            IsDownPressed: false,
+            IsLeftPressed: false,
+            IsRightPressed: true,
+            IsFirePressed: false));
+
+        _ = device.Read8(KeyboardDataAddress); // Header byte.
+        device.Advance();
+        _ = device.Read8(KeyboardDataAddress); // State byte.
+
+        Assert.That(assertedCount, Is.EqualTo(2), "Expected one interrupt edge per queued joystick byte.");
+    }
+
+    [Test]
     public void JoystickInterrogateModeShouldSuppressEventsUntilEventModeIsRestored()
     {
         var device = new AciaIkbdDevice();
@@ -324,6 +350,43 @@ public sealed class AciaIkbdDeviceTests
             Assert.That(header, Is.EqualTo(0xFD));
             Assert.That(joystick0State, Is.EqualTo(0x06), "Expected latest joystick 0 state (Down + Left) to be returned.");
             Assert.That(joystick1State, Is.EqualTo(0x00));
+        });
+    }
+
+    [Test]
+    public void JoystickInterrogateCommandShouldCoalesceUnreadResponsesToMostRecentState()
+    {
+        var device = new AciaIkbdDevice();
+        const byte setJoystickInterrogateModeCommand = 0x15;
+        const byte interrogateJoystickStateCommand = 0x16;
+
+        device.Write8(KeyboardDataAddress, setJoystickInterrogateModeCommand);
+        device.QueueJoystickState(1, new JoystickState(
+            IsUpPressed: false,
+            IsDownPressed: false,
+            IsLeftPressed: true,
+            IsRightPressed: false,
+            IsFirePressed: false));
+        device.Write8(KeyboardDataAddress, interrogateJoystickStateCommand);
+        device.QueueJoystickState(1, new JoystickState(
+            IsUpPressed: false,
+            IsDownPressed: false,
+            IsLeftPressed: false,
+            IsRightPressed: true,
+            IsFirePressed: true));
+        device.Write8(KeyboardDataAddress, interrogateJoystickStateCommand);
+
+        var header = device.Read8(KeyboardDataAddress);
+        var joystick0State = device.Read8(KeyboardDataAddress);
+        var joystick1State = device.Read8(KeyboardDataAddress);
+        var statusAfterRead = device.Read8(KeyboardStatusAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(header, Is.EqualTo(0xFD));
+            Assert.That(joystick0State, Is.EqualTo(0x00));
+            Assert.That(joystick1State, Is.EqualTo(0x88));
+            Assert.That(statusAfterRead & 0x01, Is.Zero);
         });
     }
 

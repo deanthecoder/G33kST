@@ -44,4 +44,12 @@ public sealed class AtariSTOptions
     /// When enabled, floppy timing latency is bypassed so commands complete immediately.
     /// </remarks>
     public bool AccelerateFloppyAccess { get; init; }
+
+    /// <summary>
+    /// Mirrors host joystick input to IKBD joystick port 0 in addition to port 1.
+    /// </summary>
+    /// <remarks>
+    /// Useful for software that expects input on the mouse-port joystick path.
+    /// </remarks>
+    public bool MirrorJoystickToPort0 { get; init; }
 }

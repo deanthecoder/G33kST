@@ -255,6 +255,13 @@ public partial class MainWindow : Window
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (ViewModel.IsJoystickInputEnabled && IsJoystickControlKey(e.Key))
+        {
+            TryHandleJoystickKeyDown(e.Key);
+            e.Handled = true;
+            return;
+        }
+
         if (ShouldTreatAsHostShortcut(e))
             return;
         if (TryHandleJoystickKeyDown(e.Key))
@@ -294,6 +301,13 @@ public partial class MainWindow : Window
 
     private void OnPreviewKeyUp(object sender, KeyEventArgs e)
     {
+        if (ViewModel.IsJoystickInputEnabled && IsJoystickControlKey(e.Key))
+        {
+            TryHandleJoystickKeyUp(e.Key);
+            e.Handled = true;
+            return;
+        }
+
         if (TryHandleJoystickKeyUp(e.Key))
         {
             e.Handled = true;
@@ -372,7 +386,11 @@ public partial class MainWindow : Window
         if (e.PropertyName != nameof(MainWindowViewModel.IsJoystickInputEnabled))
             return;
         if (ViewModel.IsJoystickInputEnabled)
+        {
+            ReleaseAllPressedMachineKeys();
+            ViewModel.ClearKeyboardInputQueue();
             return;
+        }
         ReleaseAllPressedJoystickKeys();
     }
 
