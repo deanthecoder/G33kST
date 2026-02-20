@@ -9,28 +9,26 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using DTC.Emulation;
+using DTC.Core.Image;
 
 namespace DTC.AtariST;
 
 /// <summary>
 /// Minimal Atari ST Shifter video source with basic low/medium/high mode rendering.
-/// Output is exposed as a fixed RGB surface with a representative border area.
+/// Output is exposed as RGB using mode-native active resolution plus configurable margins.
 /// </summary>
 public sealed class Shifter : IVideoSource
 {
     private const int BytesPerPixel = 3;
-    private const int ActiveOutputWidth = 640;
-    private const int ActiveOutputHeight = 400;
     private const int BorderWidth = 32;
     private const int BorderHeight = 24;
-    private const int OutputWidth = ActiveOutputWidth + BorderWidth * 2;
-    private const int OutputHeight = ActiveOutputHeight + BorderHeight * 2;
     private const int LowResWidth = 320;
     private const int LowResHeight = 200;
     private const int LowResWordsPerLine = 20;
     private const int LowResBytesPerLine = LowResWordsPerLine * 8;
     private const int MediumResWidth = 640;
     private const int MediumResHeight = 200;
+    private const int MediumResOutputHeight = MediumResHeight * 2;
     private const int MediumResWordsPerLine = 40;
     private const int MediumResBytesPerLine = MediumResWordsPerLine * 4;
     private const int HighResWidth = 640;
@@ -49,16 +47,26 @@ public sealed class Shifter : IVideoSource
 
     private readonly Bus m_bus;
     private readonly double m_ticksPerLine;
-    private readonly byte[] m_frameBuffer = new byte[OutputWidth * OutputHeight * BytesPerPixel];
     private readonly byte[] m_paletteR = new byte[16];
     private readonly byte[] m_paletteG = new byte[16];
     private readonly byte[] m_paletteB = new byte[16];
+    private readonly FrameBuffer m_frameBuffer;
     private byte m_lastClearRed;
     private byte m_lastClearGreen;
     private byte m_lastClearBlue;
     private bool m_hasLastClearColor;
     private double m_lineTickAccumulator;
     private int m_currentRasterLine;
+
+    /// <summary>
+    /// Default frame width used at startup (low-resolution mode plus margins).
+    /// </summary>
+    public const int DefaultFrameWidth = LowResWidth + BorderWidth * 2;
+
+    /// <summary>
+    /// Default frame height used at startup (low-resolution mode plus margins).
+    /// </summary>
+    public const int DefaultFrameHeight = LowResHeight + BorderHeight * 2;
 
     /// <summary>
     /// Creates an Atari ST video source.
@@ -69,25 +77,26 @@ public sealed class Shifter : IVideoSource
         m_ticksPerLine = cpuHz / (videoHz * TotalRasterLines);
         if (m_ticksPerLine <= 0)
             throw new ArgumentOutOfRangeException(nameof(cpuHz), "Computed ticks-per-line must be positive.");
+        m_frameBuffer = new FrameBuffer(DefaultFrameWidth, DefaultFrameHeight, BytesPerPixel);
         Reset();
     }
 
     /// <inheritdoc />
-    public int FrameWidth => OutputWidth;
+    public int FrameWidth => m_frameBuffer.Width;
 
     /// <inheritdoc />
-    public int FrameHeight => OutputHeight;
+    public int FrameHeight => m_frameBuffer.Height;
 
     /// <inheritdoc />
     public int FrameBytesPerPixel => BytesPerPixel;
 
     /// <summary>
-    /// Gets the active source width for the last rendered frame before scaling to output.
+    /// Gets the active picture width for the current mode.
     /// </summary>
     public int ActiveWidth { get; private set; } = LowResWidth;
 
     /// <summary>
-    /// Gets the active source height for the last rendered frame before scaling to output.
+    /// Gets the active picture height for the current mode.
     /// </summary>
     public int ActiveHeight { get; private set; } = LowResHeight;
 
@@ -145,13 +154,16 @@ public sealed class Shifter : IVideoSource
             m_currentRasterLine++;
             var mode = GetVideoMode();
             if (mode == 0 && m_currentRasterLine < VisibleRasterLines)
+            {
+                ConfigureGeometryForMode(mode);
                 RenderLowResolutionScanline(m_currentRasterLine);
+            }
 
             if (m_currentRasterLine == VisibleRasterLines)
             {
                 if (mode != 0)
                     RenderFrameForNonLowResolutionModes(mode);
-                FrameRendered?.Invoke(this, m_frameBuffer);
+                FrameRendered?.Invoke(this, m_frameBuffer.Data);
                 vblankCallback?.Invoke();
             }
 
@@ -168,48 +180,33 @@ public sealed class Shifter : IVideoSource
     /// <inheritdoc />
     public void CopyToFrameBuffer(Span<byte> frameBuffer)
     {
-        if (frameBuffer.Length < m_frameBuffer.Length)
-            throw new ArgumentException($"Frame buffer too small; expected at least {m_frameBuffer.Length} bytes.", nameof(frameBuffer));
+        if (frameBuffer.Length < m_frameBuffer.ByteLength)
+            throw new ArgumentException($"Frame buffer too small; expected at least {m_frameBuffer.ByteLength} bytes.", nameof(frameBuffer));
 
-        m_frameBuffer.CopyTo(frameBuffer);
+        m_frameBuffer.Data.CopyTo(frameBuffer);
     }
 
     private void BeginFrame()
     {
         var mode = m_bus.Read8(VideoModeRegister) & 0x03;
+        ConfigureGeometryForMode(mode);
         switch (mode)
         {
             case 0:
-                ActiveWidth = LowResWidth;
-                ActiveHeight = LowResHeight;
-                ActiveOriginX = BorderWidth;
-                ActiveOriginY = BorderHeight;
                 RefreshPalette();
                 ClearToColorIfNeeded(m_paletteR[0], m_paletteG[0], m_paletteB[0]);
                 break;
 
             case 1:
-                ActiveWidth = MediumResWidth;
-                ActiveHeight = MediumResHeight;
-                ActiveOriginX = BorderWidth;
-                ActiveOriginY = BorderHeight;
                 RefreshPalette();
                 ClearToColorIfNeeded(m_paletteR[0], m_paletteG[0], m_paletteB[0]);
                 break;
 
             case 2:
-                ActiveWidth = HighResWidth;
-                ActiveHeight = HighResHeight;
-                ActiveOriginX = BorderWidth;
-                ActiveOriginY = BorderHeight;
                 ClearToColorIfNeeded(255, 255, 255);
                 break;
 
             default:
-                ActiveWidth = 0;
-                ActiveHeight = 0;
-                ActiveOriginX = 0;
-                ActiveOriginY = 0;
                 ClearToColorIfNeeded(0, 0, 0);
                 break;
         }
@@ -220,6 +217,7 @@ public sealed class Shifter : IVideoSource
 
     private void RenderFrameForNonLowResolutionModes(int mode)
     {
+        ConfigureGeometryForMode(mode);
         switch (mode)
         {
             case 1:
@@ -246,20 +244,17 @@ public sealed class Shifter : IVideoSource
         var borderRed = m_paletteR[0];
         var borderGreen = m_paletteG[0];
         var borderBlue = m_paletteB[0];
-        var topOutputY = ActiveOriginY + sourceLine * 2;
-        var bottomOutputY = topOutputY + 1;
-        FillOutputRow(topOutputY, borderRed, borderGreen, borderBlue);
-        FillOutputRow(bottomOutputY, borderRed, borderGreen, borderBlue);
+        var outputY = ActiveOriginY + sourceLine;
+        FillOutputRow(outputY, borderRed, borderGreen, borderBlue);
 
-        var frameBuffer = m_frameBuffer;
+        var frameBuffer = m_frameBuffer.Data;
         var paletteR = m_paletteR;
         var paletteG = m_paletteG;
         var paletteB = m_paletteB;
-        const int outputStride = OutputWidth * BytesPerPixel;
+        var outputStride = m_frameBuffer.Width * BytesPerPixel;
         var activeOriginXBytes = ActiveOriginX * BytesPerPixel;
         var lineAddress = unchecked(screenBaseAddress + (uint)(sourceLine * LowResBytesPerLine));
-        var outputTopRowIndex = topOutputY * outputStride + activeOriginXBytes;
-        var outputBottomRowIndex = bottomOutputY * outputStride + activeOriginXBytes;
+        var outputRowIndex = outputY * outputStride + activeOriginXBytes;
         for (var chunk = 0; chunk < LowResWordsPerLine; chunk++)
         {
             var chunkAddress = unchecked(lineAddress + (uint)(chunk * 8));
@@ -267,8 +262,7 @@ public sealed class Shifter : IVideoSource
             var plane1 = m_bus.Read16BigEndian(chunkAddress + 2);
             var plane2 = m_bus.Read16BigEndian(chunkAddress + 4);
             var plane3 = m_bus.Read16BigEndian(chunkAddress + 6);
-            var topIndex = outputTopRowIndex + chunk * 16 * 2 * BytesPerPixel;
-            var bottomIndex = outputBottomRowIndex + chunk * 16 * 2 * BytesPerPixel;
+            var outputIndex = outputRowIndex + chunk * 16 * BytesPerPixel;
             for (var bit = 15; bit >= 0; bit--)
             {
                 var pixelIndex =
@@ -280,22 +274,11 @@ public sealed class Shifter : IVideoSource
                 var green = paletteG[pixelIndex];
                 var blue = paletteB[pixelIndex];
 
-                frameBuffer[topIndex] = red;
-                frameBuffer[topIndex + 1] = green;
-                frameBuffer[topIndex + 2] = blue;
-                frameBuffer[topIndex + 3] = red;
-                frameBuffer[topIndex + 4] = green;
-                frameBuffer[topIndex + 5] = blue;
+                frameBuffer[outputIndex] = red;
+                frameBuffer[outputIndex + 1] = green;
+                frameBuffer[outputIndex + 2] = blue;
 
-                frameBuffer[bottomIndex] = red;
-                frameBuffer[bottomIndex + 1] = green;
-                frameBuffer[bottomIndex + 2] = blue;
-                frameBuffer[bottomIndex + 3] = red;
-                frameBuffer[bottomIndex + 4] = green;
-                frameBuffer[bottomIndex + 5] = blue;
-
-                topIndex += 2 * BytesPerPixel;
-                bottomIndex += 2 * BytesPerPixel;
+                outputIndex += BytesPerPixel;
             }
         }
     }
@@ -379,25 +362,27 @@ public sealed class Shifter : IVideoSource
 
     private void FillOutputRow(int y, byte red, byte green, byte blue)
     {
-        if (y < 0 || y >= OutputHeight)
+        if (y < 0 || y >= m_frameBuffer.Height)
             return;
 
-        var rowStart = y * OutputWidth * BytesPerPixel;
-        for (var x = 0; x < OutputWidth; x++)
+        var frameBuffer = m_frameBuffer.Data;
+        var rowStart = y * m_frameBuffer.Width * BytesPerPixel;
+        for (var x = 0; x < m_frameBuffer.Width; x++)
         {
             var pixelIndex = rowStart + x * BytesPerPixel;
-            m_frameBuffer[pixelIndex] = red;
-            m_frameBuffer[pixelIndex + 1] = green;
-            m_frameBuffer[pixelIndex + 2] = blue;
+            frameBuffer[pixelIndex] = red;
+            frameBuffer[pixelIndex + 1] = green;
+            frameBuffer[pixelIndex + 2] = blue;
         }
     }
 
     private void WriteRgbAt(int x, int y, byte red, byte green, byte blue)
     {
-        var outputIndex = (y * OutputWidth + x) * BytesPerPixel;
-        m_frameBuffer[outputIndex] = red;
-        m_frameBuffer[outputIndex + 1] = green;
-        m_frameBuffer[outputIndex + 2] = blue;
+        var frameBuffer = m_frameBuffer.Data;
+        var outputIndex = (y * m_frameBuffer.Width + x) * BytesPerPixel;
+        frameBuffer[outputIndex] = red;
+        frameBuffer[outputIndex + 1] = green;
+        frameBuffer[outputIndex + 2] = blue;
     }
 
     private uint ReadScreenBaseAddress()
@@ -425,11 +410,12 @@ public sealed class Shifter : IVideoSource
 
     private void ClearToColor(byte red, byte green, byte blue)
     {
-        for (var i = 0; i < m_frameBuffer.Length; i += BytesPerPixel)
+        var frameBuffer = m_frameBuffer.Data;
+        for (var i = 0; i < frameBuffer.Length; i += BytesPerPixel)
         {
-            m_frameBuffer[i] = red;
-            m_frameBuffer[i + 1] = green;
-            m_frameBuffer[i + 2] = blue;
+            frameBuffer[i] = red;
+            frameBuffer[i + 1] = green;
+            frameBuffer[i + 2] = blue;
         }
     }
 
@@ -446,6 +432,39 @@ public sealed class Shifter : IVideoSource
         m_lastClearGreen = green;
         m_lastClearBlue = blue;
         m_hasLastClearColor = true;
+    }
+
+    private void ConfigureGeometryForMode(int mode)
+    {
+        var (activeWidth, activeHeight, originX, originY) = mode switch
+        {
+            0 => (LowResWidth, LowResHeight, BorderWidth, BorderHeight),
+            1 => (MediumResWidth, MediumResOutputHeight, BorderWidth, BorderHeight),
+            2 => (HighResWidth, HighResHeight, BorderWidth, BorderHeight),
+            _ => (0, 0, 0, 0)
+        };
+
+        var frameWidth = Math.Max(1, activeWidth + originX * 2);
+        var frameHeight = Math.Max(1, activeHeight + originY * 2);
+        var geometryChanged =
+            ActiveWidth != activeWidth ||
+            ActiveHeight != activeHeight ||
+            ActiveOriginX != originX ||
+            ActiveOriginY != originY ||
+            m_frameBuffer.Width != frameWidth ||
+            m_frameBuffer.Height != frameHeight;
+
+        ActiveWidth = activeWidth;
+        ActiveHeight = activeHeight;
+        ActiveOriginX = originX;
+        ActiveOriginY = originY;
+        m_frameBuffer.Resize(frameWidth, frameHeight, BytesPerPixel);
+
+        if (geometryChanged)
+        {
+            // New frame storage must be cleared even if the color itself is unchanged.
+            m_hasLastClearColor = false;
+        }
     }
 
     private static byte ScaleThreeBitToEightBit(int value) =>

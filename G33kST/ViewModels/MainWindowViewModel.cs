@@ -42,14 +42,16 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly Lock m_frameUpdateLock = new();
     private readonly AtariST m_machine;
     private readonly MachineRunner m_runner;
-    private readonly LcdScreen m_screen;
     private readonly IAudioOutputDevice m_audioDevice;
     private readonly DisplayRecorder m_recorder;
     private readonly InstructionTraceDebugger m_cpuHistoryTrace;
     private readonly DirectoryInfo m_romStoreDir;
     private readonly string m_recordingAvailabilityHint;
-    private byte[] m_backFrameBuffer;
-    private byte[] m_frontFrameBuffer;
+    private LcdScreen m_screen;
+    private FrameBuffer m_backFrameBuffer;
+    private FrameBuffer m_frontFrameBuffer;
+    private int m_screenInputWidth;
+    private int m_screenInputHeight;
     private int m_isUiFrameUpdateQueued;
     private bool m_isFloppyActivityIndicatorOn;
     private long m_lastFloppyCommandCount;
@@ -68,7 +70,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         };
         m_machine.Cpu.AddDebugger(m_cpuHistoryTrace);
         m_runner = new MachineRunner(m_machine, () => m_machine.Descriptor.CpuHz, OnMachineRunnerError);
-        m_screen = new LcdScreen(m_machine.Video.FrameWidth, m_machine.Video.FrameHeight);
+        m_screenInputWidth = m_machine.Video.FrameWidth;
+        m_screenInputHeight = m_machine.Video.FrameHeight;
+        m_screen = new LcdScreen(m_screenInputWidth, m_screenInputHeight);
         m_screen.CrtBlendWeights = new CrtBlendWeights(CrtPreviousFrameBlendWeight, CrtCurrentFrameBlendWeight);
         m_recorder = new DisplayRecorder();
         IsRecordingAvailable = RecordingSession.IsFfmpegAvailable(out var ffmpegReason);
@@ -79,9 +83,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                 : ffmpegReason;
         if (!IsRecordingAvailable)
             Logger.Instance.Warn($"Recording disabled: {m_recordingAvailabilityHint}");
-        var frameBufferSize = m_machine.Video.FrameWidth * m_machine.Video.FrameHeight * m_machine.Video.FrameBytesPerPixel;
-        m_backFrameBuffer = new byte[frameBufferSize];
-        m_frontFrameBuffer = new byte[frameBufferSize];
+        m_backFrameBuffer = new FrameBuffer(m_screenInputWidth, m_screenInputHeight, m_machine.Video.FrameBytesPerPixel);
+        m_frontFrameBuffer = new FrameBuffer(m_screenInputWidth, m_screenInputHeight, m_machine.Video.FrameBytesPerPixel);
 
         m_machine.Video.FrameRendered += OnFrameRendered;
         m_recorder.StateChanged += (_, _) =>
@@ -222,10 +225,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             $"{AppTitle}_{DateTime.Now:yyyyMMdd_HHmmss}.tga");
         command.FileSelected += (_, file) =>
         {
-            var frameCopy = new byte[m_frontFrameBuffer.Length];
+            FrameBuffer frameCopy;
             lock (m_frameUpdateLock)
-                Buffer.BlockCopy(m_frontFrameBuffer, 0, frameCopy, 0, frameCopy.Length);
-            TgaWriter.Write(file, frameCopy, m_machine.Video.FrameWidth, m_machine.Video.FrameHeight, m_machine.Video.FrameBytesPerPixel);
+                frameCopy = m_frontFrameBuffer.Clone();
+
+            TgaWriter.Write(file, frameCopy.Data, frameCopy.Width, frameCopy.Height, frameCopy.BytesPerPixel);
             Logger.Instance.Info($"Screenshot saved: {file.FullName}");
         };
         command.Execute(null);
@@ -540,8 +544,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         if (frameBuffer == null || frameBuffer.Length == 0)
             return;
 
+        var frameWidth = m_machine.Video.FrameWidth;
+        var frameHeight = m_machine.Video.FrameHeight;
+        var bytesPerPixel = m_machine.Video.FrameBytesPerPixel;
         UpdateFloppyActivityWindow();
-        CopyToBackFrame(frameBuffer);
+        CopyToBackFrame(frameBuffer, frameWidth, frameHeight, bytesPerPixel);
         m_recorder.CaptureFrame();
 
         if (Interlocked.Exchange(ref m_isUiFrameUpdateQueued, 1) == 1)
@@ -552,7 +559,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             try
             {
                 var frameToPresent = SwapFrameBuffers();
-                m_screen.Update(frameToPresent);
+                EnsureScreenGeometry(frameToPresent.Frame.Width, frameToPresent.Frame.Height);
+                m_screen.Update(frameToPresent.Frame.Data);
                 UpdateFloppyActivityIndicatorState();
                 DisplayUpdated?.Invoke(this, EventArgs.Empty);
             }
@@ -595,23 +603,59 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(FloppyIndicatorTooltip));
     }
 
-    private void CopyToBackFrame(byte[] frameBuffer)
+    private void CopyToBackFrame(byte[] frameBuffer, int frameWidth, int frameHeight, int bytesPerPixel)
     {
         lock (m_frameUpdateLock)
         {
-            var bytesToCopy = Math.Min(frameBuffer.Length, m_backFrameBuffer.Length);
-            var source = frameBuffer.AsSpan(0, bytesToCopy);
-            source.CopyTo(m_backFrameBuffer.AsSpan(0, bytesToCopy));
+            EnsureFrameBuffers(frameWidth, frameHeight, bytesPerPixel);
+            m_backFrameBuffer.CopyFrom(frameBuffer, clearRemainderWhenShort: true);
         }
     }
 
-    private byte[] SwapFrameBuffers()
+    private FrameToPresent SwapFrameBuffers()
     {
         lock (m_frameUpdateLock)
         {
             (m_backFrameBuffer, m_frontFrameBuffer) = (m_frontFrameBuffer, m_backFrameBuffer);
-            return m_frontFrameBuffer;
+            return new FrameToPresent(m_frontFrameBuffer);
         }
+    }
+
+    private void EnsureFrameBuffers(int frameWidth, int frameHeight, int bytesPerPixel)
+    {
+        var hasMatchingGeometry =
+            m_backFrameBuffer.Width == frameWidth &&
+            m_backFrameBuffer.Height == frameHeight &&
+            m_backFrameBuffer.BytesPerPixel == bytesPerPixel &&
+            m_frontFrameBuffer.Width == frameWidth &&
+            m_frontFrameBuffer.Height == frameHeight &&
+            m_frontFrameBuffer.BytesPerPixel == bytesPerPixel;
+        if (hasMatchingGeometry)
+            return;
+
+        m_backFrameBuffer = new FrameBuffer(frameWidth, frameHeight, bytesPerPixel);
+        m_frontFrameBuffer = new FrameBuffer(frameWidth, frameHeight, bytesPerPixel);
+    }
+
+    private void EnsureScreenGeometry(int width, int height)
+    {
+        if (width == m_screenInputWidth && height == m_screenInputHeight)
+            return;
+
+        if (IsRecording)
+        {
+            m_recorder.Stop();
+            Logger.Instance.Warn("Recording stopped because display size changed.");
+        }
+
+        var oldScreen = m_screen;
+        m_screen = new LcdScreen(width, height);
+        m_screen.CrtBlendWeights = new CrtBlendWeights(CrtPreviousFrameBlendWeight, CrtCurrentFrameBlendWeight);
+        m_screen.FrameBuffer.IsCrt = Settings.IsCrtEmulationEnabled;
+        oldScreen.Dispose();
+        m_screenInputWidth = width;
+        m_screenInputHeight = height;
+        OnPropertyChanged(nameof(Display));
     }
 
     private void OnSettingsPropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -723,4 +767,6 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             safeName = $"rom_{DateTime.Now:yyyyMMdd_HHmmss}.img";
         return Path.HasExtension(safeName) ? safeName : $"{safeName}.img";
     }
+
+    private readonly record struct FrameToPresent(FrameBuffer Frame);
 }

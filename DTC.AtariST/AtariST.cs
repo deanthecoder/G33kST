@@ -35,7 +35,14 @@ public sealed class AtariST : IMachine
     private const uint IoRegionFromAddress = 0x00FF0000;
     private const uint IoRegionToAddress = 0x00FFFFFF;
     private const byte LowResolutionModeValue = 0x00;
+    private const byte MediumResolutionModeValue = 0x01;
     private const byte HighResolutionModeValue = 0x02;
+    private const int LowResolutionWidth = 320;
+    private const int LowResolutionHeight = 200;
+    private const int MediumResolutionWidth = 640;
+    private const int MediumResolutionHeight = 200;
+    private const int HighResolutionWidth = 640;
+    private const int HighResolutionHeight = 400;
     private const int MouseDragActivationThresholdPixels = 2;
     private const int MaxQueuedMousePackets = 128;
     private const byte HostJoystickPortIndex = 1; // ST games typically use joystick port 1.
@@ -410,8 +417,7 @@ public sealed class AtariST : IMachine
             normalizedX = Math.Clamp(normalizedX, 0.0, 1.0);
             normalizedY = Math.Clamp(normalizedY, 0.0, 1.0);
 
-            var activeWidth = Math.Max(1, m_video.ActiveWidth);
-            var activeHeight = Math.Max(1, m_video.ActiveHeight);
+            var (activeWidth, activeHeight) = GetMouseCoordinateSpace();
             var mouseX = (int)Math.Round(normalizedX * (activeWidth - 1));
             var mouseY = (int)Math.Round(normalizedY * (activeHeight - 1));
 
@@ -495,6 +501,19 @@ public sealed class AtariST : IMachine
     private void OnHblank()
     {
         m_mfp.NotifyHblank(m_video.IsDisplayEnableActive);
+    }
+
+    private (int Width, int Height) GetMouseCoordinateSpace()
+    {
+        // Medium-resolution output is vertically line-doubled for display, but IKBD mouse deltas
+        // should remain in 640x200 logical coordinates so host pointer speed matches on-screen motion.
+        return (Cpu.Bus.Read8(VideoModeRegister) & 0x03) switch
+        {
+            LowResolutionModeValue => (LowResolutionWidth, LowResolutionHeight),
+            MediumResolutionModeValue => (MediumResolutionWidth, MediumResolutionHeight),
+            HighResolutionModeValue => (HighResolutionWidth, HighResolutionHeight),
+            _ => (Math.Max(1, m_video.ActiveWidth), Math.Max(1, m_video.ActiveHeight))
+        };
     }
 
     private void OnVblank()

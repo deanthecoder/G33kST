@@ -36,11 +36,31 @@ public sealed class AtariSTTests : TestsBase
         Assert.That(atariST.Descriptor, Is.Not.Null);
         Assert.That(atariST.Descriptor.CpuHz, Is.EqualTo(8_000_000.0));
         Assert.That(atariST.Descriptor.VideoHz, Is.EqualTo(60.0));
-        Assert.That(atariST.Descriptor.FrameWidth, Is.EqualTo(704));
-        Assert.That(atariST.Descriptor.FrameHeight, Is.EqualTo(448));
+        Assert.That(atariST.Descriptor.FrameWidth, Is.EqualTo(384));
+        Assert.That(atariST.Descriptor.FrameHeight, Is.EqualTo(248));
         Assert.That(atariST.Video, Is.Not.Null);
-        Assert.That(atariST.Video.FrameWidth, Is.EqualTo(704));
-        Assert.That(atariST.Video.FrameHeight, Is.EqualTo(448));
+        Assert.That(atariST.Video.FrameWidth, Is.EqualTo(384));
+        Assert.That(atariST.Video.FrameHeight, Is.EqualTo(248));
+    }
+
+    [Test]
+    public void VideoFrameSizeShouldTrackVideoModeWithMargins()
+    {
+        var atariST = new AtariST();
+        var shifter = (Shifter)atariST.Video;
+        var bus = atariST.Cpu.Bus;
+
+        bus.Write8(VideoModeRegister, 0x00);
+        shifter.Reset();
+        Assert.That((atariST.Video.FrameWidth, atariST.Video.FrameHeight), Is.EqualTo((384, 248)));
+
+        bus.Write8(VideoModeRegister, 0x01);
+        shifter.Reset();
+        Assert.That((atariST.Video.FrameWidth, atariST.Video.FrameHeight), Is.EqualTo((704, 448)));
+
+        bus.Write8(VideoModeRegister, 0x02);
+        shifter.Reset();
+        Assert.That((atariST.Video.FrameWidth, atariST.Video.FrameHeight), Is.EqualTo((704, 448)));
     }
 
     [Test]
@@ -458,6 +478,36 @@ public sealed class AtariSTTests : TestsBase
     }
 
     [Test]
+    public void UpdateMouseStateShouldUseLogicalMediumResolutionHeightForRelativeDeltas()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        var bus = atariST.Cpu.Bus;
+        const uint keyboardStatusAddress = 0x00FFFC00;
+        const uint keyboardDataAddress = 0x00FFFC02;
+        const uint videoModeRegister = 0x00FF8260;
+        DrainKeyboardReceiveQueue(bus, keyboardStatusAddress, keyboardDataAddress);
+
+        bus.Write8(videoModeRegister, 0x01);
+
+        // Start at low-res center equivalent in medium-res coordinates to avoid an entry sync packet.
+        atariST.UpdateMouseState(0.25, 0.50, false, false, true);
+        atariST.UpdateMouseState(0.25, 0.60, false, false, true);
+        atariST.AdvanceDevices(CpuTicksForOneMousePacket(atariST));
+
+        var header = bus.Read8(keyboardDataAddress);
+        var deltaX = bus.Read8(keyboardDataAddress);
+        var deltaY = bus.Read8(keyboardDataAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(header, Is.EqualTo(0xF8), "Expected relative mouse packet with no button bits set.");
+            Assert.That((sbyte)deltaX, Is.EqualTo(0), "Expected no horizontal movement.");
+            Assert.That((sbyte)deltaY, Is.EqualTo(19), "Expected medium-res Y delta in 200-line logical coordinates.");
+        });
+    }
+
+    [Test]
     public void UpdateJoystickStateShouldQueueIkbdJoystickPacket()
     {
         var atariST = new AtariST();
@@ -688,15 +738,10 @@ public sealed class AtariSTTests : TestsBase
             Assert.That(frameBuffer[firstPixelOffset + 1], Is.EqualTo(0));
             Assert.That(frameBuffer[firstPixelOffset + 2], Is.EqualTo(0));
 
-            // Pixel 1: duplicated low-res pixel 0 (also red due 2x horizontal scaling).
-            Assert.That(frameBuffer[firstPixelOffset + 3], Is.EqualTo(255));
+            // Pixel 1: black (next source bit is clear).
+            Assert.That(frameBuffer[firstPixelOffset + 3], Is.EqualTo(0));
             Assert.That(frameBuffer[firstPixelOffset + 4], Is.EqualTo(0));
             Assert.That(frameBuffer[firstPixelOffset + 5], Is.EqualTo(0));
-
-            // Pixel 2: first black pixel after 2x horizontal scaling.
-            Assert.That(frameBuffer[firstPixelOffset + 6], Is.EqualTo(0));
-            Assert.That(frameBuffer[firstPixelOffset + 7], Is.EqualTo(0));
-            Assert.That(frameBuffer[firstPixelOffset + 8], Is.EqualTo(0));
         });
     }
 
@@ -750,7 +795,7 @@ public sealed class AtariSTTests : TestsBase
     }
 
     [Test]
-    public void VideoShouldRenderMediumResolutionWithVerticalScaling()
+    public void VideoShouldRenderMediumResolutionWithVerticalLineDoubling()
     {
         var atariST = new AtariST();
         atariST.Reset();
@@ -791,7 +836,7 @@ public sealed class AtariSTTests : TestsBase
             Assert.That(frameBuffer[firstPixelOffset + 1], Is.EqualTo(255));
             Assert.That(frameBuffer[firstPixelOffset + 2], Is.EqualTo(0));
 
-            // Pixel (0,1): also green (2x vertical scaling in medium mode).
+            // Pixel (0,1): green (same source line is duplicated vertically).
             var secondLineOffset = atariST.Video.FrameWidth * bytesPerPixel;
             Assert.That(frameBuffer[firstPixelOffset + secondLineOffset], Is.EqualTo(0));
             Assert.That(frameBuffer[firstPixelOffset + secondLineOffset + 1], Is.EqualTo(255));
@@ -856,7 +901,7 @@ public sealed class AtariSTTests : TestsBase
         var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * bytesPerPixel];
         atariST.Video.CopyToFrameBuffer(frameBuffer);
         var line0PixelOffset = (shifter.ActiveOriginY * atariST.Video.FrameWidth + shifter.ActiveOriginX) * bytesPerPixel;
-        var line1OutputY = shifter.ActiveOriginY + 2;
+        var line1OutputY = shifter.ActiveOriginY + 1;
         var line1PixelOffset = (line1OutputY * atariST.Video.FrameWidth + shifter.ActiveOriginX) * bytesPerPixel;
 
         Assert.Multiple(() =>

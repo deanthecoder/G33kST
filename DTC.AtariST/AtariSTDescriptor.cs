@@ -26,10 +26,6 @@ public sealed class AtariSTDescriptor : IMachineDescriptor
     // Standard audio sample rate
     private const int AudioSampleRate = 44100;
 
-    // Expose a fixed output surface including a representative border area.
-    private const int OutputWidth = 704;
-    private const int OutputHeight = 448;
-
     public string Name => "Atari ST 1040 STFM";
 
     public double CpuHz => NtscCpuHz;
@@ -38,7 +34,7 @@ public sealed class AtariSTDescriptor : IMachineDescriptor
 
     public int AudioSampleRateHz => AudioSampleRate;
 
-    public int FrameWidth => OutputWidth;
+    public int FrameWidth => Shifter.DefaultFrameWidth;
 
-    public int FrameHeight => OutputHeight;
+    public int FrameHeight => Shifter.DefaultFrameHeight;
 }
