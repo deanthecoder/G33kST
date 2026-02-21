@@ -18,6 +18,7 @@ namespace UnitTests;
 /// Tests for the Atari ST emulator machine.
 /// </summary>
 [TestFixture]
+[Parallelizable(ParallelScope.Children)]
 public sealed class AtariSTTests : TestsBase
 {
     private const uint RealTimeClockRegister = 0x00FFFC21;

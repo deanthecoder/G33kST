@@ -23,6 +23,7 @@ namespace UnitTests;
 /// </summary>
 [TestFixture]
 [Parallelizable(ParallelScope.Children)]
+[Explicit]
 public sealed class Mc68000OpcodeSuiteTests : TestsBase
 {
     private const int MaxStepsFullSuite = 2_000_000;

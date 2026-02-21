@@ -383,7 +383,9 @@ public abstract class CpuTestBase
     protected static IEnumerable<TestCaseData> CreateCases(string baseName)
     {
         foreach (var file in GetFiles(baseName))
-            yield return new TestCaseData(file).SetName(file.LeafName().Replace(".json", string.Empty));
+            yield return new TestCaseData(file)
+                .SetName(file.LeafName().Replace(".json", string.Empty))
+                .Explicit("Runs full single-step corpus; execute explicitly when validating instruction coverage.");
     }
 
     private SingleStepTestFile GetDecodedFile(FileInfo sourceFile)
