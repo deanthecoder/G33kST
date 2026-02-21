@@ -98,6 +98,11 @@
                     <MenuItem Header="_Hard Reset"
                               Command="{Binding HardResetMachine}"
                               InputGesture="{OnPlatform 'ctrl+shift+r', macOS='⌘+shift+r'}" />
+                    <Separator />
+                    <MenuItem Header="Input Experiments">
+                        <MenuItem Header="Report Input Queue Sizes" Command="{Binding ReportInputQueueSizes}" />
+                        <MenuItem Header="Clear Input Queues" Command="{Binding ClearInputQueues}" />
+                    </MenuItem>
                 </MenuItem>
 
                 <MenuItem Header="_Display">

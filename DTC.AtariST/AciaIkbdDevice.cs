@@ -54,8 +54,11 @@ public sealed class AciaIkbdDevice : IMemDevice
     private const byte IkbdMouseModeRelative = 0x08;
     private readonly Lock m_stateSync = new();
     private readonly Queue<byte> m_keyboardReceiveQueue = [];
+    private readonly Queue<ReceiveByteKind> m_keyboardReceiveKinds = [];
     private readonly byte[] m_lastJoystickStateBytes = new byte[2];
     private readonly byte[] m_pendingCommandParameters = new byte[8];
+    private byte[] m_receiveQueueScratch = new byte[16];
+    private ReceiveByteKind[] m_receiveKindScratch = new ReceiveByteKind[16];
     private bool m_mouseReportingEnabled = true;
     private bool m_outputPaused;
     private bool m_joystickEventModeEnabled = true;
@@ -64,9 +67,16 @@ public sealed class AciaIkbdDevice : IMemDevice
     private int m_pendingCommandParameterIndex;
     private byte m_mouseMode = IkbdMouseModeRelative;
     private byte m_keyboardControl;
-    private bool m_keyboardInterruptLineActive;
-    private bool m_keyboardInterruptReassertPending;
+    private volatile bool m_keyboardInterruptLineActive;
+    private volatile bool m_keyboardInterruptReassertPending;
     private volatile bool m_hasDeferredAdvanceWork;
+    private volatile bool m_isDeferredInterruptReassertEnabled = true;
+    private volatile bool m_isJoystickInterrogateCoalescingEnabled = true;
+    private int m_queuedKeyboardInjectedByteCount;
+    private int m_queuedMousePacketByteCount;
+    private int m_queuedJoystickEventByteCount;
+    private int m_queuedJoystickInterrogateResponseByteCount;
+    private int m_peakReceiveQueueCount;
 
     /// <inheritdoc />
     public uint FromAddr => BaseAddress;
@@ -86,18 +96,122 @@ public sealed class AciaIkbdDevice : IMemDevice
     public event Action<bool> KeyboardInterruptLineChanged;
 
     /// <summary>
+    /// Gets whether deferred interrupt reassertion is enabled.
+    /// </summary>
+    public bool IsDeferredInterruptReassertEnabled => m_isDeferredInterruptReassertEnabled;
+
+    /// <summary>
+    /// Gets whether queued joystick interrogation replies are coalesced.
+    /// </summary>
+    public bool IsJoystickInterrogateCoalescingEnabled => m_isJoystickInterrogateCoalescingEnabled;
+
+    /// <summary>
+    /// Gets the number of pending IKBD receive bytes.
+    /// </summary>
+    public int PendingReceiveQueueCount
+    {
+        get
+        {
+            lock (m_stateSync)
+                return m_keyboardReceiveQueue.Count;
+        }
+    }
+
+    /// <summary>
+    /// Gets the number of queued bytes that are joystick interrogate responses.
+    /// </summary>
+    public int PendingJoystickInterrogateResponseByteCount
+    {
+        get
+        {
+            lock (m_stateSync)
+                return m_queuedJoystickInterrogateResponseByteCount;
+        }
+    }
+
+    /// <summary>
+    /// Gets the number of queued bytes originating from injected keyboard scan codes.
+    /// </summary>
+    public int PendingKeyboardInjectedByteCount
+    {
+        get
+        {
+            lock (m_stateSync)
+                return m_queuedKeyboardInjectedByteCount;
+        }
+    }
+
+    /// <summary>
+    /// Gets the number of queued bytes belonging to IKBD mouse packets.
+    /// </summary>
+    public int PendingMousePacketByteCount
+    {
+        get
+        {
+            lock (m_stateSync)
+                return m_queuedMousePacketByteCount;
+        }
+    }
+
+    /// <summary>
+    /// Gets the number of queued bytes belonging to IKBD joystick event packets.
+    /// </summary>
+    public int PendingJoystickEventByteCount
+    {
+        get
+        {
+            lock (m_stateSync)
+                return m_queuedJoystickEventByteCount;
+        }
+    }
+
+    /// <summary>
+    /// Gets the peak receive-queue depth since the last reset/clear.
+    /// </summary>
+    public int PeakReceiveQueueCount
+    {
+        get
+        {
+            lock (m_stateSync)
+                return m_peakReceiveQueueCount;
+        }
+    }
+
+    /// <summary>
+    /// Enables or disables deferred keyboard ACIA interrupt reassertion.
+    /// </summary>
+    public void SetDeferredInterruptReassertEnabled(bool isEnabled)
+    {
+        lock (m_stateSync)
+        {
+            m_isDeferredInterruptReassertEnabled = isEnabled;
+            if (isEnabled)
+                return;
+
+            m_keyboardInterruptReassertPending = false;
+            m_hasDeferredAdvanceWork = false;
+            RefreshInterruptLineNoLock();
+        }
+    }
+
+    /// <summary>
+    /// Enables or disables queued joystick interrogation-response coalescing.
+    /// </summary>
+    public void SetJoystickInterrogateCoalescingEnabled(bool isEnabled) =>
+        m_isJoystickInterrogateCoalescingEnabled = isEnabled;
+
+    /// <summary>
     /// Clears any pending IKBD output bytes.
     /// </summary>
     public void ClearReceiveQueue()
     {
         lock (m_stateSync)
         {
-            if (m_keyboardReceiveQueue.Count == 0)
-                return;
-
             m_keyboardReceiveQueue.Clear();
+            m_keyboardReceiveKinds.Clear();
             m_keyboardInterruptReassertPending = false;
             m_hasDeferredAdvanceWork = false;
+            ResetQueueByteCountersNoLock();
             RefreshInterruptLineNoLock();
         }
     }
@@ -109,11 +223,11 @@ public sealed class AciaIkbdDevice : IMemDevice
     /// </summary>
     public void Advance()
     {
+        if (!m_isDeferredInterruptReassertEnabled)
+            return;
         if (!m_hasDeferredAdvanceWork)
             return;
-
-        lock (m_stateSync)
-            TryReassertKeyboardInterruptNoLock();
+        TryReassertKeyboardInterruptFast();
     }
 
     /// <summary>
@@ -122,7 +236,7 @@ public sealed class AciaIkbdDevice : IMemDevice
     public void QueueKeyboardByte(byte value)
     {
         lock (m_stateSync)
-            EnqueueKeyboardByteNoLock(value);
+            EnqueueKeyboardByteNoLock(value, ReceiveByteKind.KeyboardInjected);
     }
 
     /// <summary>
@@ -141,9 +255,9 @@ public sealed class AciaIkbdDevice : IMemDevice
             if (isLeftButtonPressed)
                 header |= 0x02;
 
-            EnqueueKeyboardByteNoLock(header);
-            EnqueueKeyboardByteNoLock((byte)deltaX);
-            EnqueueKeyboardByteNoLock((byte)deltaY);
+            EnqueueKeyboardByteNoLock(header, ReceiveByteKind.MousePacket);
+            EnqueueKeyboardByteNoLock((byte)deltaX, ReceiveByteKind.MousePacket);
+            EnqueueKeyboardByteNoLock((byte)deltaY, ReceiveByteKind.MousePacket);
         }
     }
 
@@ -176,8 +290,8 @@ public sealed class AciaIkbdDevice : IMemDevice
                 return;
 
             var header = joystickIndex == 0 ? JoystickPacketHeaderPort0 : JoystickPacketHeaderPort1;
-            EnqueueKeyboardByteNoLock(header);
-            EnqueueKeyboardByteNoLock(stateByte);
+            EnqueueKeyboardByteNoLock(header, ReceiveByteKind.JoystickEvent);
+            EnqueueKeyboardByteNoLock(stateByte, ReceiveByteKind.JoystickEvent);
         }
     }
 
@@ -189,6 +303,7 @@ public sealed class AciaIkbdDevice : IMemDevice
         lock (m_stateSync)
         {
             m_keyboardReceiveQueue.Clear();
+            m_keyboardReceiveKinds.Clear();
             m_keyboardControl = 0;
             m_keyboardInterruptLineActive = false;
             m_pendingCommand = 0;
@@ -202,6 +317,7 @@ public sealed class AciaIkbdDevice : IMemDevice
             m_lastJoystickStateBytes[1] = 0;
             m_keyboardInterruptReassertPending = false;
             m_hasDeferredAdvanceWork = false;
+            ResetQueueByteCountersNoLock();
             EnqueueKeyboardByteNoLock(IkbdResetCompleteCode);
         }
     }
@@ -267,7 +383,9 @@ public sealed class AciaIkbdDevice : IMemDevice
             return 0x00;
 
         var value = m_keyboardReceiveQueue.Dequeue();
-        if (ShouldDeferInterruptReassertNoLock())
+        var byteKind = m_keyboardReceiveKinds.Dequeue();
+        DecrementQueuedByteKindCountNoLock(byteKind);
+        if (m_isDeferredInterruptReassertEnabled && ShouldDeferInterruptReassertNoLock(byteKind))
         {
             m_keyboardInterruptReassertPending = true;
             m_hasDeferredAdvanceWork = true;
@@ -298,12 +416,14 @@ public sealed class AciaIkbdDevice : IMemDevice
             return;
 
         m_keyboardReceiveQueue.Clear();
+        m_keyboardReceiveKinds.Clear();
         m_pendingCommand = 0;
         m_pendingCommandParameterCount = 0;
         m_pendingCommandParameterIndex = 0;
         m_keyboardControl = 0;
         m_keyboardInterruptReassertPending = false;
         m_hasDeferredAdvanceWork = false;
+        ResetQueueByteCountersNoLock();
         RefreshInterruptLineNoLock();
     }
 
@@ -341,6 +461,7 @@ public sealed class AciaIkbdDevice : IMemDevice
             if (parameters.Length == 1 && parameters[0] == IkbdResetParameter)
             {
                 m_keyboardReceiveQueue.Clear();
+                m_keyboardReceiveKinds.Clear();
                 m_mouseReportingEnabled = true;
                 m_outputPaused = false;
                 m_mouseMode = IkbdMouseModeRelative;
@@ -349,6 +470,7 @@ public sealed class AciaIkbdDevice : IMemDevice
                 m_lastJoystickStateBytes[1] = 0;
                 m_keyboardInterruptReassertPending = false;
                 m_hasDeferredAdvanceWork = false;
+                ResetQueueByteCountersNoLock();
                 EnqueueKeyboardByteNoLock(IkbdResetCompleteCode);
             }
             return;
@@ -449,9 +571,13 @@ public sealed class AciaIkbdDevice : IMemDevice
         m_pendingCommandParameterIndex = 0;
     }
 
-    private void EnqueueKeyboardByteNoLock(byte value)
+    private void EnqueueKeyboardByteNoLock(byte value, ReceiveByteKind byteKind = ReceiveByteKind.Generic)
     {
         m_keyboardReceiveQueue.Enqueue(value);
+        m_keyboardReceiveKinds.Enqueue(byteKind);
+        IncrementQueuedByteKindCountNoLock(byteKind);
+        if (m_keyboardReceiveQueue.Count > m_peakReceiveQueueCount)
+            m_peakReceiveQueueCount = m_keyboardReceiveQueue.Count;
         if (m_keyboardReceiveQueue.Count == 1)
         {
             m_keyboardInterruptReassertPending = false;
@@ -461,20 +587,49 @@ public sealed class AciaIkbdDevice : IMemDevice
         KeyboardDataReady?.Invoke(this, EventArgs.Empty);
     }
 
+    private void IncrementQueuedByteKindCountNoLock(ReceiveByteKind byteKind)
+    {
+        if (byteKind == ReceiveByteKind.KeyboardInjected)
+            m_queuedKeyboardInjectedByteCount++;
+        else if (byteKind == ReceiveByteKind.MousePacket)
+            m_queuedMousePacketByteCount++;
+        else if (byteKind == ReceiveByteKind.JoystickEvent)
+            m_queuedJoystickEventByteCount++;
+        else if (byteKind == ReceiveByteKind.JoystickInterrogateResponse)
+            m_queuedJoystickInterrogateResponseByteCount++;
+    }
+
+    private void DecrementQueuedByteKindCountNoLock(ReceiveByteKind byteKind)
+    {
+        if (byteKind == ReceiveByteKind.KeyboardInjected)
+            m_queuedKeyboardInjectedByteCount = Math.Max(0, m_queuedKeyboardInjectedByteCount - 1);
+        else if (byteKind == ReceiveByteKind.MousePacket)
+            m_queuedMousePacketByteCount = Math.Max(0, m_queuedMousePacketByteCount - 1);
+        else if (byteKind == ReceiveByteKind.JoystickEvent)
+            m_queuedJoystickEventByteCount = Math.Max(0, m_queuedJoystickEventByteCount - 1);
+        else if (byteKind == ReceiveByteKind.JoystickInterrogateResponse)
+            m_queuedJoystickInterrogateResponseByteCount = Math.Max(0, m_queuedJoystickInterrogateResponseByteCount - 1);
+    }
+
+    private void ResetQueueByteCountersNoLock()
+    {
+        m_queuedKeyboardInjectedByteCount = 0;
+        m_queuedMousePacketByteCount = 0;
+        m_queuedJoystickEventByteCount = 0;
+        m_queuedJoystickInterrogateResponseByteCount = 0;
+        m_peakReceiveQueueCount = 0;
+    }
+
     private void QueueJoystickInterrogationResponseNoLock()
     {
         if (m_outputPaused)
             return;
-        if (ShouldCoalesceQueuedJoystickInterrogationsNoLock())
-        {
-            m_keyboardReceiveQueue.Clear();
-            m_keyboardInterruptReassertPending = false;
-            m_hasDeferredAdvanceWork = false;
-        }
+        if (m_isJoystickInterrogateCoalescingEnabled)
+            DropQueuedJoystickInterrogationResponsesNoLock();
 
-        EnqueueKeyboardByteNoLock(JoystickInterrogationHeader);
-        EnqueueKeyboardByteNoLock(m_lastJoystickStateBytes[0]);
-        EnqueueKeyboardByteNoLock(m_lastJoystickStateBytes[1]);
+        EnqueueKeyboardByteNoLock(JoystickInterrogationHeader, ReceiveByteKind.JoystickInterrogateResponse);
+        EnqueueKeyboardByteNoLock(m_lastJoystickStateBytes[0], ReceiveByteKind.JoystickInterrogateResponse);
+        EnqueueKeyboardByteNoLock(m_lastJoystickStateBytes[1], ReceiveByteKind.JoystickInterrogateResponse);
     }
 
     private void QueueActiveJoystickStatePacketsNoLock()
@@ -483,14 +638,14 @@ public sealed class AciaIkbdDevice : IMemDevice
             return;
         if (m_lastJoystickStateBytes[0] != 0)
         {
-            EnqueueKeyboardByteNoLock(JoystickPacketHeaderPort0);
-            EnqueueKeyboardByteNoLock(m_lastJoystickStateBytes[0]);
+            EnqueueKeyboardByteNoLock(JoystickPacketHeaderPort0, ReceiveByteKind.JoystickEvent);
+            EnqueueKeyboardByteNoLock(m_lastJoystickStateBytes[0], ReceiveByteKind.JoystickEvent);
         }
         if (m_lastJoystickStateBytes[1] == 0)
             return;
 
-        EnqueueKeyboardByteNoLock(JoystickPacketHeaderPort1);
-        EnqueueKeyboardByteNoLock(m_lastJoystickStateBytes[1]);
+        EnqueueKeyboardByteNoLock(JoystickPacketHeaderPort1, ReceiveByteKind.JoystickEvent);
+        EnqueueKeyboardByteNoLock(m_lastJoystickStateBytes[1], ReceiveByteKind.JoystickEvent);
     }
 
     private void RefreshInterruptLineNoLock()
@@ -503,31 +658,37 @@ public sealed class AciaIkbdDevice : IMemDevice
         KeyboardInterruptLineChanged?.Invoke(isActive);
     }
 
-    private bool ShouldDeferInterruptReassertNoLock()
+    private bool ShouldDeferInterruptReassertNoLock(ReceiveByteKind consumedByteKind)
     {
         if ((m_keyboardControl & InterruptRequestFlag) == 0)
             return false;
-        return m_keyboardReceiveQueue.Count > 0;
+        if (!IsJoystickDeferredReassertKind(consumedByteKind))
+            return false;
+        if (m_keyboardReceiveQueue.Count == 0)
+            return false;
+
+        var nextByteKind = m_keyboardReceiveKinds.Peek();
+        return IsJoystickDeferredReassertKind(nextByteKind);
     }
 
-    private void TryReassertKeyboardInterruptNoLock()
+    private static bool IsJoystickDeferredReassertKind(ReceiveByteKind byteKind) =>
+        byteKind is ReceiveByteKind.JoystickEvent or ReceiveByteKind.JoystickInterrogateResponse;
+
+    private void TryReassertKeyboardInterruptFast()
     {
         if (!m_keyboardInterruptReassertPending)
+        {
+            m_hasDeferredAdvanceWork = false;
             return;
+        }
         if (m_keyboardInterruptLineActive)
         {
             m_keyboardInterruptReassertPending = false;
             m_hasDeferredAdvanceWork = false;
             return;
         }
-
-        if (!ShouldDeferInterruptReassertNoLock())
-        {
-            m_keyboardInterruptReassertPending = false;
-            m_hasDeferredAdvanceWork = false;
-            RefreshInterruptLineNoLock();
+        if ((m_keyboardControl & InterruptRequestFlag) == 0)
             return;
-        }
 
         m_keyboardInterruptReassertPending = false;
         m_hasDeferredAdvanceWork = false;
@@ -535,22 +696,53 @@ public sealed class AciaIkbdDevice : IMemDevice
         KeyboardInterruptLineChanged?.Invoke(true);
     }
 
-    private bool ShouldCoalesceQueuedJoystickInterrogationsNoLock()
+    private void DropQueuedJoystickInterrogationResponsesNoLock()
     {
-        if (m_keyboardReceiveQueue.Count < 3)
-            return false;
-        if ((m_keyboardReceiveQueue.Count % 3) != 0)
-            return false;
+        if (m_queuedJoystickInterrogateResponseByteCount <= 0)
+            return;
 
-        var byteIndex = 0;
-        foreach (var queuedByte in m_keyboardReceiveQueue)
+        var queueCount = m_keyboardReceiveQueue.Count;
+        EnsureReceiveQueueScratchCapacity(queueCount);
+        var keepCount = 0;
+        while (m_keyboardReceiveQueue.Count > 0)
         {
-            if ((byteIndex % 3) == 0 && queuedByte != JoystickInterrogationHeader)
-                return false;
-            byteIndex++;
+            var queuedByte = m_keyboardReceiveQueue.Dequeue();
+            var queuedKind = m_keyboardReceiveKinds.Dequeue();
+            DecrementQueuedByteKindCountNoLock(queuedKind);
+            if (queuedKind == ReceiveByteKind.JoystickInterrogateResponse)
+                continue;
+
+            m_receiveQueueScratch[keepCount] = queuedByte;
+            m_receiveKindScratch[keepCount] = queuedKind;
+            keepCount++;
         }
 
-        return true;
+        for (var i = 0; i < keepCount; i++)
+        {
+            m_keyboardReceiveQueue.Enqueue(m_receiveQueueScratch[i]);
+            m_keyboardReceiveKinds.Enqueue(m_receiveKindScratch[i]);
+            IncrementQueuedByteKindCountNoLock(m_receiveKindScratch[i]);
+        }
+
+        if (keepCount == 0)
+        {
+            m_keyboardInterruptReassertPending = false;
+            m_hasDeferredAdvanceWork = false;
+            RefreshInterruptLineNoLock();
+        }
+    }
+
+    private void EnsureReceiveQueueScratchCapacity(int minimumLength)
+    {
+        if (m_receiveQueueScratch.Length >= minimumLength)
+            return;
+
+        var newLength = m_receiveQueueScratch.Length;
+        while (newLength < minimumLength)
+            newLength *= 2;
+
+        m_receiveQueueScratch = new byte[newLength];
+        m_receiveKindScratch = new ReceiveByteKind[newLength];
     }
 
     private static AciaRegister GetRegister(uint address)
@@ -576,5 +768,14 @@ public sealed class AciaIkbdDevice : IMemDevice
         KeyboardData,
         MidiStatus,
         MidiData
+    }
+
+    private enum ReceiveByteKind : byte
+    {
+        Generic = 0,
+        KeyboardInjected = 1,
+        MousePacket = 2,
+        JoystickEvent = 3,
+        JoystickInterrogateResponse = 4
     }
 }

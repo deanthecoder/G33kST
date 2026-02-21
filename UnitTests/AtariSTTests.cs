@@ -694,6 +694,163 @@ public sealed class AtariSTTests : TestsBase
     }
 
     [Test]
+    public void UpdateMouseStateShouldCoalescePendingDeltasBeforeCadence()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        var bus = atariST.Cpu.Bus;
+        const uint keyboardStatusAddress = 0x00FFFC00;
+        const uint keyboardDataAddress = 0x00FFFC02;
+        DrainKeyboardReceiveQueue(bus, keyboardStatusAddress, keyboardDataAddress);
+
+        atariST.UpdateMouseState(0.50, 0.50, false, false, true);
+        atariST.UpdateMouseState(0.60, 0.50, false, false, true);
+        atariST.UpdateMouseState(0.70, 0.50, false, false, true);
+
+        atariST.AdvanceDevices(CpuTicksForOneMousePacket(atariST));
+        var header = bus.Read8(keyboardDataAddress);
+        var deltaX = bus.Read8(keyboardDataAddress);
+        _ = bus.Read8(keyboardDataAddress);
+        var statusAfterFirstCadence = bus.Read8(keyboardStatusAddress);
+
+        atariST.AdvanceDevices(CpuTicksForOneMousePacket(atariST));
+        var statusAfterSecondCadence = bus.Read8(keyboardStatusAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(header, Is.EqualTo(0xF8), "Expected relative mouse packet header with no button bits set.");
+            Assert.That((sbyte)deltaX, Is.Not.EqualTo(0), "Expected coalesced horizontal movement.");
+            Assert.That(statusAfterFirstCadence & 0x01, Is.Zero, "Expected receive queue to be empty after reading first cadence packet.");
+            Assert.That(statusAfterSecondCadence & 0x01, Is.Zero, "Expected no stale packet on the next cadence tick.");
+        });
+    }
+
+    [Test]
+    public void UpdateMouseStateShouldAllowBacklogWhenMousePacketCoalescingIsDisabled()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        atariST.SetMousePacketCoalescingEnabled(false);
+
+        atariST.UpdateMouseState(0.50, 0.50, false, false, true);
+        atariST.UpdateMouseState(0.60, 0.50, false, false, true);
+        atariST.UpdateMouseState(0.70, 0.50, false, false, true);
+
+        Assert.That(atariST.PendingMousePacketCount, Is.EqualTo(2), "Expected two pending packets without coalescing.");
+    }
+
+    [Test]
+    public void MousePacketRateLimitShouldRequireTwoCadenceTicksBeforeFirstFlush()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        atariST.SetMousePacketCoalescingEnabled(false);
+        atariST.SetMousePacketRateLimitEnabled(true);
+        var bus = atariST.Cpu.Bus;
+        const uint keyboardStatusAddress = 0x00FFFC00;
+        const uint keyboardDataAddress = 0x00FFFC02;
+        DrainKeyboardReceiveQueue(bus, keyboardStatusAddress, keyboardDataAddress);
+
+        atariST.UpdateMouseState(0.50, 0.50, false, false, true);
+        atariST.UpdateMouseState(0.60, 0.50, false, false, true);
+        atariST.UpdateMouseState(0.70, 0.50, false, false, true);
+
+        atariST.AdvanceDevices(CpuTicksForOneMousePacket(atariST));
+        var statusAfterOneTick = bus.Read8(keyboardStatusAddress);
+        atariST.AdvanceDevices(CpuTicksForOneMousePacket(atariST));
+        var statusAfterTwoTicks = bus.Read8(keyboardStatusAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(statusAfterOneTick & 0x01, Is.Zero, "Expected no flush after one 200Hz cadence tick when rate-limited to 100Hz.");
+            Assert.That(statusAfterTwoTicks & 0x01, Is.Not.Zero, "Expected one flush after two 200Hz cadence ticks when rate-limited.");
+        });
+    }
+
+    [Test]
+    public void MouseInputSamplingShouldDeferHostMouseProcessingUntilSamplingCadence()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        atariST.SetMousePacketCoalescingEnabled(false);
+        atariST.SetMouseInputSamplingEnabled(true);
+        var bus = atariST.Cpu.Bus;
+        const uint keyboardStatusAddress = 0x00FFFC00;
+        const uint keyboardDataAddress = 0x00FFFC02;
+        DrainKeyboardReceiveQueue(bus, keyboardStatusAddress, keyboardDataAddress);
+
+        atariST.UpdateMouseState(0.50, 0.50, false, false, true);
+        atariST.UpdateMouseState(0.70, 0.50, false, false, true);
+        Assert.That(atariST.PendingMousePacketCount, Is.EqualTo(0), "Expected no pending host packets before the first sample tick.");
+
+        atariST.AdvanceDevices(CpuTicksForOneMousePacket(atariST));
+        var statusAfterOneTick = bus.Read8(keyboardStatusAddress);
+        atariST.AdvanceDevices(CpuTicksForOneMousePacket(atariST));
+        var statusAfterTwoTicks = bus.Read8(keyboardStatusAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(statusAfterOneTick & 0x01, Is.Zero, "Expected no IKBD packet before 100Hz sample cadence elapsed.");
+            Assert.That(statusAfterTwoTicks & 0x01, Is.Not.Zero, "Expected IKBD packet once sample cadence elapsed.");
+        });
+    }
+
+    [Test]
+    public void IkbdMouseBackPressureShouldDropStaleHostPacketsWhenIkbdMouseBytesBackUp()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        atariST.SetMousePacketCoalescingEnabled(false);
+        atariST.SetIkbdMouseBackPressureEnabled(true);
+        var bus = atariST.Cpu.Bus;
+        const uint keyboardStatusAddress = 0x00FFFC00;
+        const uint keyboardDataAddress = 0x00FFFC02;
+        DrainKeyboardReceiveQueue(bus, keyboardStatusAddress, keyboardDataAddress);
+
+        atariST.UpdateMouseState(0.10, 0.50, false, false, true);
+        for (var i = 1; i <= 80; i++)
+            atariST.UpdateMouseState(0.10 + (i * 0.01), 0.50, false, false, true);
+
+        atariST.AdvanceDevices(CpuTicksForOneMousePacket(atariST) * 80);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(atariST.DroppedMousePacketsDueToIkbdBackPressureCount, Is.GreaterThan(0), "Expected stale host packets to be dropped under IKBD back-pressure.");
+            Assert.That(atariST.PendingKeyboardInputByteCount, Is.LessThanOrEqualTo(30), "Expected IKBD mouse queue depth to be bounded by back-pressure.");
+            Assert.That(atariST.PendingIkbdMousePacketByteCount, Is.EqualTo(atariST.PendingKeyboardInputByteCount), "Expected queued IKBD bytes to be entirely mouse bytes in this scenario.");
+        });
+    }
+
+    [Test]
+    public void ClearInputQueuesShouldDropPendingKeyboardAndMouseInput()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        var bus = atariST.Cpu.Bus;
+        const uint keyboardStatusAddress = 0x00FFFC00;
+        const uint keyboardDataAddress = 0x00FFFC02;
+        DrainKeyboardReceiveQueue(bus, keyboardStatusAddress, keyboardDataAddress);
+
+        atariST.InjectKeyboardKeyState(0x1E, isPressed: true);
+        atariST.UpdateMouseState(0.50, 0.50, false, false, true);
+        atariST.UpdateMouseState(0.60, 0.50, false, false, true);
+
+        Assert.That(atariST.PendingKeyboardInputByteCount, Is.GreaterThan(0));
+        Assert.That(atariST.PendingMousePacketCount, Is.GreaterThan(0));
+
+        atariST.ClearInputQueues();
+        atariST.AdvanceDevices(CpuTicksForOneMousePacket(atariST));
+
+        var status = bus.Read8(keyboardStatusAddress);
+        Assert.Multiple(() =>
+        {
+            Assert.That(atariST.PendingKeyboardInputByteCount, Is.EqualTo(0));
+            Assert.That(atariST.PendingMousePacketCount, Is.EqualTo(0));
+            Assert.That(status & 0x01, Is.Zero);
+        });
+    }
+
+    [Test]
     public void MfpTimerInterruptShouldQueueLevel6Interrupt()
     {
         var atariST = new AtariST();

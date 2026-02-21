@@ -45,6 +45,7 @@ public sealed class AtariST : IMachine
     private const int HighResolutionHeight = 400;
     private const int MouseDragActivationThresholdPixels = 2;
     private const int MaxQueuedMousePackets = 128;
+    private const int IkbdMouseBackPressureThresholdBytes = 24;
     private const int MaxPendingInterrupts = 256;
     private const int MaxPendingAcknowledgePerLevel = 64;
     private const byte HostJoystickPortIndex = 1; // ST games typically use joystick port 1.
@@ -54,6 +55,8 @@ public sealed class AtariST : IMachine
     private const byte SyntheticVblInterruptLevel = 4;
     private const long MfpInputClockHz = 2_457_600;
     private const double IkbdMousePacketHz = 200.0;
+    private const double ReducedIkbdMousePacketHz = 100.0;
+    private const double MouseInputSampleHz = 100.0;
     private const double FloppyTransferSpeedMultiplier = 1.5;
     private readonly Shifter m_video;
     private readonly AciaIkbdDevice m_aciaIkbd;
@@ -73,9 +76,11 @@ public sealed class AtariST : IMachine
     private bool m_hasLatchedInterrupt;
     private bool m_isInputActive = true;
     private readonly long m_cpuClockHz;
-    private readonly double m_mousePacketTicksPerSample;
+    private double m_mousePacketTicksPerSample;
+    private double m_mouseInputTicksPerSample;
     private long m_mfpTickRemainder;
     private double m_mousePacketTickAccumulator;
+    private double m_mouseInputTickAccumulator;
     private bool m_wasMouseActive;
     private int m_lastMouseX = -1;
     private int m_lastMouseY = -1;
@@ -86,7 +91,14 @@ public sealed class AtariST : IMachine
     private int m_mouseDownY = -1;
     private bool m_isLeftMouseButtonPressed;
     private bool m_isRightMouseButtonPressed;
-    private readonly Queue<MousePacket> m_pendingMousePackets = [];
+    private readonly List<MousePacket> m_pendingMousePackets = [];
+    private bool m_isMousePacketCoalescingEnabled = true;
+    private bool m_isMousePacketRateLimitEnabled;
+    private bool m_isMouseInputSamplingEnabled;
+    private bool m_isIkbdMouseBackPressureEnabled;
+    private bool m_hasPendingHostMouseState;
+    private HostMouseState m_pendingHostMouseState;
+    private long m_droppedMousePacketsDueToIkbdBackPressureCount;
     private JoystickState m_joystickState;
     private AtariMonitorType m_monitorType;
     private readonly bool m_isJoystickMirroredToPort0;
@@ -132,6 +144,7 @@ public sealed class AtariST : IMachine
         m_isJoystickMirroredToPort0 = options1.MirrorJoystickToPort0;
         m_cpuClockHz = Math.Max(1, (long)Math.Round(Descriptor.CpuHz));
         m_mousePacketTicksPerSample = Math.Max(1.0, Descriptor.CpuHz / IkbdMousePacketHz);
+        m_mouseInputTicksPerSample = Math.Max(1.0, Descriptor.CpuHz / MouseInputSampleHz);
 
         // Create main RAM and ROM
         Ram = new Memory(options1.RamSizeBytes);
@@ -217,6 +230,9 @@ public sealed class AtariST : IMachine
         Array.Clear(m_pendingAcknowledgeCountByLevel, 0, m_pendingAcknowledgeCountByLevel.Length);
         m_pendingMousePackets.Clear();
         m_mousePacketTickAccumulator = 0;
+        m_mouseInputTickAccumulator = 0;
+        m_hasPendingHostMouseState = false;
+        m_droppedMousePacketsDueToIkbdBackPressureCount = 0;
         m_hasLatchedInterrupt = false;
         m_latchedInterruptLevel = 0;
         m_latchedInterruptAcknowledge = default;
@@ -265,6 +281,7 @@ public sealed class AtariST : IMachine
         m_psg.AdvanceCycles(deltaTicks);
         m_video.Advance(deltaTicks, OnHblank, OnVblank);
         m_floppyController.Advance(deltaTicks);
+        SamplePendingHostMouseStateOnCadence(deltaTicks);
         FlushPendingMousePacketsOnCadence(deltaTicks);
         var mfpTicks = ScaleCpuTicksForMfp(deltaTicks);
         if (mfpTicks > 0)
@@ -310,13 +327,22 @@ public sealed class AtariST : IMachine
 
     public void SetInputActive(bool isActive)
     {
+        var shouldReleaseJoystick = false;
         lock (m_mouseStateSync)
+        {
             m_isInputActive = isActive;
+            if (!isActive)
+            {
+                m_hasPendingHostMouseState = false;
+                m_mouseInputTickAccumulator = 0;
+                ApplyHostMouseStateNoLock(0, 0, false, false, false);
+                shouldReleaseJoystick = true;
+            }
+        }
         if (isActive)
             return;
-
-        UpdateMouseState(0, 0, false, false, false);
-        UpdateJoystickState(JoystickState.Neutral);
+        if (shouldReleaseJoystick)
+            UpdateJoystickState(JoystickState.Neutral);
     }
 
     /// <summary>
@@ -341,6 +367,219 @@ public sealed class AtariST : IMachine
     /// </summary>
     public void ClearKeyboardInputQueue() =>
         m_aciaIkbd.ClearReceiveQueue();
+
+    /// <summary>
+    /// Clears queued host mouse packets awaiting IKBD cadence flush.
+    /// </summary>
+    public void ClearMouseInputQueue()
+    {
+        lock (m_mouseStateSync)
+        {
+            m_pendingMousePackets.Clear();
+            m_hasPendingHostMouseState = false;
+            m_mouseInputTickAccumulator = 0;
+        }
+    }
+
+    /// <summary>
+    /// Clears queued IKBD receive bytes and pending host mouse packets.
+    /// </summary>
+    public void ClearInputQueues()
+    {
+        ClearKeyboardInputQueue();
+        ClearMouseInputQueue();
+    }
+
+    /// <summary>
+    /// Gets the number of queued IKBD receive bytes.
+    /// </summary>
+    public int PendingKeyboardInputByteCount =>
+        m_aciaIkbd.PendingReceiveQueueCount;
+
+    /// <summary>
+    /// Gets the number of queued IKBD joystick-interrogate response bytes.
+    /// </summary>
+    public int PendingJoystickInterrogateResponseByteCount =>
+        m_aciaIkbd.PendingJoystickInterrogateResponseByteCount;
+
+    /// <summary>
+    /// Gets the number of queued IKBD bytes originating from injected keyboard scan codes.
+    /// </summary>
+    public int PendingKeyboardInjectedByteCount =>
+        m_aciaIkbd.PendingKeyboardInjectedByteCount;
+
+    /// <summary>
+    /// Gets the number of queued IKBD bytes belonging to mouse packets.
+    /// </summary>
+    public int PendingIkbdMousePacketByteCount =>
+        m_aciaIkbd.PendingMousePacketByteCount;
+
+    /// <summary>
+    /// Gets the number of queued IKBD bytes belonging to joystick-event packets.
+    /// </summary>
+    public int PendingIkbdJoystickEventByteCount =>
+        m_aciaIkbd.PendingJoystickEventByteCount;
+
+    /// <summary>
+    /// Gets the peak IKBD receive-queue depth since the last queue clear/reset.
+    /// </summary>
+    public int PeakIkbdQueueDepth =>
+        m_aciaIkbd.PeakReceiveQueueCount;
+
+    /// <summary>
+    /// Gets the number of queued host mouse packets awaiting cadence flush.
+    /// </summary>
+    public int PendingMousePacketCount
+    {
+        get
+        {
+            lock (m_mouseStateSync)
+                return m_pendingMousePackets.Count;
+        }
+    }
+
+    /// <summary>
+    /// Gets the number of host mouse packets dropped due to IKBD mouse back-pressure.
+    /// </summary>
+    public long DroppedMousePacketsDueToIkbdBackPressureCount
+    {
+        get
+        {
+            lock (m_mouseStateSync)
+                return m_droppedMousePacketsDueToIkbdBackPressureCount;
+        }
+    }
+
+    /// <summary>
+    /// Gets whether deferred IKBD interrupt reassert is enabled.
+    /// </summary>
+    public bool IsIkbdDeferredInterruptReassertEnabled =>
+        m_aciaIkbd.IsDeferredInterruptReassertEnabled;
+
+    /// <summary>
+    /// Gets whether queued IKBD joystick interrogation responses are coalesced.
+    /// </summary>
+    public bool IsIkbdJoystickInterrogateCoalescingEnabled =>
+        m_aciaIkbd.IsJoystickInterrogateCoalescingEnabled;
+
+    /// <summary>
+    /// Gets whether pending host mouse packets are coalesced before cadence flush.
+    /// </summary>
+    public bool IsMousePacketCoalescingEnabled
+    {
+        get
+        {
+            lock (m_mouseStateSync)
+                return m_isMousePacketCoalescingEnabled;
+        }
+    }
+
+    /// <summary>
+    /// Gets whether IKBD mouse packet output cadence is rate-limited.
+    /// </summary>
+    public bool IsMousePacketRateLimitEnabled
+    {
+        get
+        {
+            lock (m_mouseStateSync)
+                return m_isMousePacketRateLimitEnabled;
+        }
+    }
+
+    /// <summary>
+    /// Gets whether host mouse state is sampled on emulated-time cadence before packet generation.
+    /// </summary>
+    public bool IsMouseInputSamplingEnabled
+    {
+        get
+        {
+            lock (m_mouseStateSync)
+                return m_isMouseInputSamplingEnabled;
+        }
+    }
+
+    /// <summary>
+    /// Gets whether IKBD mouse back-pressure is enabled.
+    /// </summary>
+    public bool IsIkbdMouseBackPressureEnabled
+    {
+        get
+        {
+            lock (m_mouseStateSync)
+                return m_isIkbdMouseBackPressureEnabled;
+        }
+    }
+
+    /// <summary>
+    /// Enables or disables deferred IKBD interrupt reassert.
+    /// </summary>
+    public void SetIkbdDeferredInterruptReassertEnabled(bool isEnabled) =>
+        m_aciaIkbd.SetDeferredInterruptReassertEnabled(isEnabled);
+
+    /// <summary>
+    /// Enables or disables queued IKBD joystick interrogation-response coalescing.
+    /// </summary>
+    public void SetIkbdJoystickInterrogateCoalescingEnabled(bool isEnabled) =>
+        m_aciaIkbd.SetJoystickInterrogateCoalescingEnabled(isEnabled);
+
+    /// <summary>
+    /// Enables or disables host mouse-packet coalescing before IKBD cadence flush.
+    /// </summary>
+    public void SetMousePacketCoalescingEnabled(bool isEnabled)
+    {
+        lock (m_mouseStateSync)
+            m_isMousePacketCoalescingEnabled = isEnabled;
+    }
+
+    /// <summary>
+    /// Enables or disables reduced IKBD mouse output cadence (200Hz -> 100Hz).
+    /// </summary>
+    public void SetMousePacketRateLimitEnabled(bool isEnabled)
+    {
+        lock (m_mouseStateSync)
+        {
+            m_isMousePacketRateLimitEnabled = isEnabled;
+            var packetHz = isEnabled ? ReducedIkbdMousePacketHz : IkbdMousePacketHz;
+            m_mousePacketTicksPerSample = Math.Max(1.0, Descriptor.CpuHz / packetHz);
+            if (m_mousePacketTickAccumulator >= m_mousePacketTicksPerSample)
+                m_mousePacketTickAccumulator %= m_mousePacketTicksPerSample;
+        }
+    }
+
+    /// <summary>
+    /// Enables or disables host mouse-state sampling on emulated-time cadence before packet generation.
+    /// </summary>
+    public void SetMouseInputSamplingEnabled(bool isEnabled)
+    {
+        lock (m_mouseStateSync)
+        {
+            if (m_isMouseInputSamplingEnabled == isEnabled)
+                return;
+
+            m_isMouseInputSamplingEnabled = isEnabled;
+            m_mouseInputTickAccumulator = 0;
+            if (!isEnabled && m_hasPendingHostMouseState)
+            {
+                var pendingState = m_pendingHostMouseState;
+                m_hasPendingHostMouseState = false;
+                ApplyHostMouseStateNoLock(
+                    pendingState.NormalizedX,
+                    pendingState.NormalizedY,
+                    pendingState.IsLeftButtonPressed,
+                    pendingState.IsRightButtonPressed,
+                    pendingState.IsPointerWithinDisplay);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Enables or disables IKBD mouse back-pressure that drops stale host packets while IKBD mouse bytes are already backlogged.
+    /// </summary>
+    public void SetIkbdMouseBackPressureEnabled(bool isEnabled)
+    {
+        lock (m_mouseStateSync)
+            m_isIkbdMouseBackPressureEnabled = isEnabled;
+    }
 
     /// <summary>
     /// Injects one keyboard key state transition as an IKBD make/break scan code.
@@ -421,97 +660,148 @@ public sealed class AtariST : IMachine
     {
         lock (m_mouseStateSync)
         {
-            var isMouseActive = m_isInputActive && isPointerWithinDisplay;
-            if (!isMouseActive)
+            if (m_isMouseInputSamplingEnabled)
             {
-                m_pendingMousePackets.Clear();
-                ReleaseMouseButtonsNoLock();
-                m_wasMouseActive = false;
+                m_pendingHostMouseState = new HostMouseState(
+                    normalizedX,
+                    normalizedY,
+                    isLeftButtonPressed,
+                    isRightButtonPressed,
+                    isPointerWithinDisplay);
+                m_hasPendingHostMouseState = true;
                 return;
             }
 
-            normalizedX = Math.Clamp(normalizedX, 0.0, 1.0);
-            normalizedY = Math.Clamp(normalizedY, 0.0, 1.0);
+            ApplyHostMouseStateNoLock(
+                normalizedX,
+                normalizedY,
+                isLeftButtonPressed,
+                isRightButtonPressed,
+                isPointerWithinDisplay);
+        }
+    }
 
-            var (activeWidth, activeHeight) = GetMouseCoordinateSpace();
-            var mouseX = (int)Math.Round(normalizedX * (activeWidth - 1));
-            var mouseY = (int)Math.Round(normalizedY * (activeHeight - 1));
+    private void SamplePendingHostMouseStateOnCadence(long deltaTicks)
+    {
+        if (deltaTicks <= 0)
+            return;
 
-            if (!m_wasMouseActive)
-            {
-                if (m_estimatedMouseX < 0 || m_estimatedMouseY < 0)
-                {
-                    m_estimatedMouseX = activeWidth / 2;
-                    m_estimatedMouseY = activeHeight / 2;
-                }
-
-                var syncDeltaX = mouseX - m_estimatedMouseX;
-                var syncDeltaY = mouseY - m_estimatedMouseY;
-                if (syncDeltaX != 0 || syncDeltaY != 0)
-                {
-                    QueueRelativeMouseDeltasNoLock(syncDeltaX, syncDeltaY, isLeftButtonPressed, isRightButtonPressed);
-                    m_estimatedMouseX = mouseX;
-                    m_estimatedMouseY = mouseY;
-                }
-
-                m_wasMouseActive = true;
-                m_lastMouseX = mouseX;
-                m_lastMouseY = mouseY;
-                m_isLeftMouseButtonPressed = isLeftButtonPressed;
-                m_isRightMouseButtonPressed = isRightButtonPressed;
+        lock (m_mouseStateSync)
+        {
+            if (!m_isMouseInputSamplingEnabled)
                 return;
-            }
 
-            var hasPreviousPosition = m_lastMouseX >= 0 && m_lastMouseY >= 0;
-            var deltaX = hasPreviousPosition ? mouseX - m_lastMouseX : 0;
-            var deltaY = hasPreviousPosition ? mouseY - m_lastMouseY : 0;
-            var wasAnyButtonPressed = m_isLeftMouseButtonPressed || m_isRightMouseButtonPressed;
-            var isAnyButtonPressed = isLeftButtonPressed || isRightButtonPressed;
-            var buttonsChanged =
-                isLeftButtonPressed != m_isLeftMouseButtonPressed ||
-                isRightButtonPressed != m_isRightMouseButtonPressed;
+            m_mouseInputTickAccumulator += deltaTicks;
+            var sampleCount = (int)(m_mouseInputTickAccumulator / m_mouseInputTicksPerSample);
+            if (sampleCount <= 0)
+                return;
+            m_mouseInputTickAccumulator -= sampleCount * m_mouseInputTicksPerSample;
+            if (!m_hasPendingHostMouseState)
+                return;
 
-            if (buttonsChanged && !wasAnyButtonPressed && isAnyButtonPressed)
+            var pendingState = m_pendingHostMouseState;
+            m_hasPendingHostMouseState = false;
+            ApplyHostMouseStateNoLock(
+                pendingState.NormalizedX,
+                pendingState.NormalizedY,
+                pendingState.IsLeftButtonPressed,
+                pendingState.IsRightButtonPressed,
+                pendingState.IsPointerWithinDisplay);
+        }
+    }
+
+    private void ApplyHostMouseStateNoLock(double normalizedX, double normalizedY, bool isLeftButtonPressed, bool isRightButtonPressed, bool isPointerWithinDisplay)
+    {
+        var isMouseActive = m_isInputActive && isPointerWithinDisplay;
+        if (!isMouseActive)
+        {
+            m_pendingMousePackets.Clear();
+            ReleaseMouseButtonsNoLock();
+            m_wasMouseActive = false;
+            return;
+        }
+
+        normalizedX = Math.Clamp(normalizedX, 0.0, 1.0);
+        normalizedY = Math.Clamp(normalizedY, 0.0, 1.0);
+
+        var (activeWidth, activeHeight) = GetMouseCoordinateSpace();
+        var mouseX = (int)Math.Round(normalizedX * (activeWidth - 1));
+        var mouseY = (int)Math.Round(normalizedY * (activeHeight - 1));
+
+        if (!m_wasMouseActive)
+        {
+            if (m_estimatedMouseX < 0 || m_estimatedMouseY < 0)
             {
-                m_isMouseDragPending = true;
-                m_mouseDownX = m_lastMouseX >= 0 ? m_lastMouseX : mouseX;
-                m_mouseDownY = m_lastMouseY >= 0 ? m_lastMouseY : mouseY;
+                m_estimatedMouseX = activeWidth / 2;
+                m_estimatedMouseY = activeHeight / 2;
             }
 
-            if (!isAnyButtonPressed)
-                m_isMouseDragPending = false;
-
-            if (isAnyButtonPressed && m_isMouseDragPending)
+            var syncDeltaX = mouseX - m_estimatedMouseX;
+            var syncDeltaY = mouseY - m_estimatedMouseY;
+            if (syncDeltaX != 0 || syncDeltaY != 0)
             {
-                var distanceX = Math.Abs(mouseX - m_mouseDownX);
-                var distanceY = Math.Abs(mouseY - m_mouseDownY);
-                if (distanceX <= MouseDragActivationThresholdPixels && distanceY <= MouseDragActivationThresholdPixels)
-                {
-                    mouseX = m_mouseDownX;
-                    mouseY = m_mouseDownY;
-                    deltaX = hasPreviousPosition ? mouseX - m_lastMouseX : 0;
-                    deltaY = hasPreviousPosition ? mouseY - m_lastMouseY : 0;
-                }
-                else
-                    m_isMouseDragPending = false;
+                QueueRelativeMouseDeltasNoLock(syncDeltaX, syncDeltaY, isLeftButtonPressed, isRightButtonPressed);
+                m_estimatedMouseX = mouseX;
+                m_estimatedMouseY = mouseY;
             }
 
+            m_wasMouseActive = true;
             m_lastMouseX = mouseX;
             m_lastMouseY = mouseY;
             m_isLeftMouseButtonPressed = isLeftButtonPressed;
             m_isRightMouseButtonPressed = isRightButtonPressed;
-
-            if (!hasPreviousPosition || deltaX == 0 && deltaY == 0)
-            {
-                if (buttonsChanged)
-                    EnqueueMousePacketNoLock(0, 0, isLeftButtonPressed, isRightButtonPressed);
-                return;
-            }
-
-            QueueRelativeMouseDeltasNoLock(deltaX, deltaY, isLeftButtonPressed, isRightButtonPressed);
-            m_estimatedMouseX = mouseX;
-            m_estimatedMouseY = mouseY;
+            return;
         }
+
+        var hasPreviousPosition = m_lastMouseX >= 0 && m_lastMouseY >= 0;
+        var deltaX = hasPreviousPosition ? mouseX - m_lastMouseX : 0;
+        var deltaY = hasPreviousPosition ? mouseY - m_lastMouseY : 0;
+        var wasAnyButtonPressed = m_isLeftMouseButtonPressed || m_isRightMouseButtonPressed;
+        var isAnyButtonPressed = isLeftButtonPressed || isRightButtonPressed;
+        var buttonsChanged =
+            isLeftButtonPressed != m_isLeftMouseButtonPressed ||
+            isRightButtonPressed != m_isRightMouseButtonPressed;
+
+        if (buttonsChanged && !wasAnyButtonPressed && isAnyButtonPressed)
+        {
+            m_isMouseDragPending = true;
+            m_mouseDownX = m_lastMouseX >= 0 ? m_lastMouseX : mouseX;
+            m_mouseDownY = m_lastMouseY >= 0 ? m_lastMouseY : mouseY;
+        }
+
+        if (!isAnyButtonPressed)
+            m_isMouseDragPending = false;
+
+        if (isAnyButtonPressed && m_isMouseDragPending)
+        {
+            var distanceX = Math.Abs(mouseX - m_mouseDownX);
+            var distanceY = Math.Abs(mouseY - m_mouseDownY);
+            if (distanceX <= MouseDragActivationThresholdPixels && distanceY <= MouseDragActivationThresholdPixels)
+            {
+                mouseX = m_mouseDownX;
+                mouseY = m_mouseDownY;
+                deltaX = hasPreviousPosition ? mouseX - m_lastMouseX : 0;
+                deltaY = hasPreviousPosition ? mouseY - m_lastMouseY : 0;
+            }
+            else
+                m_isMouseDragPending = false;
+        }
+
+        m_lastMouseX = mouseX;
+        m_lastMouseY = mouseY;
+        m_isLeftMouseButtonPressed = isLeftButtonPressed;
+        m_isRightMouseButtonPressed = isRightButtonPressed;
+
+        if (!hasPreviousPosition || deltaX == 0 && deltaY == 0)
+        {
+            if (buttonsChanged)
+                EnqueueMousePacketNoLock(0, 0, isLeftButtonPressed, isRightButtonPressed);
+            return;
+        }
+
+        QueueRelativeMouseDeltasNoLock(deltaX, deltaY, isLeftButtonPressed, isRightButtonPressed);
+        m_estimatedMouseX = mouseX;
+        m_estimatedMouseY = mouseY;
     }
 
     private void OnHblank()
@@ -670,10 +960,39 @@ public sealed class AtariST : IMachine
 
     private void EnqueueMousePacketNoLock(sbyte deltaX, sbyte deltaY, bool isLeftButtonPressed, bool isRightButtonPressed)
     {
-        if (m_pendingMousePackets.Count >= MaxQueuedMousePackets)
-            _ = m_pendingMousePackets.Dequeue();
+        if (m_isMousePacketCoalescingEnabled)
+        {
+            if (deltaX == 0 && deltaY == 0 &&
+                m_pendingMousePackets.Count > 0 &&
+                m_pendingMousePackets[^1].DeltaX == 0 &&
+                m_pendingMousePackets[^1].DeltaY == 0 &&
+                m_pendingMousePackets[^1].IsLeftButtonPressed == isLeftButtonPressed &&
+                m_pendingMousePackets[^1].IsRightButtonPressed == isRightButtonPressed)
+                return;
 
-        m_pendingMousePackets.Enqueue(new MousePacket(deltaX, deltaY, isLeftButtonPressed, isRightButtonPressed));
+            if (m_pendingMousePackets.Count > 0)
+            {
+                var tailIndex = m_pendingMousePackets.Count - 1;
+                var tailPacket = m_pendingMousePackets[tailIndex];
+                if (tailPacket.IsLeftButtonPressed == isLeftButtonPressed &&
+                    tailPacket.IsRightButtonPressed == isRightButtonPressed)
+                {
+                    var combinedDeltaX = tailPacket.DeltaX + deltaX;
+                    var combinedDeltaY = tailPacket.DeltaY + deltaY;
+                    if (combinedDeltaX is >= sbyte.MinValue and <= sbyte.MaxValue &&
+                        combinedDeltaY is >= sbyte.MinValue and <= sbyte.MaxValue)
+                    {
+                        m_pendingMousePackets[tailIndex] = new MousePacket((sbyte)combinedDeltaX, (sbyte)combinedDeltaY, isLeftButtonPressed, isRightButtonPressed);
+                        return;
+                    }
+                }
+            }
+        }
+
+        if (m_pendingMousePackets.Count >= MaxQueuedMousePackets)
+            m_pendingMousePackets.RemoveAt(0);
+
+        m_pendingMousePackets.Add(new MousePacket(deltaX, deltaY, isLeftButtonPressed, isRightButtonPressed));
     }
 
     private void FlushPendingMousePacketsOnCadence(long deltaTicks)
@@ -681,23 +1000,52 @@ public sealed class AtariST : IMachine
         if (deltaTicks <= 0)
             return;
 
-        m_mousePacketTickAccumulator += deltaTicks;
-        var packetCount = (int)(m_mousePacketTickAccumulator / m_mousePacketTicksPerSample);
-        if (packetCount <= 0)
-            return;
-        m_mousePacketTickAccumulator -= packetCount * m_mousePacketTicksPerSample;
-
         lock (m_mouseStateSync)
         {
+            m_mousePacketTickAccumulator += deltaTicks;
+            var packetCount = (int)(m_mousePacketTickAccumulator / m_mousePacketTicksPerSample);
+            if (packetCount <= 0)
+                return;
+            m_mousePacketTickAccumulator -= packetCount * m_mousePacketTicksPerSample;
+
             for (var i = 0; i < packetCount; i++)
             {
                 if (m_pendingMousePackets.Count == 0)
                     return;
+                if (m_isIkbdMouseBackPressureEnabled &&
+                    ShouldApplyIkbdMouseBackPressureNoLock())
+                {
+                    DropStaleHostMousePacketsNoLock();
+                    continue;
+                }
 
-                var packet = m_pendingMousePackets.Dequeue();
+                var packet = m_pendingMousePackets[0];
+                m_pendingMousePackets.RemoveAt(0);
                 m_aciaIkbd.QueueRelativeMousePacket(packet.DeltaX, packet.DeltaY, packet.IsLeftButtonPressed, packet.IsRightButtonPressed);
             }
         }
+    }
+
+    private bool ShouldApplyIkbdMouseBackPressureNoLock()
+    {
+        var queuedIkbdBytes = m_aciaIkbd.PendingReceiveQueueCount;
+        if (queuedIkbdBytes < IkbdMouseBackPressureThresholdBytes)
+            return false;
+
+        var queuedIkbdMouseBytes = m_aciaIkbd.PendingMousePacketByteCount;
+        return queuedIkbdMouseBytes == queuedIkbdBytes;
+    }
+
+    private void DropStaleHostMousePacketsNoLock()
+    {
+        if (m_pendingMousePackets.Count <= 1)
+            return;
+
+        var lastPacket = m_pendingMousePackets[^1];
+        var droppedCount = m_pendingMousePackets.Count - 1;
+        m_pendingMousePackets.Clear();
+        m_pendingMousePackets.Add(lastPacket);
+        m_droppedMousePacketsDueToIkbdBackPressureCount += droppedCount;
     }
 
     private void ReleaseJoystickNoLock()
@@ -725,6 +1073,13 @@ public sealed class AtariST : IMachine
         m_mfpTickRemainder = numerator % m_cpuClockHz;
         return scaledTicks <= 0 ? 0 : (int)Math.Min(scaledTicks, int.MaxValue);
     }
+
+    private readonly record struct HostMouseState(
+        double NormalizedX,
+        double NormalizedY,
+        bool IsLeftButtonPressed,
+        bool IsRightButtonPressed,
+        bool IsPointerWithinDisplay);
 
     private readonly record struct MousePacket(sbyte DeltaX, sbyte DeltaY, bool IsLeftButtonPressed, bool IsRightButtonPressed);
 }
