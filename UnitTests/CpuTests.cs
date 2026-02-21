@@ -346,15 +346,84 @@ public sealed class CpuTests : TestsBase
             Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000200));
             Assert.That(cpu.Registers.StackPointer, Is.Not.InRange(0x00FF8A00, 0x00FF8A3F));
         });
-        return;
+    }
 
-        static void WriteLong(Bus localBus, uint address, uint value)
+    [Test]
+    public void AddressErrorExceptionFrameShouldUse68000WordOrderAndEmitExceptionInfo()
+    {
+        var bus = new Bus(0x1000000);
+        WriteLong(bus, 0x000000, 0x00008000);
+        WriteLong(bus, 0x000004, 0x00000101); // Odd PC -> address error during instruction fetch.
+        WriteLong(bus, 0x00000C, 0x00000200);
+        bus.Write16BigEndian(0x000200, 0x4E71);
+
+        var cpu = new Cpu(bus);
+        CpuExceptionInfo? capturedException = null;
+        cpu.ExceptionRaised += exceptionInfo => capturedException = exceptionInfo;
+
+        cpu.Reset();
+        cpu.Step();
+
+        var stackPointer = cpu.Registers.StackPointer;
+        Assert.Multiple(() =>
         {
-            localBus.Write8(address, (byte)(value >> 24));
-            localBus.Write8(address + 1, (byte)((value >> 16) & 0xFF));
-            localBus.Write8(address + 2, (byte)((value >> 8) & 0xFF));
-            localBus.Write8(address + 3, (byte)(value & 0xFF));
-        }
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000200));
+            Assert.That(stackPointer, Is.EqualTo(0x00007FF2));
+            Assert.That(bus.Read16BigEndian(stackPointer), Is.EqualTo(0x2700));
+            Assert.That(bus.Read32BigEndian(stackPointer + 2), Is.EqualTo(0x00000101));
+            Assert.That(bus.Read16BigEndian(stackPointer + 6), Is.EqualTo(0x0000));
+            Assert.That(bus.Read32BigEndian(stackPointer + 8), Is.EqualTo(0x00000101));
+            Assert.That(bus.Read16BigEndian(stackPointer + 12), Is.EqualTo(0x0016));
+            Assert.That(capturedException.HasValue, Is.True);
+            Assert.That(capturedException!.Value.Kind, Is.EqualTo(CpuExceptionKind.AddressError));
+            Assert.That(capturedException.Value.VectorAddress, Is.EqualTo(0x00000C));
+            Assert.That(capturedException.Value.FrameProgramCounter, Is.EqualTo(0x00000101));
+            Assert.That(capturedException.Value.FaultAddress, Is.EqualTo(0x00000101));
+            Assert.That(capturedException.Value.SpecialStatusWord, Is.EqualTo(0x0016));
+            Assert.That(capturedException.Value.IsRead, Is.True);
+            Assert.That(capturedException.Value.IsProgramAccess, Is.True);
+        });
+    }
+
+    [Test]
+    public void BusErrorExceptionFrameShouldUse68000WordOrderAndEmitExceptionInfo()
+    {
+        var bus = new Bus(0x1000000);
+        bus.Attach(new BusErrorDevice(0x000200, 0x0002FF));
+        WriteLong(bus, 0x000000, 0x00009000);
+        WriteLong(bus, 0x000004, 0x00000100);
+        WriteLong(bus, 0x000008, 0x00000300);
+        bus.Write16BigEndian(0x000100, 0x1010); // MOVE.B (A0),D0
+        bus.Write16BigEndian(0x000300, 0x4E71);
+
+        var cpu = new Cpu(bus);
+        CpuExceptionInfo? capturedException = null;
+        cpu.ExceptionRaised += exceptionInfo => capturedException = exceptionInfo;
+
+        cpu.Reset();
+        cpu.Registers.SetAddressRegister(0, 0x00000200);
+        cpu.Step();
+
+        var stackPointer = cpu.Registers.StackPointer;
+        Assert.Multiple(() =>
+        {
+            Assert.That(cpu.Registers.ProgramCounter, Is.EqualTo(0x000300));
+            Assert.That(stackPointer, Is.EqualTo(0x00008FF2));
+            Assert.That(bus.Read16BigEndian(stackPointer), Is.EqualTo(0x2700));
+            Assert.That(bus.Read32BigEndian(stackPointer + 2), Is.EqualTo(0x00000102));
+            Assert.That(bus.Read16BigEndian(stackPointer + 6), Is.EqualTo(0x1010));
+            Assert.That(bus.Read32BigEndian(stackPointer + 8), Is.EqualTo(0x00000200));
+            Assert.That(bus.Read16BigEndian(stackPointer + 12), Is.EqualTo(0x1015));
+            Assert.That(capturedException.HasValue, Is.True);
+            Assert.That(capturedException!.Value.Kind, Is.EqualTo(CpuExceptionKind.BusError));
+            Assert.That(capturedException.Value.VectorAddress, Is.EqualTo(0x000008));
+            Assert.That(capturedException.Value.FrameProgramCounter, Is.EqualTo(0x00000102));
+            Assert.That(capturedException.Value.InstructionRegister, Is.EqualTo(0x1010));
+            Assert.That(capturedException.Value.FaultAddress, Is.EqualTo(0x00000200));
+            Assert.That(capturedException.Value.SpecialStatusWord, Is.EqualTo(0x1015));
+            Assert.That(capturedException.Value.IsRead, Is.True);
+            Assert.That(capturedException.Value.IsProgramAccess, Is.False);
+        });
     }
 
     [Test]
@@ -1448,5 +1517,13 @@ public sealed class CpuTests : TestsBase
             Assert.That(bus.Read16BigEndian(0x000FFC), Is.EqualTo(0x0000));
             Assert.That(bus.Read16BigEndian(0x000FFE), Is.EqualTo(0x0104));
         });
+    }
+
+    private static void WriteLong(Bus bus, uint address, uint value)
+    {
+        bus.Write8(address, (byte)(value >> 24));
+        bus.Write8(address + 1, (byte)((value >> 16) & 0xFF));
+        bus.Write8(address + 2, (byte)((value >> 8) & 0xFF));
+        bus.Write8(address + 3, (byte)(value & 0xFF));
     }
 }

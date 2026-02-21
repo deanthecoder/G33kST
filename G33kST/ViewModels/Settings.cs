@@ -26,6 +26,7 @@ public sealed class Settings : UserSettingsBase
         IsCrtEmulationEnabled = true;
         IsSpeedIndicatorVisible = true;
         IsCpuHistoryTracked = false;
+        IsCpuExceptionCaptureEnabled = false;
     }
 
     public bool IsSoundEnabled
@@ -53,6 +54,12 @@ public sealed class Settings : UserSettingsBase
     }
 
     public bool IsCpuHistoryTracked
+    {
+        get => Get<bool>();
+        set => Set(value);
+    }
+
+    public bool IsCpuExceptionCaptureEnabled
     {
         get => Get<bool>();
         set => Set(value);

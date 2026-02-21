@@ -111,7 +111,7 @@ public static class MultiplyDivideInstructions
         var divisor = EffectiveAddressWordAccess.ReadWord(cpu, sourceEa);
         if (divisor == 0)
         {
-            EnterDivideByZero(cpu);
+            EnterDivideByZero(cpu, opcode);
             return;
         }
 
@@ -148,7 +148,7 @@ public static class MultiplyDivideInstructions
         var divisor = (short)EffectiveAddressWordAccess.ReadWord(cpu, sourceEa);
         if (divisor == 0)
         {
-            EnterDivideByZero(cpu);
+            EnterDivideByZero(cpu, opcode);
             return;
         }
 
@@ -176,14 +176,24 @@ public static class MultiplyDivideInstructions
         cpu.InternalWait(cycles);
     }
 
-    private static void EnterDivideByZero(Cpu cpu)
+    private static void EnterDivideByZero(Cpu cpu, ushort opcode)
     {
-        var oldStatus = cpu.Registers.StatusRegister;
+        var oldStatus = (ushort)(cpu.Registers.StatusRegister & 0xA71F);
         var oldPc = cpu.GetPcRelativeBaseAddress();
 
         cpu.Registers.IsSupervisor = true;
         cpu.Push32(oldPc);
         cpu.Push16(oldStatus);
+        cpu.ReportException(new CpuExceptionInfo(
+            CpuExceptionKind.DivideByZero,
+            DivideByZeroVectorAddress,
+            oldPc,
+            oldStatus,
+            opcode,
+            0,
+            0,
+            IsRead: true,
+            IsProgramAccess: true));
         cpu.Registers.StatusRegister = (ushort)((oldStatus & ~TraceFlagMask) | SupervisorFlagMask);
         cpu.Registers.ProgramCounter = cpu.Read32(DivideByZeroVectorAddress);
         cpu.RefreshPrefetchQueue();

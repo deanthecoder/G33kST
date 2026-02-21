@@ -319,7 +319,19 @@ public static class SystemInstructions
     {
         if (cpu.Registers.OverflowFlag)
         {
+            var oldStatus = (ushort)(cpu.Registers.StatusRegister & ValidStatusRegisterMask);
+            var frameProgramCounter = cpu.GetPcRelativeBaseAddress();
             EnterExceptionVector(cpu, TrapOnOverflowVectorAddress);
+            cpu.ReportException(new CpuExceptionInfo(
+                CpuExceptionKind.TrapOnOverflow,
+                TrapOnOverflowVectorAddress,
+                frameProgramCounter,
+                oldStatus,
+                opcode,
+                0,
+                0,
+                IsRead: true,
+                IsProgramAccess: true));
             cpu.InternalWait(34);
             return;
         }
@@ -350,14 +362,38 @@ public static class SystemInstructions
             // Some CHK negative-value traps still take the "upper-bound compare" micro-path first.
             // That path is 2 cycles faster than the pure lower-bound trap path on 68000.
             var useLongTrapPath = !(overflow || greaterThan);
+            var oldStatus = (ushort)(cpu.Registers.StatusRegister & ValidStatusRegisterMask);
+            var frameProgramCounter = cpu.GetPcRelativeBaseAddress();
             EnterExceptionVector(cpu, CheckInstructionVectorAddress);
+            cpu.ReportException(new CpuExceptionInfo(
+                CpuExceptionKind.CheckInstruction,
+                CheckInstructionVectorAddress,
+                frameProgramCounter,
+                oldStatus,
+                opcode,
+                0,
+                0,
+                IsRead: true,
+                IsProgramAccess: true));
             cpu.InternalWait(InstructionTiming.GetCheckCycles(source, trapped: true, useLongTrapPath));
             return;
         }
 
         if (value > bound)
         {
+            var oldStatus = (ushort)(cpu.Registers.StatusRegister & ValidStatusRegisterMask);
+            var frameProgramCounter = cpu.GetPcRelativeBaseAddress();
             EnterExceptionVector(cpu, CheckInstructionVectorAddress);
+            cpu.ReportException(new CpuExceptionInfo(
+                CpuExceptionKind.CheckInstruction,
+                CheckInstructionVectorAddress,
+                frameProgramCounter,
+                oldStatus,
+                opcode,
+                0,
+                0,
+                IsRead: true,
+                IsProgramAccess: true));
             cpu.InternalWait(InstructionTiming.GetCheckCycles(source, trapped: true));
             return;
         }
@@ -370,7 +406,19 @@ public static class SystemInstructions
     /// </summary>
     private static void ExecuteIllegalInstruction(Cpu cpu, ushort opcode)
     {
+        var oldStatus = (ushort)(cpu.Registers.StatusRegister & ValidStatusRegisterMask);
+        var frameProgramCounter = unchecked(cpu.GetPcRelativeBaseAddress() - 2);
         EnterExceptionVector(cpu, IllegalInstructionVectorAddress, useCurrentInstructionAddress: true);
+        cpu.ReportException(new CpuExceptionInfo(
+            CpuExceptionKind.IllegalInstruction,
+            IllegalInstructionVectorAddress,
+            frameProgramCounter,
+            oldStatus,
+            opcode,
+            0,
+            0,
+            IsRead: true,
+            IsProgramAccess: true));
         cpu.InternalWait(34);
     }
 
@@ -379,7 +427,19 @@ public static class SystemInstructions
     /// </summary>
     private static void ExecuteLineAEmulator(Cpu cpu, ushort opcode)
     {
+        var oldStatus = (ushort)(cpu.Registers.StatusRegister & ValidStatusRegisterMask);
+        var frameProgramCounter = unchecked(cpu.GetPcRelativeBaseAddress() - 2);
         EnterExceptionVector(cpu, LineAEmulatorVectorAddress, useCurrentInstructionAddress: true);
+        cpu.ReportException(new CpuExceptionInfo(
+            CpuExceptionKind.LineAEmulator,
+            LineAEmulatorVectorAddress,
+            frameProgramCounter,
+            oldStatus,
+            opcode,
+            0,
+            0,
+            IsRead: true,
+            IsProgramAccess: true));
         cpu.InternalWait(34);
     }
 
@@ -388,7 +448,19 @@ public static class SystemInstructions
     /// </summary>
     private static void ExecuteLineFEmulator(Cpu cpu, ushort opcode)
     {
+        var oldStatus = (ushort)(cpu.Registers.StatusRegister & ValidStatusRegisterMask);
+        var frameProgramCounter = unchecked(cpu.GetPcRelativeBaseAddress() - 2);
         EnterExceptionVector(cpu, LineFEmulatorVectorAddress, useCurrentInstructionAddress: true);
+        cpu.ReportException(new CpuExceptionInfo(
+            CpuExceptionKind.LineFEmulator,
+            LineFEmulatorVectorAddress,
+            frameProgramCounter,
+            oldStatus,
+            opcode,
+            0,
+            0,
+            IsRead: true,
+            IsProgramAccess: true));
         cpu.InternalWait(34);
     }
 

@@ -28,6 +28,12 @@ Initial target: **Atari 520 STFM**
 - ST video (bitplanes / shifter), YM2149 PSG audio.
 - Internal floppy assumed (STF/STFM class machine). RF modulator (the “M”) is irrelevant for emulation.
 
+## Input / IKBD Guidance
+- Treat host joystick input as **ST joystick port 1** by default.
+- Keep `MirrorJoystickToPort0` **off by default** in app-level machine options unless explicitly needed for a title.
+- Regression note: enabling port-0 mirroring by default caused real-software breakage (Wizball + EmuTOS panic on fire-button press, e.g. panic PC around `0x00FC29C2`).
+- If changing joystick routing or IKBD packet behavior, validate with focused joystick tests and at least one real-software smoke test.
+
 ## 68000 CPU Guidance
 ### Scope
 - Implement the 68000 **architecturally correctly** (instructions, addressing modes, exceptions, privilege) but allow pragmatic simplifications where they do not break real software.

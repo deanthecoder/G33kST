@@ -73,6 +73,17 @@ public sealed class Cpu : CpuBase
     public bool EnableTraceExceptions { get; set; }
 
     /// <summary>
+    /// Raised when the CPU enters an address-error or bus-error exception vector.
+    /// </summary>
+    public event Action<CpuExceptionInfo> ExceptionRaised;
+
+    /// <summary>
+    /// Reports a CPU exception entry so callers outside this type can emit diagnostics consistently.
+    /// </summary>
+    internal void ReportException(CpuExceptionInfo exceptionInfo) =>
+        ExceptionRaised?.Invoke(exceptionInfo);
+
+    /// <summary>
     /// Creates a 68000 CPU bound to the supplied bus.
     /// </summary>
     public Cpu(Bus bus)
@@ -384,6 +395,16 @@ public sealed class Cpu : CpuBase
         Push32(oldPc);
         Push16(oldStatus);
 
+        ReportException(new CpuExceptionInfo(
+            CpuExceptionKind.PrivilegeViolation,
+            PrivilegeViolationVectorAddress,
+            oldPc,
+            oldStatus,
+            0,
+            0,
+            0,
+            IsRead: true,
+            IsProgramAccess: true));
         // Exception entry sets supervisor mode and clears trace.
         Registers.StatusRegister = (ushort)((oldStatus & ~TraceFlagMask) | SupervisorFlagMask);
         Registers.ProgramCounter = Read32(PrivilegeViolationVectorAddress);
@@ -481,13 +502,23 @@ public sealed class Cpu : CpuBase
         Registers.IsSupervisor = true;
         PushExceptionFrameWithFallback(() =>
         {
+            Push16(specialStatusWord);
+            Push32(faultAddress);
+            Push16(instructionRegister);
             Push32(frameProgramCounter);
             Push16(oldStatus);
-            Push16(instructionRegister);
-            Push32(faultAddress);
-            Push16(specialStatusWord);
         });
 
+        ReportException(new CpuExceptionInfo(
+            CpuExceptionKind.AddressError,
+            AddressErrorVectorAddress,
+            frameProgramCounter,
+            oldStatus,
+            instructionRegister,
+            faultAddress,
+            specialStatusWord,
+            error.IsRead,
+            error.IsProgramAccess));
         Registers.StatusRegister = (ushort)((oldStatus & ~TraceFlagMask) | SupervisorFlagMask);
         Registers.ProgramCounter = Read32(AddressErrorVectorAddress);
         RefreshPrefetchQueue();
@@ -509,13 +540,23 @@ public sealed class Cpu : CpuBase
         Registers.IsSupervisor = true;
         PushExceptionFrameWithFallback(() =>
         {
+            Push16(specialStatusWord);
+            Push32(faultAddress);
+            Push16(instructionRegister);
             Push32(frameProgramCounter);
             Push16(oldStatus);
-            Push16(instructionRegister);
-            Push32(faultAddress);
-            Push16(specialStatusWord);
         });
 
+        ReportException(new CpuExceptionInfo(
+            CpuExceptionKind.BusError,
+            BusErrorVectorAddress,
+            frameProgramCounter,
+            oldStatus,
+            instructionRegister,
+            faultAddress,
+            specialStatusWord,
+            error.IsRead,
+            error.IsProgramAccess));
         Registers.StatusRegister = (ushort)((oldStatus & ~TraceFlagMask) | SupervisorFlagMask);
         Registers.ProgramCounter = Read32(BusErrorVectorAddress);
         RefreshPrefetchQueue();
@@ -618,4 +659,34 @@ public sealed class Cpu : CpuBase
         var lo = Read8(address + 1);
         return (ushort)((hi << 8) | lo);
     }
+}
+
+/// <summary>
+/// Captures contextual details for a CPU exception entry.
+/// </summary>
+public readonly record struct CpuExceptionInfo(
+    CpuExceptionKind Kind,
+    uint VectorAddress,
+    uint FrameProgramCounter,
+    ushort StatusRegister,
+    ushort InstructionRegister,
+    uint FaultAddress,
+    ushort SpecialStatusWord,
+    bool IsRead,
+    bool IsProgramAccess);
+
+/// <summary>
+/// Exception categories reported by <see cref="Cpu.ExceptionRaised"/>.
+/// </summary>
+public enum CpuExceptionKind
+{
+    AddressError,
+    BusError,
+    PrivilegeViolation,
+    IllegalInstruction,
+    DivideByZero,
+    CheckInstruction,
+    TrapOnOverflow,
+    LineAEmulator,
+    LineFEmulator
 }

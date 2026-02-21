@@ -138,6 +138,11 @@
                             <icons:MaterialIcon Kind="Tick" IsVisible="{Binding Settings.IsCpuHistoryTracked}" />
                         </MenuItem.Icon>
                     </MenuItem>
+                    <MenuItem Header="Capture CPU Exceptions" Command="{Binding ToggleCpuExceptionCapture}">
+                        <MenuItem.Icon>
+                            <icons:MaterialIcon Kind="Tick" IsVisible="{Binding Settings.IsCpuExceptionCaptureEnabled}" />
+                        </MenuItem.Icon>
+                    </MenuItem>
                     <MenuItem Header="Dump CPU History"
                               Command="{Binding DumpCpuHistory}"
                               IsEnabled="{Binding Settings.IsCpuHistoryTracked}" />
@@ -294,6 +299,7 @@
                            Foreground="White"
                            FontFamily="Consolas"
                            FontSize="18"
+                           Padding="4"
                            FontWeight="SemiBold"
                            IsHitTestVisible="False"
                            IsVisible="{Binding IsSpeedIndicatorVisible}">

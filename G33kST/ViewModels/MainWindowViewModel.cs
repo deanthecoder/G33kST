@@ -26,6 +26,7 @@ using DTC.Emulation;
 using DTC.Emulation.Audio;
 using DTC.Emulation.Debuggers;
 using DTC.Emulation.Recording;
+using DTC.M68000;
 
 namespace G33kST.ViewModels;
 
@@ -79,7 +80,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             MonitorType = AtariSTOptions.Default.MonitorType,
             HasRealTimeClock = AtariSTOptions.Default.HasRealTimeClock,
             AccelerateFloppyAccess = AtariSTOptions.Default.AccelerateFloppyAccess,
-            MirrorJoystickToPort0 = true
+            MirrorJoystickToPort0 = AtariSTOptions.Default.MirrorJoystickToPort0
         };
         m_machine = new AtariST(machineOptions, audioSampleSink);
         m_machine.SetMouseInputSamplingEnabled(true);
@@ -88,6 +89,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             IsEnabled = Settings.IsCpuHistoryTracked
         };
         m_machine.Cpu.AddDebugger(m_cpuHistoryTrace);
+        m_machine.Cpu.ExceptionRaised += OnCpuExceptionRaised;
         m_runner = new MachineRunner(m_machine, () => m_machine.Descriptor.CpuHz, OnMachineRunnerError);
         m_screenInputWidth = m_machine.Video.FrameWidth;
         m_screenInputHeight = m_machine.Video.FrameHeight;
@@ -220,6 +222,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     {
         Settings.PropertyChanged -= OnSettingsPropertyChanged;
         m_machine.Video.FrameRendered -= OnFrameRendered;
+        m_machine.Cpu.ExceptionRaised -= OnCpuExceptionRaised;
         Settings.FloppyImageMru = FloppyMru.AsString();
         m_recorder.Dispose();
         m_runner.Dispose();
@@ -416,6 +419,18 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         }
 
         Logger.Instance.Info("CPU history tracking disabled.");
+    }
+
+    public void ToggleCpuExceptionCapture()
+    {
+        Settings.IsCpuExceptionCaptureEnabled = !Settings.IsCpuExceptionCaptureEnabled;
+        if (IsCpuExceptionCaptureSupported && Settings.IsCpuExceptionCaptureEnabled)
+        {
+            Logger.Instance.Info("CPU exception capture enabled.");
+            return;
+        }
+
+        Logger.Instance.Info("CPU exception capture disabled.");
     }
 
     public void DumpCpuHistory()
@@ -812,6 +827,32 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         Logger.Instance.Info("Recent floppy trace:");
         foreach (var line in traceLines)
             Logger.Instance.Info($"  {line}");
+    }
+
+    private void OnCpuExceptionRaised(CpuExceptionInfo exceptionInfo)
+    {
+        if (!IsCpuExceptionCaptureSupported || !Settings.IsCpuExceptionCaptureEnabled)
+            return;
+
+        var accessType = exceptionInfo.IsRead ? "read" : "write";
+        var accessSpace = exceptionInfo.IsProgramAccess ? "program" : "data";
+        Logger.Instance.Info(
+            $"CPU {exceptionInfo.Kind}: vector=0x{exceptionInfo.VectorAddress:X6}, sr=0x{exceptionInfo.StatusRegister:X4}, " +
+            $"framePc=0x{exceptionInfo.FrameProgramCounter:X8}, ir=0x{exceptionInfo.InstructionRegister:X4}, " +
+            $"fault=0x{exceptionInfo.FaultAddress:X8}, ssw=0x{exceptionInfo.SpecialStatusWord:X4}, " +
+            $"access={accessType}/{accessSpace}.");
+    }
+
+    private static bool IsCpuExceptionCaptureSupported
+    {
+        get
+        {
+#if DEBUG
+            return true;
+#else
+            return false;
+#endif
+        }
     }
 
     private static IAudioOutputDevice CreateAudioOutputDevice(int sampleRateHz, out Action<double, double> audioSampleSink)
