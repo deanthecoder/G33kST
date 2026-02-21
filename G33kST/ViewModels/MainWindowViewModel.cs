@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Reflection;
 using Avalonia;
 using Avalonia.Media;
@@ -39,7 +40,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private const int CpuHistoryCapacity = 8192;
     private const byte CrtPreviousFrameBlendWeight = 2;
     private const byte CrtCurrentFrameBlendWeight = 3;
+    private const double SpeedIndicatorSmoothingFactor = 0.18;
+    private const double SpeedIndicatorSampleIntervalSeconds = 0.20;
+    private const double MaxSpeedIndicatorPercent = 250.0;
     private readonly Lock m_frameUpdateLock = new();
+    private readonly Stopwatch m_speedStopwatch = Stopwatch.StartNew();
     private readonly AtariST m_machine;
     private readonly MachineRunner m_runner;
     private readonly IAudioOutputDevice m_audioDevice;
@@ -54,8 +59,13 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private int m_screenInputHeight;
     private int m_isUiFrameUpdateQueued;
     private bool m_isFloppyActivityIndicatorOn;
+    private volatile bool m_isSpeedIndicatorDirty;
     private long m_lastFloppyCommandCount;
     private long m_floppyActivityVisibleUntilMs;
+    private long m_lastSpeedSampleCpuTicks;
+    private long m_lastSpeedSampleStopwatchTicks;
+    private double m_smoothedSpeedPercent = 100.0;
+    private string m_speedIndicatorText = "100%";
     private static readonly string[] FloppyFileExtensions = [".st", ".zip"];
     private static readonly string[] RomFileExtensions = [".img", ".rom", ".bin", ".zip"];
 
@@ -107,6 +117,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         FloppyMru.OpenRequested += (_, file) => MountFloppyImageFromFile(file, addToMru: false);
         m_romStoreDir = GetRomStoreDirectory();
         ApplySettingState();
+        ResetSpeedIndicatorSampler();
         AboutInfo = AboutInfoProvider.Info;
         LoadInitialRom();
     }
@@ -151,6 +162,10 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     }
 
     public bool IsSoundEnabled => Settings.IsSoundEnabled;
+
+    public bool IsSpeedIndicatorVisible => Settings.IsSpeedIndicatorVisible;
+
+    public string SpeedIndicatorText => m_speedIndicatorText;
 
     public bool IsHighResolutionMode => m_machine.IsHighResolutionMode;
 
@@ -216,6 +231,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public void ResetMachine()
     {
         m_runner.Reset();
+        ResetSpeedIndicatorSampler();
         OnPropertyChanged(nameof(IsHighResolutionMode));
         Logger.Instance.Info("Machine reset.");
     }
@@ -226,6 +242,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             m_machine.UnmountFloppyImage(DriveAIndex);
 
         m_runner.Reset();
+        ResetSpeedIndicatorSampler();
         OnPropertyChanged(nameof(IsHighResolutionMode));
         NotifyFloppyIndicatorChanged();
         Logger.Instance.Info("Machine hard reset.");
@@ -285,6 +302,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     public void ToggleAmbientBlur() =>
         Settings.IsAmbientBlurred = !Settings.IsAmbientBlurred;
+
+    public void ToggleSpeedIndicator() =>
+        Settings.IsSpeedIndicatorVisible = !Settings.IsSpeedIndicatorVisible;
 
     public void MountFloppyImage()
     {
@@ -556,6 +576,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             }
 
             m_machine.LoadRom(romData, romFile.Name);
+            ResetSpeedIndicatorSampler();
             if (updateSelection)
                 Settings.SelectedRomPath = romFile.FullName;
             OnPropertyChanged(nameof(IsHighResolutionMode));
@@ -579,9 +600,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         if (frameBuffer == null || frameBuffer.Length == 0)
             return;
 
+        var currentCpuTicks = m_machine.CpuTicks;
         var frameWidth = m_machine.Video.FrameWidth;
         var frameHeight = m_machine.Video.FrameHeight;
         var bytesPerPixel = m_machine.Video.FrameBytesPerPixel;
+        UpdateSpeedIndicator(currentCpuTicks);
         UpdateFloppyActivityWindow();
         CopyToBackFrame(frameBuffer, frameWidth, frameHeight, bytesPerPixel);
         m_recorder.CaptureFrame();
@@ -596,6 +619,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                 var frameToPresent = SwapFrameBuffers();
                 EnsureScreenGeometry(frameToPresent.Frame.Width, frameToPresent.Frame.Height);
                 m_screen.Update(frameToPresent.Frame.Data);
+                if (m_isSpeedIndicatorDirty)
+                {
+                    m_isSpeedIndicatorDirty = false;
+                    OnPropertyChanged(nameof(SpeedIndicatorText));
+                }
                 UpdateFloppyActivityIndicatorState();
                 DisplayUpdated?.Invoke(this, EventArgs.Empty);
             }
@@ -636,6 +664,56 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     {
         OnPropertyChanged(nameof(FloppyIndicatorState));
         OnPropertyChanged(nameof(FloppyIndicatorTooltip));
+    }
+
+    private void ResetSpeedIndicatorSampler()
+    {
+        m_lastSpeedSampleCpuTicks = m_machine.CpuTicks;
+        m_lastSpeedSampleStopwatchTicks = m_speedStopwatch.ElapsedTicks;
+        m_smoothedSpeedPercent = 100.0;
+        SetSpeedIndicatorText(m_smoothedSpeedPercent);
+    }
+
+    private void UpdateSpeedIndicator(long currentCpuTicks)
+    {
+        if (!Settings.IsSpeedIndicatorVisible)
+            return;
+
+        var elapsedStopwatchTicks = m_speedStopwatch.ElapsedTicks - m_lastSpeedSampleStopwatchTicks;
+        if (elapsedStopwatchTicks <= 0)
+            return;
+
+        var elapsedSeconds = elapsedStopwatchTicks / (double)Stopwatch.Frequency;
+        if (elapsedSeconds < SpeedIndicatorSampleIntervalSeconds)
+            return;
+
+        m_lastSpeedSampleStopwatchTicks += elapsedStopwatchTicks;
+        var cpuTicksDelta = currentCpuTicks - m_lastSpeedSampleCpuTicks;
+        m_lastSpeedSampleCpuTicks = currentCpuTicks;
+        if (cpuTicksDelta < 0)
+        {
+            m_smoothedSpeedPercent = 100.0;
+            SetSpeedIndicatorText(m_smoothedSpeedPercent);
+            return;
+        }
+
+        var expectedTicks = m_machine.Descriptor.CpuHz * elapsedSeconds;
+        if (expectedTicks <= 0)
+            return;
+
+        var instantPercent = Math.Clamp(cpuTicksDelta * 100.0 / expectedTicks, 0.0, MaxSpeedIndicatorPercent);
+        m_smoothedSpeedPercent += (instantPercent - m_smoothedSpeedPercent) * SpeedIndicatorSmoothingFactor;
+        SetSpeedIndicatorText(m_smoothedSpeedPercent);
+    }
+
+    private void SetSpeedIndicatorText(double speedPercent)
+    {
+        var text = $"{speedPercent:0}%";
+        if (text == m_speedIndicatorText)
+            return;
+
+        m_speedIndicatorText = text;
+        m_isSpeedIndicatorDirty = true;
     }
 
     private void CopyToBackFrame(byte[] frameBuffer, int frameWidth, int frameHeight, int bytesPerPixel)
@@ -703,6 +781,12 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                 return;
             case nameof(Settings.IsCrtEmulationEnabled):
                 m_screen.FrameBuffer.IsCrt = Settings.IsCrtEmulationEnabled;
+                return;
+            case nameof(Settings.IsSpeedIndicatorVisible):
+                if (Settings.IsSpeedIndicatorVisible)
+                    ResetSpeedIndicatorSampler();
+                OnPropertyChanged(nameof(IsSpeedIndicatorVisible));
+                OnPropertyChanged(nameof(SpeedIndicatorText));
                 return;
             case nameof(Settings.IsCpuHistoryTracked):
                 m_cpuHistoryTrace.IsEnabled = Settings.IsCpuHistoryTracked;

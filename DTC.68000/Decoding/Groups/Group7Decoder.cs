@@ -17,7 +17,7 @@ namespace DTC.M68000.Decoding.Groups;
 /// </summary>
 public static class Group7Decoder
 {
-    private static readonly Instruction s_instrMoveQuick = new("MOVEQ #<imm8>,Dn", MoveInstructions.ExecuteMoveQuick);
+    private static readonly Instruction InstrMoveQuick = new("MOVEQ #<imm8>,Dn", MoveInstructions.ExecuteMoveQuick);
 
     /// <summary>
     /// Decodes an opcode in this major group.
@@ -25,6 +25,6 @@ public static class Group7Decoder
     public static Instruction Decode(ushort opcode)
     {
         // 0111 ddd0 iiiiiiii = MOVEQ #<imm8>,Dn.
-        return (opcode & 0x0100) == 0 ? s_instrMoveQuick : null;
+        return (opcode & 0x0100) == 0 ? InstrMoveQuick : null;
     }
 }

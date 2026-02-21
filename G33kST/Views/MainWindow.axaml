@@ -119,6 +119,11 @@
                             <icons:MaterialIcon Kind="Tick" IsVisible="{Binding Settings.IsAmbientBlurred}" />
                         </MenuItem.Icon>
                     </MenuItem>
+                    <MenuItem Header="Show Speed Indicator" Command="{Binding ToggleSpeedIndicator}">
+                        <MenuItem.Icon>
+                            <icons:MaterialIcon Kind="Tick" IsVisible="{Binding Settings.IsSpeedIndicatorVisible}" />
+                        </MenuItem.Icon>
+                    </MenuItem>
                     <Separator />
                     <MenuItem Header="High Resolution Mono" Command="{Binding ToggleDisplayResolutionMode}">
                         <MenuItem.Icon>
@@ -245,6 +250,7 @@
                         </Style>
                     </Border.Styles>
                 </Border>
+
             </StackPanel>
 
             <Grid Grid.Row="1" Grid.ColumnSpan="2" Grid.Column="0" Background="Black">
@@ -279,6 +285,22 @@
                         Margin="0,8,8,0"
                         IsHitTestVisible="False"
                         IsVisible="{Binding IsRecordingIndicatorOn}" />
+
+                <TextBlock Text="{Binding SpeedIndicatorText}"
+                           HorizontalAlignment="Right"
+                           VerticalAlignment="Bottom"
+                           TextAlignment="Right"
+                           Margin="0,0,10,8"
+                           Foreground="White"
+                           FontFamily="Consolas"
+                           FontSize="18"
+                           FontWeight="SemiBold"
+                           IsHitTestVisible="False"
+                           IsVisible="{Binding IsSpeedIndicatorVisible}">
+                    <TextBlock.Effect>
+                        <DropShadowEffect Color="#B0000000" BlurRadius="8" OffsetX="0" OffsetY="0" />
+                    </TextBlock.Effect>
+                </TextBlock>
             </Grid>
         </Grid>
     </dialogHostAvalonia:DialogHost>

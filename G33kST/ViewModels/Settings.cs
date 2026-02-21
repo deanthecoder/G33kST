@@ -24,6 +24,7 @@ public sealed class Settings : UserSettingsBase
         IsSoundEnabled = true;
         IsAmbientBlurred = true;
         IsCrtEmulationEnabled = true;
+        IsSpeedIndicatorVisible = true;
         IsCpuHistoryTracked = false;
     }
 
@@ -40,6 +41,12 @@ public sealed class Settings : UserSettingsBase
     }
 
     public bool IsCrtEmulationEnabled
+    {
+        get => Get<bool>();
+        set => Set(value);
+    }
+
+    public bool IsSpeedIndicatorVisible
     {
         get => Get<bool>();
         set => Set(value);
