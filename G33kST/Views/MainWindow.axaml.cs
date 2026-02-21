@@ -154,7 +154,8 @@ public partial class MainWindow : Window
         {
             Dispatcher.UIThread.Post(() =>
             {
-                AmbientDisplay.InvalidateVisual();
+                if (AmbientDisplay.IsVisible)
+                    AmbientDisplay.InvalidateVisual();
                 MainDisplay.InvalidateVisual();
             }, DispatcherPriority.Render);
         };
