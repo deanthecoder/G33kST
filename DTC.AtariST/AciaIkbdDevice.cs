@@ -8,8 +8,10 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
+using DTC.Core;
 using DTC.Emulation;
 using DTC.Emulation.Snapshot;
+using JetBrains.Annotations;
 
 namespace DTC.AtariST;
 
@@ -99,6 +101,7 @@ public sealed class AciaIkbdDevice : IMemDevice
     private volatile bool m_hasDeferredAdvanceWork;
     private volatile bool m_isDeferredInterruptReassertEnabled = true;
     private volatile bool m_isJoystickInterrogateCoalescingEnabled = true;
+    private uint m_loggedUnsupportedFeatureWarnings;
     private int m_queuedKeyboardInjectedByteCount;
     private int m_queuedMousePacketByteCount;
     private int m_queuedJoystickEventByteCount;
@@ -538,8 +541,19 @@ public sealed class AciaIkbdDevice : IMemDevice
             return;
         }
 
+        if (command == IkbdSetMouseButtonActionCommand)
+        {
+            WarnUnsupportedFeatureOnceNoLock(
+                UnsupportedFeatureWarningFlag.MouseButtonAction,
+                "IKBD mouse button action command (0x07) received, but button-action mode semantics are not implemented (only button bits in mouse packets are supported).");
+            return;
+        }
+
         if (command == IkbdSetAbsoluteMouseModeCommand)
         {
+            WarnUnsupportedFeatureOnceNoLock(
+                UnsupportedFeatureWarningFlag.AbsoluteMouseModeLimited,
+                "IKBD absolute mouse mode enabled. Current support may be incomplete.");
             m_mouseMode = IkbdSetAbsoluteMouseModeCommand;
             m_mouseReportingEnabled = true;
             return;
@@ -547,16 +561,53 @@ public sealed class AciaIkbdDevice : IMemDevice
 
         if (command == IkbdSetMouseKeycodeModeCommand)
         {
+            WarnUnsupportedFeatureOnceNoLock(
+                UnsupportedFeatureWarningFlag.MouseKeycodeMode,
+                "IKBD mouse keycode mode (0x0A) selected, but mouse keycode event output is not implemented.");
             m_mouseMode = IkbdSetMouseKeycodeModeCommand;
             m_mouseReportingEnabled = true;
             return;
         }
 
-        if (command == IkbdSetYZeroBottomCommand)
+        if (command == IkbdSetMouseThresholdCommand)
+        {
+            WarnUnsupportedFeatureOnceNoLock(
+                UnsupportedFeatureWarningFlag.MouseThreshold,
+                "IKBD mouse threshold command (0x0B) received, but threshold behavior is not currently applied.");
             return;
+        }
+
+        if (command == IkbdSetMouseScaleCommand)
+        {
+            WarnUnsupportedFeatureOnceNoLock(
+                UnsupportedFeatureWarningFlag.MouseScale,
+                "IKBD mouse scale command (0x0C) received, but scale behavior is not currently applied.");
+            return;
+        }
+
+        if (command == IkbdLoadMousePositionCommand)
+        {
+            WarnUnsupportedFeatureOnceNoLock(
+                UnsupportedFeatureWarningFlag.LoadMousePosition,
+                "IKBD load mouse position command (0x0E) received, but loading the internal mouse position is not implemented.");
+            return;
+        }
+
+        if (command == IkbdSetYZeroBottomCommand)
+        {
+            WarnUnsupportedFeatureOnceNoLock(
+                UnsupportedFeatureWarningFlag.MouseYOrigin,
+                "IKBD mouse Y-origin commands (0x0F/0x10) are accepted but currently not applied.");
+            return;
+        }
 
         if (command == IkbdSetYZeroTopCommand)
+        {
+            WarnUnsupportedFeatureOnceNoLock(
+                UnsupportedFeatureWarningFlag.MouseYOrigin,
+                "IKBD mouse Y-origin commands (0x0F/0x10) are accepted but currently not applied.");
             return;
+        }
 
         if (command == IkbdDisableMouseReportingCommand)
         {
@@ -596,6 +647,9 @@ public sealed class AciaIkbdDevice : IMemDevice
 
         if (command == IkbdSetJoystickMonitoringModeCommand)
         {
+            WarnUnsupportedFeatureOnceNoLock(
+                UnsupportedFeatureWarningFlag.JoystickMonitoringTiming,
+                "IKBD joystick monitoring mode (0x17) enabled. Packet output is supported, but the command parameter/timing behavior may be incomplete.");
             m_joystickEventModeEnabled = false;
             m_joystickMonitoringModeEnabled = true;
             m_joystickDisabled = false;
@@ -603,10 +657,20 @@ public sealed class AciaIkbdDevice : IMemDevice
         }
 
         if (command == IkbdSetJoystickFireButtonMonitoringCommand)
+        {
+            WarnUnsupportedFeatureOnceNoLock(
+                UnsupportedFeatureWarningFlag.JoystickFireButtonMonitoring,
+                "IKBD joystick fire-button monitoring command (0x18) received, but this mode is not implemented.");
             return;
+        }
 
         if (command == IkbdSetJoystickCursorKeycodesCommand)
+        {
+            WarnUnsupportedFeatureOnceNoLock(
+                UnsupportedFeatureWarningFlag.JoystickCursorKeycodes,
+                "IKBD joystick cursor-keycode mode (0x19) received, but keycode output mode is not implemented.");
             return;
+        }
 
         if (command == IkbdDisableJoysticksCommand)
         {
@@ -863,6 +927,16 @@ public sealed class AciaIkbdDevice : IMemDevice
         EnqueueKeyboardByteNoLock(directionBits, ReceiveByteKind.JoystickMonitoring);
     }
 
+    private void WarnUnsupportedFeatureOnceNoLock(UnsupportedFeatureWarningFlag flag, string message)
+    {
+        var bit = (uint)flag;
+        if ((m_loggedUnsupportedFeatureWarnings & bit) != 0)
+            return;
+
+        m_loggedUnsupportedFeatureWarnings |= bit;
+        Logger.Instance.Warn(message);
+    }
+
     private void RefreshInterruptLineNoLock()
     {
         var isActive = m_keyboardReceiveQueue.Count > 0 && (m_keyboardControl & InterruptRequestFlag) != 0;
@@ -1036,8 +1110,8 @@ public sealed class AciaIkbdDevice : IMemDevice
             var queuedKinds = m_keyboardReceiveKinds.ToArray();
             writer.WriteInt32(queuedBytes.Length);
             writer.WriteBytes(queuedBytes);
-            for (var i = 0; i < queuedKinds.Length; i++)
-                writer.WriteByte((byte)queuedKinds[i]);
+            foreach (var b in queuedKinds)
+                writer.WriteByte((byte)b);
 
             writer.WriteBytes(m_lastJoystickStateBytes);
             writer.WriteBytes(m_pendingCommandParameters);
@@ -1106,6 +1180,7 @@ public sealed class AciaIkbdDevice : IMemDevice
             m_hasDeferredAdvanceWork = reader.ReadBool();
             m_isDeferredInterruptReassertEnabled = reader.ReadBool();
             m_isJoystickInterrogateCoalescingEnabled = reader.ReadBool();
+            m_loggedUnsupportedFeatureWarnings = 0;
             m_queuedKeyboardInjectedByteCount = reader.ReadInt32();
             m_queuedMousePacketByteCount = reader.ReadInt32();
             m_queuedJoystickEventByteCount = reader.ReadInt32();
@@ -1131,5 +1206,21 @@ public sealed class AciaIkbdDevice : IMemDevice
         JoystickEvent = 3,
         JoystickInterrogateResponse = 4,
         JoystickMonitoring = 5
+    }
+
+    [Flags]
+    private enum UnsupportedFeatureWarningFlag : uint
+    {
+        [UsedImplicitly] None = 0,
+        AbsoluteMouseModeLimited = 1 << 0,
+        MouseKeycodeMode = 1 << 1,
+        MouseThreshold = 1 << 2,
+        MouseScale = 1 << 3,
+        LoadMousePosition = 1 << 4,
+        MouseYOrigin = 1 << 5,
+        JoystickFireButtonMonitoring = 1 << 6,
+        JoystickCursorKeycodes = 1 << 7,
+        MouseButtonAction = 1 << 8,
+        JoystickMonitoringTiming = 1 << 9
     }
 }
