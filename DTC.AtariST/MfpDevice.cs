@@ -31,6 +31,8 @@ public sealed class MfpDevice : IMemDevice
     private const byte TimerDInterruptMask = 0x10;
     private const byte TimerCSourceNumber = 5;
     private const byte TimerDSourceNumber = 4;
+    private const byte TimerAInterruptMask = 0x20;
+    private const byte TimerASourceNumber = 13;
     private const byte Gpip5InterruptMask = 0x80;
     private const byte Gpip5SourceNumber = 7;
     private const byte Gpip4InterruptMask = 0x40;
@@ -49,8 +51,10 @@ public sealed class MfpDevice : IMemDevice
     private const int InterruptPendingA = 0x0B;
     private const int InterruptMaskA = 0x13;
     private const int VectorRegister = 0x17;
+    private const int TimerAControl = 0x19;
     private const int TimerBControl = 0x1B;
     private const int TimerCdControl = 0x1D;
+    private const int TimerAData = 0x1F;
     private const int TimerBData = 0x21;
     private const int TimerCData = 0x23;
     private const int TimerDData = 0x25;
@@ -72,7 +76,9 @@ public sealed class MfpDevice : IMemDevice
     private readonly byte[] m_registers = new byte[RegisterSpace];
     private int m_timerCCurrent;
     private int m_timerDCurrent;
+    private int m_timerACurrent;
     private int m_timerBCurrent;
+    private int m_timerAAccumulator;
     private int m_timerCAccumulator;
     private int m_timerDAccumulator;
     private int m_timerBAccumulator;
@@ -110,7 +116,9 @@ public sealed class MfpDevice : IMemDevice
         m_registers[VectorRegister] = DefaultVectorBase;
         m_timerCCurrent = 0;
         m_timerDCurrent = 0;
+        m_timerACurrent = 0;
         m_timerBCurrent = 0;
+        m_timerAAccumulator = 0;
         m_timerCAccumulator = 0;
         m_timerDAccumulator = 0;
         m_timerBAccumulator = 0;
@@ -127,6 +135,7 @@ public sealed class MfpDevice : IMemDevice
             return;
 
         AdvanceTimerB((int)Math.Min(deltaTicks, int.MaxValue));
+        AdvanceTimerA((int)Math.Min(deltaTicks, int.MaxValue));
         AdvanceTimerC((int)Math.Min(deltaTicks, int.MaxValue));
         AdvanceTimerD((int)Math.Min(deltaTicks, int.MaxValue));
     }
@@ -259,6 +268,8 @@ public sealed class MfpDevice : IMemDevice
             return ReadGpipState();
         if (offset == TimerBData)
             return (byte)m_timerBCurrent;
+        if (offset == TimerAData)
+            return (byte)m_timerACurrent;
 
         return m_registers[offset];
     }
@@ -285,7 +296,9 @@ public sealed class MfpDevice : IMemDevice
         }
 
         m_registers[offset] = value;
-        if (offset == TimerBData)
+        if (offset == TimerAData)
+            m_timerACurrent = NormalizeTimerData(value);
+        else if (offset == TimerBData)
             m_timerBCurrent = NormalizeTimerData(value);
         else if (offset == TimerCData)
             m_timerCCurrent = NormalizeTimerData(value);
@@ -295,6 +308,31 @@ public sealed class MfpDevice : IMemDevice
         {
             TryRaiseAciaInterruptIfPending();
             TryRaiseFloppyInterruptIfPending();
+        }
+    }
+
+    private void AdvanceTimerA(int deltaTicks)
+    {
+        var timerControl = (byte)(m_registers[TimerAControl] & 0x0F);
+        if (timerControl >= TimerPrescaleDivisors.Length)
+            return;
+
+        var prescale = TimerPrescaleDivisors[timerControl];
+        if (prescale == 0)
+            return;
+        if (m_timerACurrent == 0)
+            m_timerACurrent = NormalizeTimerData(m_registers[TimerAData]);
+
+        m_timerAAccumulator += deltaTicks;
+        while (m_timerAAccumulator >= prescale)
+        {
+            m_timerAAccumulator -= prescale;
+            m_timerACurrent--;
+            if (m_timerACurrent > 0)
+                continue;
+
+            m_timerACurrent = NormalizeTimerData(m_registers[TimerAData]);
+            RaiseInterrupt(InterruptEnableA, InterruptMaskA, InterruptPendingA, TimerAInterruptMask, TimerASourceNumber);
         }
     }
 
@@ -341,6 +379,7 @@ public sealed class MfpDevice : IMemDevice
                 continue;
 
             m_timerBCurrent = NormalizeTimerData(m_registers[TimerBData]);
+            RaiseInterrupt(InterruptEnableA, InterruptMaskA, InterruptPendingA, TimerBInterruptMask, TimerBSourceNumber);
         }
     }
 
@@ -424,7 +463,7 @@ public sealed class MfpDevice : IMemDevice
 
     internal int GetStateSize() =>
         m_registers.Length +
-        sizeof(int) * 6 +
+        sizeof(int) * 8 +
         2 +
         sizeof(byte) * 2;
 
@@ -433,7 +472,9 @@ public sealed class MfpDevice : IMemDevice
         writer.WriteBytes(m_registers);
         writer.WriteInt32(m_timerCCurrent);
         writer.WriteInt32(m_timerDCurrent);
+        writer.WriteInt32(m_timerACurrent);
         writer.WriteInt32(m_timerBCurrent);
+        writer.WriteInt32(m_timerAAccumulator);
         writer.WriteInt32(m_timerCAccumulator);
         writer.WriteInt32(m_timerDAccumulator);
         writer.WriteInt32(m_timerBAccumulator);
@@ -448,7 +489,9 @@ public sealed class MfpDevice : IMemDevice
         reader.ReadBytes(m_registers);
         m_timerCCurrent = reader.ReadInt32();
         m_timerDCurrent = reader.ReadInt32();
+        m_timerACurrent = reader.ReadInt32();
         m_timerBCurrent = reader.ReadInt32();
+        m_timerAAccumulator = reader.ReadInt32();
         m_timerCAccumulator = reader.ReadInt32();
         m_timerDAccumulator = reader.ReadInt32();
         m_timerBAccumulator = reader.ReadInt32();
