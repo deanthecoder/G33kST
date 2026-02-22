@@ -169,7 +169,7 @@ public sealed class AtariSTTests : TestsBase
 
         Assert.Multiple(() =>
         {
-            Assert.That(atariST.Cpu.Bus.Read8(VideoModeRegister) & 0x03, Is.EqualTo(0));
+            Assert.That(atariST.Cpu.Bus.Read8(VideoModeRegister) & 0x03, Is.Zero);
             Assert.That(shifter.ActiveWidth, Is.EqualTo(320));
             Assert.That(shifter.ActiveHeight, Is.EqualTo(200));
         });
@@ -233,7 +233,7 @@ public sealed class AtariSTTests : TestsBase
     {
         var atariST = new AtariST();
 
-        Assert.That(atariST.CpuTicks, Is.EqualTo(0));
+        Assert.That(atariST.CpuTicks, Is.Zero);
     }
 
     [Test]
@@ -296,7 +296,7 @@ public sealed class AtariSTTests : TestsBase
 
         atariST.Reset();
 
-        Assert.That(atariST.CpuTicks, Is.EqualTo(0));
+        Assert.That(atariST.CpuTicks, Is.Zero);
         Assert.That(atariST.Cpu.Registers.ProgramCounter, Is.Not.EqualTo(0xFC0000)); // Should have loaded from reset vector
     }
 
@@ -542,8 +542,8 @@ public sealed class AtariSTTests : TestsBase
         Assert.Multiple(() =>
         {
             Assert.That(header, Is.EqualTo(0xFA), "Expected relative mouse packet with left-button bit set.");
-            Assert.That((sbyte)deltaX, Is.Not.EqualTo(0), "Expected horizontal mouse delta.");
-            Assert.That((sbyte)deltaY, Is.EqualTo(0), "Expected no vertical mouse delta.");
+            Assert.That((sbyte)deltaX, Is.Not.Zero, "Expected horizontal mouse delta.");
+            Assert.That((sbyte)deltaY, Is.Zero, "Expected no vertical mouse delta.");
         });
     }
 
@@ -572,7 +572,7 @@ public sealed class AtariSTTests : TestsBase
         Assert.Multiple(() =>
         {
             Assert.That(header, Is.EqualTo(0xF8), "Expected relative mouse packet with no button bits set.");
-            Assert.That((sbyte)deltaX, Is.EqualTo(0), "Expected no horizontal movement.");
+            Assert.That((sbyte)deltaX, Is.Zero, "Expected no horizontal movement.");
             Assert.That((sbyte)deltaY, Is.EqualTo(19), "Expected medium-res Y delta in 200-line logical coordinates.");
         });
     }
@@ -720,7 +720,7 @@ public sealed class AtariSTTests : TestsBase
         Assert.Multiple(() =>
         {
             Assert.That(header, Is.EqualTo(0xF8), "Expected relative mouse packet header with no button bits set.");
-            Assert.That((sbyte)deltaX, Is.Not.EqualTo(0), "Expected coalesced horizontal movement.");
+            Assert.That((sbyte)deltaX, Is.Not.Zero, "Expected coalesced horizontal movement.");
             Assert.That(statusAfterFirstCadence & 0x01, Is.Zero, "Expected receive queue to be empty after reading first cadence packet.");
             Assert.That(statusAfterSecondCadence & 0x01, Is.Zero, "Expected no stale packet on the next cadence tick.");
         });
@@ -782,7 +782,7 @@ public sealed class AtariSTTests : TestsBase
 
         atariST.UpdateMouseState(0.50, 0.50, false, false, true);
         atariST.UpdateMouseState(0.70, 0.50, false, false, true);
-        Assert.That(atariST.PendingMousePacketCount, Is.EqualTo(0), "Expected no pending host packets before the first sample tick.");
+        Assert.That(atariST.PendingMousePacketCount, Is.Zero, "Expected no pending host packets before the first sample tick.");
 
         atariST.AdvanceDevices(CpuTicksForOneMousePacket(atariST));
         var statusAfterOneTick = bus.Read8(keyboardStatusAddress);
@@ -845,8 +845,8 @@ public sealed class AtariSTTests : TestsBase
         var status = bus.Read8(keyboardStatusAddress);
         Assert.Multiple(() =>
         {
-            Assert.That(atariST.PendingKeyboardInputByteCount, Is.EqualTo(0));
-            Assert.That(atariST.PendingMousePacketCount, Is.EqualTo(0));
+            Assert.That(atariST.PendingKeyboardInputByteCount, Is.Zero);
+            Assert.That(atariST.PendingMousePacketCount, Is.Zero);
             Assert.That(status & 0x01, Is.Zero);
         });
     }
@@ -956,19 +956,19 @@ public sealed class AtariSTTests : TestsBase
             Assert.That(frameRendered, Is.True);
 
             // Border should use color 0 (black by default).
-            Assert.That(frameBuffer[0], Is.EqualTo(0));
-            Assert.That(frameBuffer[1], Is.EqualTo(0));
-            Assert.That(frameBuffer[2], Is.EqualTo(0));
+            Assert.That(frameBuffer[0], Is.Zero);
+            Assert.That(frameBuffer[1], Is.Zero);
+            Assert.That(frameBuffer[2], Is.Zero);
 
             // Pixel 0: red.
             Assert.That(frameBuffer[firstPixelOffset], Is.EqualTo(255));
-            Assert.That(frameBuffer[firstPixelOffset + 1], Is.EqualTo(0));
-            Assert.That(frameBuffer[firstPixelOffset + 2], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + 1], Is.Zero);
+            Assert.That(frameBuffer[firstPixelOffset + 2], Is.Zero);
 
             // Pixel 1: black (next source bit is clear).
-            Assert.That(frameBuffer[firstPixelOffset + 3], Is.EqualTo(0));
-            Assert.That(frameBuffer[firstPixelOffset + 4], Is.EqualTo(0));
-            Assert.That(frameBuffer[firstPixelOffset + 5], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + 3], Is.Zero);
+            Assert.That(frameBuffer[firstPixelOffset + 4], Is.Zero);
+            Assert.That(frameBuffer[firstPixelOffset + 5], Is.Zero);
         });
     }
 
@@ -1010,9 +1010,9 @@ public sealed class AtariSTTests : TestsBase
             Assert.That(frameBuffer[2], Is.EqualTo(255));
 
             // Pixel 0 should be black (set bit).
-            Assert.That(frameBuffer[firstPixelOffset], Is.EqualTo(0));
-            Assert.That(frameBuffer[firstPixelOffset + 1], Is.EqualTo(0));
-            Assert.That(frameBuffer[firstPixelOffset + 2], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset], Is.Zero);
+            Assert.That(frameBuffer[firstPixelOffset + 1], Is.Zero);
+            Assert.That(frameBuffer[firstPixelOffset + 2], Is.Zero);
 
             // Pixel 1 should be white (clear bit).
             Assert.That(frameBuffer[firstPixelOffset + 3], Is.EqualTo(255));
@@ -1059,20 +1059,20 @@ public sealed class AtariSTTests : TestsBase
         Assert.Multiple(() =>
         {
             // Pixel (0,0): green.
-            Assert.That(frameBuffer[firstPixelOffset], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset], Is.Zero);
             Assert.That(frameBuffer[firstPixelOffset + 1], Is.EqualTo(255));
-            Assert.That(frameBuffer[firstPixelOffset + 2], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + 2], Is.Zero);
 
             // Pixel (0,1): green (same source line is duplicated vertically).
             var secondLineOffset = atariST.Video.FrameWidth * bytesPerPixel;
-            Assert.That(frameBuffer[firstPixelOffset + secondLineOffset], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + secondLineOffset], Is.Zero);
             Assert.That(frameBuffer[firstPixelOffset + secondLineOffset + 1], Is.EqualTo(255));
-            Assert.That(frameBuffer[firstPixelOffset + secondLineOffset + 2], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + secondLineOffset + 2], Is.Zero);
 
             // Pixel (1,0): black (next source bit is clear).
-            Assert.That(frameBuffer[firstPixelOffset + 3], Is.EqualTo(0));
-            Assert.That(frameBuffer[firstPixelOffset + 4], Is.EqualTo(0));
-            Assert.That(frameBuffer[firstPixelOffset + 5], Is.EqualTo(0));
+            Assert.That(frameBuffer[firstPixelOffset + 3], Is.Zero);
+            Assert.That(frameBuffer[firstPixelOffset + 4], Is.Zero);
+            Assert.That(frameBuffer[firstPixelOffset + 5], Is.Zero);
         });
     }
 
@@ -1134,12 +1134,12 @@ public sealed class AtariSTTests : TestsBase
         Assert.Multiple(() =>
         {
             Assert.That(frameBuffer[line0PixelOffset], Is.EqualTo(255));
-            Assert.That(frameBuffer[line0PixelOffset + 1], Is.EqualTo(0));
-            Assert.That(frameBuffer[line0PixelOffset + 2], Is.EqualTo(0));
+            Assert.That(frameBuffer[line0PixelOffset + 1], Is.Zero);
+            Assert.That(frameBuffer[line0PixelOffset + 2], Is.Zero);
 
-            Assert.That(frameBuffer[line1PixelOffset], Is.EqualTo(0));
+            Assert.That(frameBuffer[line1PixelOffset], Is.Zero);
             Assert.That(frameBuffer[line1PixelOffset + 1], Is.EqualTo(255));
-            Assert.That(frameBuffer[line1PixelOffset + 2], Is.EqualTo(0));
+            Assert.That(frameBuffer[line1PixelOffset + 2], Is.Zero);
         });
     }
 

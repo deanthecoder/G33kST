@@ -92,6 +92,13 @@ public sealed class MfpDevice : IMemDevice
     public event Action<byte, byte> InterruptRequested;
 
     /// <summary>
+    /// Gets whether any enabled, unmasked MFP source is currently pending.
+    /// </summary>
+    public bool HasUnmaskedPendingInterrupt =>
+        ((m_registers[InterruptPendingA] & m_registers[InterruptEnableA] & m_registers[InterruptMaskA]) |
+         (m_registers[InterruptPendingB] & m_registers[InterruptEnableB] & m_registers[InterruptMaskB])) != 0;
+
+    /// <summary>
     /// Resets internal MFP state and register defaults.
     /// </summary>
     public void Reset()
@@ -151,6 +158,36 @@ public sealed class MfpDevice : IMemDevice
     /// </summary>
     public bool RaiseGpip4Interrupt() =>
         RaiseInterrupt(InterruptEnableB, InterruptMaskB, InterruptPendingB, Gpip4InterruptMask, Gpip4SourceNumber);
+
+    /// <summary>
+    /// Returns and clears the highest-priority pending MFP vector, if any.
+    /// </summary>
+    public bool TryAcknowledgePendingInterrupt(out byte vectorNumber)
+    {
+        var pendingA = (byte)(m_registers[InterruptPendingA] & m_registers[InterruptEnableA] & m_registers[InterruptMaskA]);
+        var pendingB = (byte)(m_registers[InterruptPendingB] & m_registers[InterruptEnableB] & m_registers[InterruptMaskB]);
+        if (pendingA == 0 && pendingB == 0)
+        {
+            vectorNumber = 0;
+            return false;
+        }
+
+        byte sourceNumber;
+        if (pendingA != 0)
+        {
+            sourceNumber = (byte)(8 + HighestSetBitIndex(pendingA));
+            m_registers[InterruptPendingA] = (byte)(m_registers[InterruptPendingA] & ~(1 << (sourceNumber - 8)));
+        }
+        else
+        {
+            sourceNumber = (byte)HighestSetBitIndex(pendingB);
+            m_registers[InterruptPendingB] = (byte)(m_registers[InterruptPendingB] & ~(1 << sourceNumber));
+        }
+
+        var vectorBase = (byte)(m_registers[VectorRegister] & 0xF0);
+        vectorNumber = (byte)(vectorBase + sourceNumber);
+        return true;
+    }
 
     /// <summary>
     /// Signals a pending interrupt from GPIP5 (the line used by floppy FDC completion on ST machines).
@@ -253,7 +290,7 @@ public sealed class MfpDevice : IMemDevice
             m_timerCCurrent = NormalizeTimerData(value);
         else if (offset == TimerDData)
             m_timerDCurrent = NormalizeTimerData(value);
-        else if (offset is InterruptEnableB or InterruptMaskB)
+        else if (offset is InterruptEnableA or InterruptEnableB or InterruptMaskA or InterruptMaskB)
         {
             TryRaiseAciaInterruptIfPending();
             TryRaiseFloppyInterruptIfPending();
@@ -334,11 +371,14 @@ public sealed class MfpDevice : IMemDevice
     private bool RaiseInterrupt(int interruptEnableRegister, int interruptMaskRegister, int interruptPendingRegister, byte interruptMask, byte sourceNumber)
     {
         var interruptEnabled = (m_registers[interruptEnableRegister] & interruptMask) != 0;
-        var interruptUnmasked = (m_registers[interruptMaskRegister] & interruptMask) != 0;
-        if (!interruptEnabled || !interruptUnmasked)
+        if (!interruptEnabled)
             return false;
 
         m_registers[interruptPendingRegister] |= interruptMask;
+        var interruptUnmasked = (m_registers[interruptMaskRegister] & interruptMask) != 0;
+        if (!interruptUnmasked)
+            return false;
+
         var vectorBase = (byte)(m_registers[VectorRegister] & 0xF0);
         var vectorNumber = (byte)(vectorBase + sourceNumber);
         InterruptRequested?.Invoke(InterruptLevel, vectorNumber);
@@ -368,5 +408,16 @@ public sealed class MfpDevice : IMemDevice
     {
         var dataDirection = m_registers[DataDirectionRegister];
         return (byte)((m_gpipOutputLatch & dataDirection) | (m_gpipInputState & ~dataDirection));
+    }
+
+    private static int HighestSetBitIndex(byte value)
+    {
+        for (var i = 7; i >= 0; i--)
+        {
+            if ((value & (1 << i)) != 0)
+                return i;
+        }
+
+        return 0;
     }
 }

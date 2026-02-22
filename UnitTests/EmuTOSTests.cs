@@ -95,7 +95,7 @@ public sealed class EmuTOSTests : TestsBase
         Assert.Multiple(() =>
         {
             Assert.That(sampleCount, Is.GreaterThan(0), "Expected at least one screen-mode sample.");
-            Assert.That(firstSampledMode, Is.EqualTo(0), "Expected first sampled video mode to be low-resolution color.");
+            Assert.That(firstSampledMode, Is.Zero, "Expected first sampled video mode to be low-resolution color.");
             Assert.That(firstSampledWidth, Is.EqualTo(320), "Expected initial active screen width to be 320.");
             Assert.That(firstSampledHeight, Is.EqualTo(200), "Expected initial active screen height to be 200.");
             Assert.That(detectedStramTop, Is.EqualTo(0x00100000), "Expected EmuTOS to detect 1MB ST-RAM.");
@@ -390,7 +390,7 @@ public sealed class EmuTOSTests : TestsBase
         // Basic sanity checks
         Assert.That(atariST.CpuTicks, Is.GreaterThan(0), "CPU should have executed some cycles");
         Assert.That(atariST.CpuTicks, Is.GreaterThanOrEqualTo(targetCycles), "Execution ended before reaching target cycles.");
-        Assert.That(exceptionCount, Is.EqualTo(0), "Unexpected exceptions were raised while running the ROM.");
+        Assert.That(exceptionCount, Is.Zero, "Unexpected exceptions were raised while running the ROM.");
         Assert.That(
             loggedLikelyStall,
             Is.False,

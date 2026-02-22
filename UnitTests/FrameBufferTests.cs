@@ -27,13 +27,13 @@ public sealed class FrameBufferTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(frameBuffer.Data[0], Is.EqualTo(0));
-            Assert.That(frameBuffer.Data[1], Is.EqualTo(0));
-            Assert.That(frameBuffer.Data[2], Is.EqualTo(0));
+            Assert.That(frameBuffer.Data[0], Is.Zero);
+            Assert.That(frameBuffer.Data[1], Is.Zero);
+            Assert.That(frameBuffer.Data[2], Is.Zero);
             Assert.That(frameBuffer.Data[3], Is.EqualTo(255));
-            Assert.That(frameBuffer.Data[4], Is.EqualTo(0));
-            Assert.That(frameBuffer.Data[5], Is.EqualTo(0));
-            Assert.That(frameBuffer.Data[6], Is.EqualTo(0));
+            Assert.That(frameBuffer.Data[4], Is.Zero);
+            Assert.That(frameBuffer.Data[5], Is.Zero);
+            Assert.That(frameBuffer.Data[6], Is.Zero);
             Assert.That(frameBuffer.Data[7], Is.EqualTo(255));
         });
     }

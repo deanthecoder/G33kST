@@ -96,8 +96,13 @@ public sealed class MfpDeviceTests
         mfp.Write8(TimerCDataRegister, 0x01);
         mfp.Write8(TimerCdControlRegister, 0x10);
         mfp.Advance(4);
+        var pending = mfp.Read8(InterruptPendingBRegister);
 
-        Assert.That(interruptCount, Is.EqualTo(0));
+        Assert.Multiple(() =>
+        {
+            Assert.That(interruptCount, Is.Zero);
+            Assert.That(pending & 0x20, Is.Not.Zero, "Timer event should latch pending state even when masked.");
+        });
     }
 
     [Test]
@@ -147,6 +152,34 @@ public sealed class MfpDeviceTests
         Assert.Multiple(() =>
         {
             Assert.That(interruptCount, Is.EqualTo(1));
+            Assert.That(interruptVector, Is.EqualTo(0x56));
+        });
+    }
+
+    [Test]
+    public void SetAciaInterruptLineShouldLatchPendingWhenMaskedAndRaiseAfterUnmask()
+    {
+        var mfp = new MfpDevice();
+        mfp.Reset();
+        var interruptCount = 0;
+        var interruptVector = (byte)0;
+        mfp.InterruptRequested += (_, vector) =>
+        {
+            interruptCount++;
+            interruptVector = vector;
+        };
+
+        mfp.Write8(VectorRegister, 0x50);
+        mfp.Write8(InterruptEnableBRegister, 0x40);
+        mfp.Write8(InterruptMaskBRegister, 0x00);
+        mfp.SetAciaInterruptLine(isActiveLow: true);
+        var pendingWhileMasked = mfp.Read8(InterruptPendingBRegister);
+        mfp.Write8(InterruptMaskBRegister, 0x40);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(pendingWhileMasked & 0x40, Is.Not.Zero, "ACIA edge should be latched while masked.");
+            Assert.That(interruptCount, Is.EqualTo(1), "Unmasking should surface the latched ACIA interrupt.");
             Assert.That(interruptVector, Is.EqualTo(0x56));
         });
     }

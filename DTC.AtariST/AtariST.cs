@@ -319,7 +319,8 @@ public sealed class AtariST : IMachine
             return;
 
         Cpu.RequestInterrupt(m_latchedInterruptLevel);
-        EnqueuePendingAcknowledge(m_latchedInterruptLevel, m_latchedInterruptAcknowledge);
+        if (m_latchedInterruptLevel != 6)
+            EnqueuePendingAcknowledge(m_latchedInterruptLevel, m_latchedInterruptAcknowledge);
         m_hasLatchedInterrupt = false;
         m_latchedInterruptLevel = 0;
         m_latchedInterruptAcknowledge = default;
@@ -841,11 +842,12 @@ public sealed class AtariST : IMachine
     /// MFP is the ST's Multi-Function Peripheral chip that owns timer and peripheral interrupt sources.
     /// </summary>
     private void OnMfpInterruptRequested(byte level, byte vector) =>
-        EnqueueInterrupt(level, InterruptAcknowledgeResult.Vector(vector));
+        EnqueueInterrupt(level, InterruptAcknowledgeResult.Autovector());
 
     private void EnqueueInterrupt(byte level, InterruptAcknowledgeResult acknowledgeResult)
     {
-        if (m_pendingInterrupts.Count > 0)
+        var allowDuplicate = level == 6 && acknowledgeResult.Type == InterruptAcknowledgeType.Autovector;
+        if (!allowDuplicate && m_pendingInterrupts.Count > 0)
         {
             foreach (var pending in m_pendingInterrupts)
             {
@@ -861,6 +863,15 @@ public sealed class AtariST : IMachine
 
     private InterruptAcknowledgeResult ResolveInterruptAcknowledge(byte level)
     {
+        if (level == 6)
+        {
+            if (!m_mfp.TryAcknowledgePendingInterrupt(out var vectorNumber))
+                return InterruptAcknowledgeResult.Autovector();
+            if (m_mfp.HasUnmaskedPendingInterrupt)
+                EnqueueInterrupt(6, InterruptAcknowledgeResult.Autovector());
+            return InterruptAcknowledgeResult.Vector(vectorNumber);
+        }
+
         if (level >= m_pendingAcknowledgeByLevel.Length)
             return InterruptAcknowledgeResult.Autovector();
         if (m_pendingAcknowledgeCountByLevel[level] == 0)

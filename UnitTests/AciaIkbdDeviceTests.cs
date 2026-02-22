@@ -515,8 +515,8 @@ public sealed class AciaIkbdDeviceTests
         {
             Assert.That(queuedReplyBytes, Is.EqualTo(3), "Expected only the latest interrogate reply to remain queued.");
             Assert.That(queuedKeyboardInjectedBytes, Is.EqualTo(1), "Expected one injected keyboard byte to remain queued.");
-            Assert.That(queuedMousePacketBytes, Is.EqualTo(0), "Expected no mouse-packet bytes in this queue snapshot.");
-            Assert.That(queuedJoystickEventBytes, Is.EqualTo(0), "Expected no joystick-event bytes in this queue snapshot.");
+            Assert.That(queuedMousePacketBytes, Is.Zero, "Expected no mouse-packet bytes in this queue snapshot.");
+            Assert.That(queuedJoystickEventBytes, Is.Zero, "Expected no joystick-event bytes in this queue snapshot.");
             Assert.That(queuedTotalBytes, Is.EqualTo(4), "Expected one keyboard byte plus one interrogate reply triplet.");
             Assert.That(keyboardByte, Is.EqualTo(0x1C));
             Assert.That(header, Is.EqualTo(0xFD));
@@ -552,12 +552,12 @@ public sealed class AciaIkbdDeviceTests
         {
             Assert.That(pendingBeforeClear, Is.EqualTo(9), "Expected 1 keyboard + 3 mouse + 2 joystick-event + 3 interrogate bytes.");
             Assert.That(peakBeforeClear, Is.EqualTo(9));
-            Assert.That(device.PendingReceiveQueueCount, Is.EqualTo(0));
-            Assert.That(device.PendingKeyboardInjectedByteCount, Is.EqualTo(0));
-            Assert.That(device.PendingMousePacketByteCount, Is.EqualTo(0));
-            Assert.That(device.PendingJoystickEventByteCount, Is.EqualTo(0));
-            Assert.That(device.PendingJoystickInterrogateResponseByteCount, Is.EqualTo(0));
-            Assert.That(device.PeakReceiveQueueCount, Is.EqualTo(0));
+            Assert.That(device.PendingReceiveQueueCount, Is.Zero);
+            Assert.That(device.PendingKeyboardInjectedByteCount, Is.Zero);
+            Assert.That(device.PendingMousePacketByteCount, Is.Zero);
+            Assert.That(device.PendingJoystickEventByteCount, Is.Zero);
+            Assert.That(device.PendingJoystickInterrogateResponseByteCount, Is.Zero);
+            Assert.That(device.PeakReceiveQueueCount, Is.Zero);
         });
     }
 
@@ -612,6 +612,51 @@ public sealed class AciaIkbdDeviceTests
     }
 
     [Test]
+    public void DisableMouseReportingCommandShouldDropQueuedMouseBytes()
+    {
+        var device = new AciaIkbdDevice();
+
+        device.QueueRelativeMousePacket(1, 1, isLeftButtonPressed: false, isRightButtonPressed: false);
+        device.Write8(KeyboardDataAddress, 0x12);
+        device.QueueJoystickState(1, new JoystickState(
+            IsUpPressed: false,
+            IsDownPressed: false,
+            IsLeftPressed: false,
+            IsRightPressed: true,
+            IsFirePressed: true));
+        var firstByte = device.Read8(KeyboardDataAddress);
+        var secondByte = device.Read8(KeyboardDataAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(firstByte, Is.EqualTo(0xFF));
+            Assert.That(secondByte, Is.EqualTo(0x88));
+        });
+    }
+
+    [Test]
+    public void JoystickMonitoringModeShouldEmitPackedStates()
+    {
+        var device = new AciaIkbdDevice();
+
+        device.Write8(KeyboardDataAddress, 0x17);
+        device.Write8(KeyboardDataAddress, 0x01);
+        device.QueueJoystickState(1, new JoystickState(
+            IsUpPressed: false,
+            IsDownPressed: false,
+            IsLeftPressed: false,
+            IsRightPressed: true,
+            IsFirePressed: true));
+        var fireBits = device.Read8(KeyboardDataAddress);
+        var directionBits = device.Read8(KeyboardDataAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(fireBits, Is.EqualTo(0x01));
+            Assert.That(directionBits, Is.EqualTo(0x08));
+        });
+    }
+
     public void RelativeMousePacketShouldIgnoreYOriginCommands()
     {
         var device = new AciaIkbdDevice();
