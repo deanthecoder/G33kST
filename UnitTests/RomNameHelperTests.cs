@@ -62,4 +62,12 @@ public sealed class RomNameHelperTests
 
         Assert.That(name, Is.EqualTo("The Secret of Monkey Island"));
     }
+
+    [Test]
+    public void GetDisplayNameShouldTitleCasePlainLowercaseName()
+    {
+        var name = RomNameHelper.GetDisplayName("nebulus.zip");
+
+        Assert.That(name, Is.EqualTo("Nebulus"));
+    }
 }

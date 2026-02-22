@@ -79,6 +79,15 @@ public sealed class Settings : UserSettingsBase
     }
 
     /// <summary>
+    /// Most recently opened floppy image path for restoring the last-used disk on startup.
+    /// </summary>
+    public string LastFloppyImagePath
+    {
+        get => Get<string>();
+        set => Set(value);
+    }
+
+    /// <summary>
     /// Persists the selected machine video timing region.
     /// False = NTSC (60 Hz), true = PAL (50 Hz).
     /// </summary>

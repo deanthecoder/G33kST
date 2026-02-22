@@ -26,6 +26,7 @@ using DTC.Emulation;
 using DTC.Emulation.Audio;
 using DTC.Emulation.Debuggers;
 using DTC.Emulation.Recording;
+using DTC.Emulation.Rom;
 using DTC.M68000;
 using G33kST.Snapshot;
 
@@ -127,6 +128,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         ResetSpeedIndicatorSampler();
         AboutInfo = AboutInfoProvider.Info;
         LoadInitialRom();
+        LoadLastFloppyImage();
     }
 
     public Settings Settings => Settings.Instance;
@@ -267,7 +269,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             "Save Screenshot",
             "TGA Files",
             ["*.tga"],
-            $"{AppTitle}_{DateTime.Now:yyyyMMdd_HHmmss}.tga");
+            $"{GetCaptureFilePrefix()}_{DateTime.Now:yyyyMMdd_HHmmss}.tga");
         command.FileSelected += (_, file) =>
         {
             FrameBuffer frameCopy;
@@ -290,7 +292,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         if (IsRecording)
             return;
 
-        m_recorder.Start(m_screen.Display, m_machine.Descriptor.VideoHz, m_audioDevice, () => AppTitle);
+        m_recorder.Start(m_screen.Display, m_machine.Descriptor.VideoHz, m_audioDevice, GetCaptureTitle);
     }
 
     public void ToggleRecordingCommand()
@@ -378,7 +380,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             "Save Snapshot",
             "G33kST Snapshots",
             ["*.stsnap"],
-            $"{AppTitle}_{DateTime.Now:yyyyMMdd_HHmmss}.stsnap");
+            $"{GetCaptureFilePrefix()}_{DateTime.Now:yyyyMMdd_HHmmss}.stsnap");
         command.FileSelected += (_, file) =>
         {
             try
@@ -654,6 +656,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         if (addToMru)
             FloppyMru.Add(imageFile);
         m_mountedFloppyAFile = imageFile;
+        Settings.LastFloppyImagePath = imageFile.FullName;
         NotifyFloppyIndicatorChanged();
 
         Logger.Instance.Info(wasMounted
@@ -681,6 +684,22 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             return;
 
         _ = TryLoadRom(storedRom, shouldHardReset: false, updateSelection: true);
+    }
+
+    private void LoadLastFloppyImage()
+    {
+        var lastFloppyPath = Settings.LastFloppyImagePath;
+        if (string.IsNullOrWhiteSpace(lastFloppyPath))
+            return;
+
+        var floppyFile = new FileInfo(lastFloppyPath);
+        if (!floppyFile.Exists())
+        {
+            Settings.LastFloppyImagePath = null;
+            return;
+        }
+
+        _ = MountFloppyImageFromFile(floppyFile, addToMru: false);
     }
 
     private void SwitchRomImage(FileInfo selectedRomFile)
@@ -978,6 +997,22 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         m_audioDevice.SetEnabled(Settings.IsSoundEnabled);
         m_screen.FrameBuffer.IsCrt = Settings.IsCrtEmulationEnabled;
     }
+
+    private string GetCaptureTitle()
+    {
+        var mountedDisk = m_mountedFloppyAFile?.Name;
+        if (!string.IsNullOrWhiteSpace(mountedDisk))
+            return mountedDisk;
+
+        var romPath = m_loadedRomFile?.Name ?? Settings.SelectedRomPath;
+        if (!string.IsNullOrWhiteSpace(romPath))
+            return romPath;
+
+        return AppTitle;
+    }
+
+    private string GetCaptureFilePrefix() =>
+        RomNameHelper.GetSafeFileBaseName(GetCaptureTitle(), AppTitle);
 
     private void OnMachineRunnerError(Exception exception)
     {
