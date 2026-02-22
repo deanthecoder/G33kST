@@ -71,13 +71,15 @@ public sealed class AtariST : IMachine
     private readonly InterruptAcknowledgeResult[][] m_pendingAcknowledgeByLevel = CreatePendingAcknowledgeStorage();
     private readonly int[] m_pendingAcknowledgeReadByLevel = new int[8];
     private readonly int[] m_pendingAcknowledgeCountByLevel = new int[8];
+    private readonly List<MousePacket> m_pendingMousePackets = [];
+    private readonly bool m_isJoystickMirroredToPort0;
+    private readonly double m_mouseInputTicksPerSample;
+    private readonly long m_cpuClockHz;
     private byte m_latchedInterruptLevel;
     private InterruptAcknowledgeResult m_latchedInterruptAcknowledge;
     private bool m_hasLatchedInterrupt;
     private bool m_isInputActive = true;
-    private readonly long m_cpuClockHz;
     private double m_mousePacketTicksPerSample;
-    private double m_mouseInputTicksPerSample;
     private long m_mfpTickRemainder;
     private double m_mousePacketTickAccumulator;
     private double m_mouseInputTickAccumulator;
@@ -91,7 +93,6 @@ public sealed class AtariST : IMachine
     private int m_mouseDownY = -1;
     private bool m_isLeftMouseButtonPressed;
     private bool m_isRightMouseButtonPressed;
-    private readonly List<MousePacket> m_pendingMousePackets = [];
     private bool m_isMousePacketCoalescingEnabled = true;
     private bool m_isMousePacketRateLimitEnabled;
     private bool m_isMouseInputSamplingEnabled;
@@ -101,7 +102,6 @@ public sealed class AtariST : IMachine
     private long m_droppedMousePacketsDueToIkbdBackPressureCount;
     private JoystickState m_joystickState;
     private AtariMonitorType m_monitorType;
-    private readonly bool m_isJoystickMirroredToPort0;
 
     public IMachineDescriptor Descriptor { get; } = new AtariSTDescriptor();
 
@@ -328,7 +328,6 @@ public sealed class AtariST : IMachine
 
     public void SetInputActive(bool isActive)
     {
-        var shouldReleaseJoystick = false;
         lock (m_mouseStateSync)
         {
             m_isInputActive = isActive;
@@ -337,12 +336,9 @@ public sealed class AtariST : IMachine
                 m_hasPendingHostMouseState = false;
                 m_mouseInputTickAccumulator = 0;
                 ApplyHostMouseStateNoLock(0, 0, false, false, false);
-                shouldReleaseJoystick = true;
             }
         }
-        if (isActive)
-            return;
-        if (shouldReleaseJoystick)
+        if (!isActive)
             UpdateJoystickState(JoystickState.Neutral);
     }
 
@@ -372,7 +368,7 @@ public sealed class AtariST : IMachine
     /// <summary>
     /// Clears queued host mouse packets awaiting IKBD cadence flush.
     /// </summary>
-    public void ClearMouseInputQueue()
+    private void ClearMouseInputQueue()
     {
         lock (m_mouseStateSync)
         {

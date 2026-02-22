@@ -67,7 +67,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private long m_lastSpeedSampleStopwatchTicks;
     private double m_smoothedSpeedPercent = 100.0;
     private string m_speedIndicatorText = "100%";
-    private static readonly string[] FloppyFileExtensions = [".st", ".zip"];
+    private static readonly string[] FloppyFileExtensions = [".st", ".stx", ".zip"];
     private static readonly string[] RomFileExtensions = [".img", ".rom", ".bin", ".zip"];
 
     public MainWindowViewModel()
@@ -311,7 +311,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     public void MountFloppyImage()
     {
-        var command = new FileOpenCommand("Mount Floppy Image", "Atari ST Floppy Images", ["*.st", "*.zip"]);
+        var command = new FileOpenCommand("Mount Floppy Image", "Atari ST Floppy Images", ["*.st", "*.stx", "*.zip"]);
         command.FileSelected += (_, info) => MountFloppyImageFromFile(info, addToMru: true);
         command.Execute(null);
     }
@@ -471,7 +471,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             return false;
         }
 
-        var (imageName, imageData) = FloppyImageLoader.ReadImageData(imageFile);
+        var loadedImage = FloppyImageLoader.ReadImage(imageFile);
+        var imageName = loadedImage.ImageName;
+        var imageData = loadedImage.ImageData;
         if (imageData == null || imageData.Length == 0)
         {
             Logger.Instance.Warn($"Unable to mount floppy image '{imageFile.FullName}': No supported floppy image data found.");
@@ -479,7 +481,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             {
                 DialogService.Instance.ShowMessage(
                     "Unable to mount floppy image.",
-                    $"The zip '{imageFile.Name}' does not contain a supported .st disk image.");
+                    $"The zip '{imageFile.Name}' does not contain a supported .st or .stx disk image.");
             }
             return false;
         }
@@ -496,8 +498,10 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             FloppyMru.Add(imageFile);
         NotifyFloppyIndicatorChanged();
 
-        Logger.Instance.Info(wasMounted ? $"Drive A: floppy image replaced with '{imageFile.Name}'." : $"Drive A: mounted floppy image '{imageFile.Name}'.");
-        Logger.Instance.Info($"Drive A image details: {imageSummary}.");
+        Logger.Instance.Info(wasMounted
+            ? $"Drive A: floppy image replaced with '{imageFile.Name}' ({loadedImage.FormatLabel})."
+            : $"Drive A: mounted floppy image '{imageFile.Name}' ({loadedImage.FormatLabel}).");
+        Logger.Instance.Info($"Drive A image details ({loadedImage.FormatLabel}): {imageSummary}.");
         return true;
     }
 
