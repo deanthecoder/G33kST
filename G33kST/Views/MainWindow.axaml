@@ -125,6 +125,18 @@
                         </MenuItem.Icon>
                     </MenuItem>
                     <Separator />
+                    <MenuItem Header="Video Timing">
+                        <MenuItem Header="NTSC (60 Hz)" Command="{Binding SetNtscVideoRegion}">
+                            <MenuItem.Icon>
+                                <icons:MaterialIcon Kind="Tick" IsVisible="{Binding !IsPalVideoRegion}" />
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="PAL (50 Hz)" Command="{Binding SetPalVideoRegion}">
+                            <MenuItem.Icon>
+                                <icons:MaterialIcon Kind="Tick" IsVisible="{Binding IsPalVideoRegion}" />
+                            </MenuItem.Icon>
+                        </MenuItem>
+                    </MenuItem>
                     <MenuItem Header="High Resolution Mono" Command="{Binding ToggleDisplayResolutionMode}">
                         <MenuItem.Icon>
                             <icons:MaterialIcon Kind="Tick" IsVisible="{Binding IsHighResolutionMode}" />

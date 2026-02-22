@@ -13,28 +13,52 @@ using DTC.Emulation;
 namespace DTC.AtariST;
 
 /// <summary>
-/// Provides machine characteristics for the Atari ST 1040 (NTSC).
+/// Provides machine characteristics for the Atari ST 1040 STFM.
 /// </summary>
 public sealed class AtariSTDescriptor : IMachineDescriptor
 {
-    // NTSC Atari ST runs at 8MHz (PAL runs at ~7.99MHz)
-    private const double NtscCpuHz = 8_000_000.0;
+    // Kept at 8 MHz for now. PAL/NTSC selection currently focuses on vertical timing.
+    private const double CpuClockHz = 8_000_000.0;
 
     // 60Hz NTSC vertical refresh
     private const double NtscVideoHz = 60.0;
+    private const double PalVideoHz = 50.0;
 
     // Standard audio sample rate
     private const int AudioSampleRate = 44100;
 
+    private AtariVideoRegion m_videoRegion;
+
+    public AtariSTDescriptor()
+        : this(AtariVideoRegion.Ntsc)
+    {
+    }
+
+    public AtariSTDescriptor(AtariVideoRegion videoRegion)
+    {
+        m_videoRegion = videoRegion;
+    }
+
     public string Name => "Atari ST 1040 STFM";
 
-    public double CpuHz => NtscCpuHz;
+    public double CpuHz => CpuClockHz;
 
-    public double VideoHz => NtscVideoHz;
+    public double VideoHz => m_videoRegion == AtariVideoRegion.Pal ? PalVideoHz : NtscVideoHz;
 
     public int AudioSampleRateHz => AudioSampleRate;
 
     public int FrameWidth => Shifter.DefaultFrameWidth;
 
     public int FrameHeight => Shifter.DefaultFrameHeight;
+
+    /// <summary>
+    /// Gets the currently selected video timing region.
+    /// </summary>
+    public AtariVideoRegion VideoRegion => m_videoRegion;
+
+    /// <summary>
+    /// Updates the video timing region used by the descriptor.
+    /// </summary>
+    public void SetVideoRegion(AtariVideoRegion videoRegion) =>
+        m_videoRegion = videoRegion;
 }

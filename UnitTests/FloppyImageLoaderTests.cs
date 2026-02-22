@@ -421,19 +421,7 @@ public sealed class FloppyImageLoaderTests
 
         return file;
     }
-
-    private static byte[] CreateSingleSidedBootSector()
-    {
-        return CreateBootSector(
-            totalSectors: 1,
-            sectorsPerTrack: 1,
-            sideCount: 1,
-            reservedSectors: 1,
-            fatCount: 2,
-            sectorsPerFat: 1,
-            rootEntryCount: 16);
-    }
-
+    
     private readonly record struct StxSectorSpec(byte Track, byte Side, byte SectorId, byte[] Data);
 
     private static byte[] CreateBootSector(int totalSectors, int sectorsPerTrack, int sideCount, int reservedSectors, int fatCount, int sectorsPerFat, int rootEntryCount)

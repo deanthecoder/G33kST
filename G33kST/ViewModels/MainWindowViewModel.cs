@@ -78,6 +78,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         {
             RamSizeBytes = AtariSTOptions.Default.RamSizeBytes,
             MonitorType = AtariSTOptions.Default.MonitorType,
+            VideoRegion = Settings.IsPalVideoRegion ? AtariVideoRegion.Pal : AtariVideoRegion.Ntsc,
             HasRealTimeClock = AtariSTOptions.Default.HasRealTimeClock,
             AccelerateFloppyAccess = AtariSTOptions.Default.AccelerateFloppyAccess,
             MirrorJoystickToPort0 = AtariSTOptions.Default.MirrorJoystickToPort0
@@ -170,6 +171,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public string SpeedIndicatorText => m_speedIndicatorText;
 
     public bool IsHighResolutionMode => m_machine.IsHighResolutionMode;
+
+    public bool IsPalVideoRegion => m_machine.VideoRegion == AtariVideoRegion.Pal;
 
     public bool IsJoystickInputEnabled { get; private set; }
 
@@ -367,6 +370,12 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             });
     }
 
+    public void SetNtscVideoRegion() =>
+        SetVideoRegion(AtariVideoRegion.Ntsc);
+
+    public void SetPalVideoRegion() =>
+        SetVideoRegion(AtariVideoRegion.Pal);
+
     public void ToggleJoystickInput()
     {
         IsJoystickInputEnabled = !IsJoystickInputEnabled;
@@ -393,6 +402,18 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         Logger.Instance.Info(
             $"Input queues: ikbdBytes={keyboardCount}, joyReplyBytes={joystickInterrogateReplyCount}, mousePackets={mouseCount}, " +
             $"kbdInjectedBytes={keyboardInjectedCount}, ikbdMouseBytes={ikbdMousePacketByteCount}, ikbdPeak={peakIkbdDepth}.");
+    }
+
+    private void SetVideoRegion(AtariVideoRegion targetRegion)
+    {
+        if (m_machine.VideoRegion == targetRegion)
+            return;
+
+        m_machine.SetVideoRegion(targetRegion);
+        Settings.IsPalVideoRegion = targetRegion == AtariVideoRegion.Pal;
+        ResetMachine();
+        OnPropertyChanged(nameof(IsPalVideoRegion));
+        Logger.Instance.Info($"Video timing switched to {targetRegion} ({m_machine.Descriptor.VideoHz:0} Hz).");
     }
 
     public void OpenLog()

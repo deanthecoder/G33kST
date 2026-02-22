@@ -32,6 +32,11 @@ public sealed class AtariSTOptions
     public AtariMonitorType MonitorType { get; init; } = AtariMonitorType.Color;
 
     /// <summary>
+    /// Selects PAL vs NTSC vertical timing used for VBL-driven software speed.
+    /// </summary>
+    public AtariVideoRegion VideoRegion { get; init; } = AtariVideoRegion.Ntsc;
+
+    /// <summary>
     /// Enables the Mega ST real-time clock window at $FFFC20-$FFFC3F.
     /// Keep this disabled for STFM.
     /// </summary>

@@ -46,7 +46,7 @@ public sealed class Shifter : IVideoSource
     private const uint PaletteBaseRegister = 0x00FF8240;
 
     private readonly Bus m_bus;
-    private readonly double m_ticksPerLine;
+    private double m_ticksPerLine;
     private readonly byte[] m_paletteR = new byte[16];
     private readonly byte[] m_paletteG = new byte[16];
     private readonly byte[] m_paletteB = new byte[16];
@@ -74,9 +74,7 @@ public sealed class Shifter : IVideoSource
     public Shifter(Bus bus, double cpuHz, double videoHz)
     {
         m_bus = bus ?? throw new ArgumentNullException(nameof(bus));
-        m_ticksPerLine = cpuHz / (videoHz * TotalRasterLines);
-        if (m_ticksPerLine <= 0)
-            throw new ArgumentOutOfRangeException(nameof(cpuHz), "Computed ticks-per-line must be positive.");
+        SetTiming(cpuHz, videoHz);
         m_frameBuffer = new FrameBuffer(DefaultFrameWidth, DefaultFrameHeight, BytesPerPixel);
         Reset();
     }
@@ -135,6 +133,19 @@ public sealed class Shifter : IVideoSource
             RenderLowResolutionScanline(0);
         else
             RenderFrameForNonLowResolutionModes(GetVideoMode());
+    }
+
+    /// <summary>
+    /// Updates raster timing so frame cadence follows the selected machine video region.
+    /// </summary>
+    /// <remarks>
+    /// This adjusts line timing only; raster-line totals remain the current pragmatic model.
+    /// </remarks>
+    public void SetTiming(double cpuHz, double videoHz)
+    {
+        m_ticksPerLine = cpuHz / (videoHz * TotalRasterLines);
+        if (m_ticksPerLine <= 0)
+            throw new ArgumentOutOfRangeException(nameof(cpuHz), "Computed ticks-per-line must be positive.");
     }
 
     /// <summary>

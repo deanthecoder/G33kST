@@ -66,6 +66,7 @@ public sealed class AtariST : IMachine
     private readonly SystemControlDevice m_systemControl;
     private readonly RtcDevice m_rtc;
     private readonly MfpDevice m_mfp;
+    private readonly AtariSTDescriptor m_descriptor;
     private readonly Lock m_mouseStateSync = new();
     private readonly List<PendingInterrupt> m_pendingInterrupts = new(MaxPendingInterrupts);
     private readonly InterruptAcknowledgeResult[][] m_pendingAcknowledgeByLevel = CreatePendingAcknowledgeStorage();
@@ -102,8 +103,8 @@ public sealed class AtariST : IMachine
     private long m_droppedMousePacketsDueToIkbdBackPressureCount;
     private JoystickState m_joystickState;
     private AtariMonitorType m_monitorType;
-
-    public IMachineDescriptor Descriptor { get; } = new AtariSTDescriptor();
+    private AtariVideoRegion m_videoRegion;
+    public IMachineDescriptor Descriptor => m_descriptor;
 
     public string Name => Descriptor.Name;
 
@@ -131,6 +132,11 @@ public sealed class AtariST : IMachine
     /// </summary>
     public bool IsHighResolutionMode => m_monitorType == AtariMonitorType.Monochrome;
 
+    /// <summary>
+    /// Gets the currently selected PAL/NTSC timing region.
+    /// </summary>
+    public AtariVideoRegion VideoRegion => m_videoRegion;
+
     public AtariST()
         : this(AtariSTOptions.Default)
     {
@@ -141,6 +147,8 @@ public sealed class AtariST : IMachine
         var options1 = options ?? AtariSTOptions.Default;
         ValidateOptions(options1);
         m_monitorType = options1.MonitorType;
+        m_videoRegion = options1.VideoRegion;
+        m_descriptor = new AtariSTDescriptor(m_videoRegion);
         m_isJoystickMirroredToPort0 = options1.MirrorJoystickToPort0;
         m_cpuClockHz = Math.Max(1, (long)Math.Round(Descriptor.CpuHz));
         m_mousePacketTicksPerSample = Math.Max(1.0, Descriptor.CpuHz / IkbdMousePacketHz);
@@ -253,6 +261,22 @@ public sealed class AtariST : IMachine
             m_joystickState = JoystickState.Neutral;
         }
         Cpu.Reset();
+    }
+
+    /// <summary>
+    /// Switches PAL/NTSC video timing used for VBL pacing and shifter frame cadence.
+    /// </summary>
+    /// <remarks>
+    /// Callers should reset the machine after changing this so software reinitializes timing assumptions.
+    /// </remarks>
+    public void SetVideoRegion(AtariVideoRegion videoRegion)
+    {
+        if (m_videoRegion == videoRegion)
+            return;
+
+        m_videoRegion = videoRegion;
+        m_descriptor.SetVideoRegion(videoRegion);
+        m_video.SetTiming(Descriptor.CpuHz, Descriptor.VideoHz);
     }
 
     public void LoadRom(byte[] romData, string romName)

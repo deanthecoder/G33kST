@@ -27,6 +27,7 @@ public sealed class Settings : UserSettingsBase
         IsSpeedIndicatorVisible = true;
         IsCpuHistoryTracked = false;
         IsCpuExceptionCaptureEnabled = false;
+        IsPalVideoRegion = false;
     }
 
     public bool IsSoundEnabled
@@ -74,6 +75,16 @@ public sealed class Settings : UserSettingsBase
     public string SelectedRomPath
     {
         get => Get<string>();
+        set => Set(value);
+    }
+
+    /// <summary>
+    /// Persists the selected machine video timing region.
+    /// False = NTSC (60 Hz), true = PAL (50 Hz).
+    /// </summary>
+    public bool IsPalVideoRegion
+    {
+        get => Get<bool>();
         set => Set(value);
     }
 }

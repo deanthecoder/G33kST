@@ -102,6 +102,44 @@ public sealed class AtariSTTests : TestsBase
     }
 
     [Test]
+    public void ConstructorShouldUseConfiguredPalVideoRegion()
+    {
+        var atariST = new AtariST(new AtariSTOptions
+        {
+            VideoRegion = AtariVideoRegion.Pal
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(atariST.VideoRegion, Is.EqualTo(AtariVideoRegion.Pal));
+            Assert.That(atariST.Descriptor.VideoHz, Is.EqualTo(50.0));
+        });
+    }
+
+    [Test]
+    public void SetVideoRegionShouldChangeFrameCadence()
+    {
+        var atariST = new AtariST();
+        var framesRendered = 0;
+        atariST.Video.FrameRendered += (_, _) => framesRendered++;
+
+        atariST.AdvanceDevices((long)atariST.Descriptor.CpuHz);
+        Assert.That(framesRendered, Is.EqualTo(60).Within(1));
+
+        framesRendered = 0;
+        atariST.SetVideoRegion(AtariVideoRegion.Pal);
+        atariST.Reset();
+
+        atariST.AdvanceDevices((long)atariST.Descriptor.CpuHz);
+        Assert.Multiple(() =>
+        {
+            Assert.That(atariST.VideoRegion, Is.EqualTo(AtariVideoRegion.Pal));
+            Assert.That(atariST.Descriptor.VideoHz, Is.EqualTo(50.0));
+            Assert.That(framesRendered, Is.EqualTo(50).Within(1));
+        });
+    }
+
+    [Test]
     public void ConstructorDefaultConfigShouldNotExposeRealTimeClockWindow()
     {
         var atariST = new AtariST();

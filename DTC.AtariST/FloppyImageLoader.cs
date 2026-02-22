@@ -323,9 +323,6 @@ public static class FloppyImageLoader
             return true;
 
         var sectorsPerCylinder = logicalSides * logicalSectorsPerTrack;
-        if (sectorsPerCylinder <= 0)
-            return true;
-
         var logicalTracks = (logicalTotalSectors + sectorsPerCylinder - 1) / sectorsPerCylinder;
         if (logicalTracks is <= 0 or > MaxTracks)
             return true;
