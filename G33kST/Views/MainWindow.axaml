@@ -37,7 +37,6 @@
     <Window.KeyBindings>
         <KeyBinding Command="{Binding ResetMachine}" Gesture="{OnPlatform 'ctrl+r', macOS='⌘+r'}" />
         <KeyBinding Command="{Binding HardResetMachine}" Gesture="{OnPlatform 'ctrl+shift+r', macOS='⌘+shift+r'}" />
-        <KeyBinding Command="{Binding OpenFile}" Gesture="{OnPlatform 'ctrl+shift+o', macOS='⌘+shift+o'}" />
         <KeyBinding Command="{Binding MountFloppyImage}" Gesture="{OnPlatform 'ctrl+o', macOS='⌘+o'}" />
         <KeyBinding Command="{Binding SaveScreenshotCommand}" Gesture="{OnPlatform 'ctrl+s', macOS='⌘+s'}" />
         <KeyBinding Command="{Binding ToggleRecordingCommand}" Gesture="{OnPlatform 'ctrl+m', macOS='⌘+m'}" />
@@ -49,65 +48,85 @@
         <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,*">
             <Menu>
                 <MenuItem Header="_File">
-                    <MenuItem Header="_Open..."
-                              Command="{Binding OpenFile}"
-                              InputGesture="{OnPlatform 'ctrl+shift+o', macOS='⌘+shift+o'}" />
-                    <MenuItem Header="Mount Floppy A..."
-                              Command="{Binding MountFloppyImage}"
-                              InputGesture="{OnPlatform 'ctrl+o', macOS='⌘+o'}" />
-                    <MenuItem Header="Mount Recent Floppy">
-                        <MenuItem Header="Empty" IsVisible="{Binding FloppyMru.IsEmpty}" IsEnabled="False" />
-                        <MenuItem Header="{Binding FloppyMru.Item1}" ToolTip.Tip="{Binding FloppyMru.Item1.FullName}" IsVisible="{Binding FloppyMru.Item1.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="1" />
-                        <MenuItem Header="{Binding FloppyMru.Item2}" ToolTip.Tip="{Binding FloppyMru.Item2.FullName}" IsVisible="{Binding FloppyMru.Item2.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="2" />
-                        <MenuItem Header="{Binding FloppyMru.Item3}" ToolTip.Tip="{Binding FloppyMru.Item3.FullName}" IsVisible="{Binding FloppyMru.Item3.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="3" />
-                        <MenuItem Header="{Binding FloppyMru.Item4}" ToolTip.Tip="{Binding FloppyMru.Item4.FullName}" IsVisible="{Binding FloppyMru.Item4.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="4" />
-                        <MenuItem Header="{Binding FloppyMru.Item5}" ToolTip.Tip="{Binding FloppyMru.Item5.FullName}" IsVisible="{Binding FloppyMru.Item5.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="5" />
-                        <MenuItem Header="{Binding FloppyMru.Item6}" ToolTip.Tip="{Binding FloppyMru.Item6.FullName}" IsVisible="{Binding FloppyMru.Item6.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="6" />
-                        <MenuItem Header="{Binding FloppyMru.Item7}" ToolTip.Tip="{Binding FloppyMru.Item7.FullName}" IsVisible="{Binding FloppyMru.Item7.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="7" />
-                        <MenuItem Header="{Binding FloppyMru.Item8}" ToolTip.Tip="{Binding FloppyMru.Item8.FullName}" IsVisible="{Binding FloppyMru.Item8.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="8" />
-                        <Separator />
-                        <MenuItem Header="Clear" Command="{Binding FloppyMru.Clear}" />
+                    <MenuItem Header="_Floppy">
+                        <MenuItem Header="Insert _Disk (A:)..."
+                                  Command="{Binding MountFloppyImage}"
+                                  InputGesture="{OnPlatform 'ctrl+o', macOS='⌘+o'}" />
+
+                        <MenuItem Header="_Recent Disks">
+                            <MenuItem Header="Empty" IsVisible="{Binding FloppyMru.IsEmpty}" IsEnabled="False" />
+                            <MenuItem Header="{Binding FloppyMru.Item1}" ToolTip.Tip="{Binding FloppyMru.Item1.FullName}" IsVisible="{Binding FloppyMru.Item1.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="1" />
+                            <MenuItem Header="{Binding FloppyMru.Item2}" ToolTip.Tip="{Binding FloppyMru.Item2.FullName}" IsVisible="{Binding FloppyMru.Item2.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="2" />
+                            <MenuItem Header="{Binding FloppyMru.Item3}" ToolTip.Tip="{Binding FloppyMru.Item3.FullName}" IsVisible="{Binding FloppyMru.Item3.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="3" />
+                            <MenuItem Header="{Binding FloppyMru.Item4}" ToolTip.Tip="{Binding FloppyMru.Item4.FullName}" IsVisible="{Binding FloppyMru.Item4.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="4" />
+                            <MenuItem Header="{Binding FloppyMru.Item5}" ToolTip.Tip="{Binding FloppyMru.Item5.FullName}" IsVisible="{Binding FloppyMru.Item5.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="5" />
+                            <MenuItem Header="{Binding FloppyMru.Item6}" ToolTip.Tip="{Binding FloppyMru.Item6.FullName}" IsVisible="{Binding FloppyMru.Item6.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="6" />
+                            <MenuItem Header="{Binding FloppyMru.Item7}" ToolTip.Tip="{Binding FloppyMru.Item7.FullName}" IsVisible="{Binding FloppyMru.Item7.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="7" />
+                            <MenuItem Header="{Binding FloppyMru.Item8}" ToolTip.Tip="{Binding FloppyMru.Item8.FullName}" IsVisible="{Binding FloppyMru.Item8.IsUsed}" Command="{Binding FloppyMru.Open}" CommandParameter="8" />
+                            <Separator />
+                            <MenuItem Header="Clear _Menu" Command="{Binding FloppyMru.Clear}" />
+                        </MenuItem>
                     </MenuItem>
-                    <MenuItem Header="_ROM">
-                        <MenuItem Header="Select _ROM Image..."
+
+                    <MenuItem Header="System _ROM">
+                        <MenuItem Header="Choose _TOS..."
                                   Command="{Binding SelectRomImage}"
                                   InputGesture="{OnPlatform 'ctrl+shift+o', macOS='⌘+shift+o'}" />
-                        <MenuItem Header="Use Bundled EmuTOS"
+                        <MenuItem Header="Use _Bundled EmuTOS"
                                   Command="{Binding UseBundledEmuTosRom}" />
                     </MenuItem>
+
                     <Separator />
-                    <MenuItem Header="_Snapshots">
-                        <MenuItem Header="_Open..."
+
+                    <MenuItem Header="Save _States">
+                        <MenuItem Header="_Load..."
                                   Command="{Binding OpenSnapshot}" />
                         <MenuItem Header="_Save..."
                                   Command="{Binding SaveSnapshot}" />
                     </MenuItem>
-                    <MenuItem Header="Save _Screenshot..."
-                              Command="{Binding SaveScreenshotCommand}"
-                              InputGesture="{OnPlatform 'ctrl+s', macOS='⌘+s'}" />
-                    <MenuItem Header="Start _Recording"
-                              Command="{Binding StartRecordingCommand}"
-                              InputGesture="{OnPlatform 'ctrl+m', macOS='⌘+m'}"
-                              IsEnabled="{Binding IsRecordingAvailable}"
-                              IsVisible="{Binding !IsRecording}" />
-                    <MenuItem Header="Stop _Recording..."
-                              Command="{Binding StopRecordingCommand}"
-                              InputGesture="{OnPlatform 'ctrl+m', macOS='⌘+m'}"
-                              IsVisible="{Binding IsRecording}" />
+
+                    <MenuItem Header="_Capture">
+                        <MenuItem Header="Save _Screenshot..."
+                                  Command="{Binding SaveScreenshotCommand}"
+                                  InputGesture="{OnPlatform 'ctrl+s', macOS='⌘+s'}" />
+                        <MenuItem Header="Start _Recording"
+                                  Command="{Binding StartRecordingCommand}"
+                                  InputGesture="{OnPlatform 'ctrl+m', macOS='⌘+m'}"
+                                  IsEnabled="{Binding IsRecordingAvailable}"
+                                  IsVisible="{Binding !IsRecording}" />
+                        <MenuItem Header="Stop _Recording..."
+                                  Command="{Binding StopRecordingCommand}"
+                                  InputGesture="{OnPlatform 'ctrl+m', macOS='⌘+m'}"
+                                  IsVisible="{Binding IsRecording}" />
+                    </MenuItem>
+
                     <Separator />
-                    <MenuItem Header="_Exit"
+
+                    <MenuItem Header="E_xit"
                               Command="{Binding CloseCommand}"
                               InputGesture="{OnPlatform 'ctrl+q', macOS='⌘+q'}" />
                 </MenuItem>
 
                 <MenuItem Header="_Emulation">
-                    <MenuItem Header="_Soft Reset"
+                    <MenuItem Header="_Reset"
                               Command="{Binding ResetMachine}"
                               InputGesture="{OnPlatform 'ctrl+r', macOS='⌘+r'}" />
-                    <MenuItem Header="_Hard Reset"
+                    <MenuItem Header="Hard _Reset"
                               Command="{Binding HardResetMachine}"
                               InputGesture="{OnPlatform 'ctrl+shift+r', macOS='⌘+shift+r'}" />
                     <Separator />
+                    <MenuItem Header="_Region">
+                        <MenuItem Header="NTSC (60 Hz)" Command="{Binding SetNtscVideoRegion}">
+                            <MenuItem.Icon>
+                                <icons:MaterialIcon Kind="Tick" IsVisible="{Binding !IsPalVideoRegion}" />
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="PAL (50 Hz)" Command="{Binding SetPalVideoRegion}">
+                            <MenuItem.Icon>
+                                <icons:MaterialIcon Kind="Tick" IsVisible="{Binding IsPalVideoRegion}" />
+                            </MenuItem.Icon>
+                        </MenuItem>
+                    </MenuItem>
                     <MenuItem Header="Input Experiments">
                         <MenuItem Header="Report Input Queue Sizes" Command="{Binding ReportInputQueueSizes}" />
                         <MenuItem Header="Clear Input Queues" Command="{Binding ClearInputQueues}" />
@@ -133,20 +152,7 @@
                             <icons:MaterialIcon Kind="Tick" IsVisible="{Binding Settings.IsSpeedIndicatorVisible}" />
                         </MenuItem.Icon>
                     </MenuItem>
-                    <Separator />
-                    <MenuItem Header="Video Timing">
-                        <MenuItem Header="NTSC (60 Hz)" Command="{Binding SetNtscVideoRegion}">
-                            <MenuItem.Icon>
-                                <icons:MaterialIcon Kind="Tick" IsVisible="{Binding !IsPalVideoRegion}" />
-                            </MenuItem.Icon>
-                        </MenuItem>
-                        <MenuItem Header="PAL (50 Hz)" Command="{Binding SetPalVideoRegion}">
-                            <MenuItem.Icon>
-                                <icons:MaterialIcon Kind="Tick" IsVisible="{Binding IsPalVideoRegion}" />
-                            </MenuItem.Icon>
-                        </MenuItem>
-                    </MenuItem>
-                    <MenuItem Header="High Resolution Mono" Command="{Binding ToggleDisplayResolutionMode}">
+                    <MenuItem Header="Monochrome (High Res)" Command="{Binding ToggleDisplayResolutionMode}">
                         <MenuItem.Icon>
                             <icons:MaterialIcon Kind="Tick" IsVisible="{Binding IsHighResolutionMode}" />
                         </MenuItem.Icon>
