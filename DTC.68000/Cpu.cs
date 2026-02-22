@@ -10,6 +10,7 @@
 
 using System.Runtime.CompilerServices;
 using DTC.Emulation;
+using DTC.Emulation.Snapshot;
 using DTC.M68000.Addressing;
 using DTC.M68000.Decoding;
 
@@ -90,6 +91,73 @@ public sealed class Cpu : CpuBase
         : base(bus)
     {
         Registers = new Registers();
+    }
+
+    public int GetStateSize() =>
+        sizeof(uint) + // magic
+        sizeof(ushort) + // version
+        sizeof(ushort) + // reserved
+        Registers.GetStateSize() +
+        sizeof(long) +
+        3 + // bool/bool/bool
+        sizeof(ushort) * 2 +
+        sizeof(uint) * 2 +
+        sizeof(byte);
+
+    public void SaveState(MachineState state)
+    {
+        if (state == null)
+            throw new ArgumentNullException(nameof(state));
+        if (state.Size != GetStateSize())
+            throw new InvalidOperationException($"State buffer size mismatch. Expected {GetStateSize()} bytes.");
+
+        var writer = state.CreateWriter();
+        writer.WriteUInt32(MachineState.Magic);
+        writer.WriteUInt16(MachineState.Version);
+        writer.WriteUInt16(0);
+        Registers.SaveState(ref writer);
+        writer.WriteInt64(CyclesSinceCpuStart);
+        writer.WriteBool(IsStopped);
+        writer.WriteBool(EnableTraceExceptions);
+        writer.WriteBool(m_hasPrefetch);
+        writer.WriteUInt16(m_prefetch0);
+        writer.WriteUInt16(m_prefetch1);
+        writer.WriteUInt32(m_stoppedResumeProgramCounter);
+        writer.WriteByte(m_pendingInterruptLevel);
+        writer.WriteUInt32(m_resetSupervisorStackPointer);
+        if (writer.Offset != state.Size)
+            throw new InvalidOperationException($"State buffer write size mismatch. Wrote {writer.Offset} bytes, expected {state.Size}.");
+    }
+
+    public void LoadState(MachineState state)
+    {
+        if (state == null)
+            throw new ArgumentNullException(nameof(state));
+        if (state.Size != GetStateSize())
+            throw new InvalidOperationException($"State buffer size mismatch. Expected {GetStateSize()} bytes.");
+
+        var reader = state.CreateReader();
+        var magic = reader.ReadUInt32();
+        if (magic != MachineState.Magic)
+            throw new InvalidOperationException("Invalid CPU state buffer (bad magic).");
+
+        var version = reader.ReadUInt16();
+        if (version != MachineState.Version)
+            throw new InvalidOperationException($"Unsupported CPU state version {version}.");
+
+        reader.ReadUInt16(); // reserved
+        Registers.LoadState(ref reader);
+        CyclesSinceCpuStart = reader.ReadInt64();
+        IsStopped = reader.ReadBool();
+        EnableTraceExceptions = reader.ReadBool();
+        m_hasPrefetch = reader.ReadBool();
+        m_prefetch0 = reader.ReadUInt16();
+        m_prefetch1 = reader.ReadUInt16();
+        m_stoppedResumeProgramCounter = reader.ReadUInt32();
+        m_pendingInterruptLevel = reader.ReadByte();
+        m_resetSupervisorStackPointer = reader.ReadUInt32();
+        if (reader.Offset != state.Size)
+            throw new InvalidOperationException("CPU state buffer read size mismatch.");
     }
 
     /// <summary>

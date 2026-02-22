@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using DTC.Emulation;
+using DTC.Emulation.Snapshot;
 
 namespace DTC.AtariST;
 
@@ -91,4 +92,12 @@ public sealed class RtcDevice : IMemDevice
         registerIndex = offset >> 1;
         return registerIndex is >= 0 and < RegisterCount;
     }
+
+    internal int GetStateSize() => m_registerNibbles.Length;
+
+    internal void SaveState(ref StateWriter writer) =>
+        writer.WriteBytes(m_registerNibbles);
+
+    internal void LoadState(ref StateReader reader) =>
+        reader.ReadBytes(m_registerNibbles);
 }

@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using DTC.Emulation;
+using DTC.Emulation.Snapshot;
 
 namespace DTC.AtariST;
 
@@ -1009,6 +1010,108 @@ public sealed class AciaIkbdDevice : IMemDevice
             0x06 => AciaRegister.MidiData,
             _ => AciaRegister.None
         };
+    }
+
+    internal int GetStateSize()
+    {
+        lock (m_stateSync)
+        {
+            return sizeof(int) + // queue count
+                   m_keyboardReceiveQueue.Count + // queue bytes
+                   m_keyboardReceiveKinds.Count + // queue kinds
+                   m_lastJoystickStateBytes.Length +
+                   m_pendingCommandParameters.Length +
+                   5 + // mode/state booleans
+                   sizeof(byte) * 3 + // pending command/mouse mode/kbd ctrl
+                   sizeof(int) * 8 + // pending counts + queued counters + peak
+                   5; // volatile bools
+        }
+    }
+
+    internal void SaveState(ref StateWriter writer)
+    {
+        lock (m_stateSync)
+        {
+            var queuedBytes = m_keyboardReceiveQueue.ToArray();
+            var queuedKinds = m_keyboardReceiveKinds.ToArray();
+            writer.WriteInt32(queuedBytes.Length);
+            writer.WriteBytes(queuedBytes);
+            for (var i = 0; i < queuedKinds.Length; i++)
+                writer.WriteByte((byte)queuedKinds[i]);
+
+            writer.WriteBytes(m_lastJoystickStateBytes);
+            writer.WriteBytes(m_pendingCommandParameters);
+            writer.WriteBool(m_mouseReportingEnabled);
+            writer.WriteBool(m_outputPaused);
+            writer.WriteBool(m_joystickEventModeEnabled);
+            writer.WriteBool(m_joystickMonitoringModeEnabled);
+            writer.WriteBool(m_joystickDisabled);
+            writer.WriteByte(m_pendingCommand);
+            writer.WriteInt32(m_pendingCommandParameterCount);
+            writer.WriteInt32(m_pendingCommandParameterIndex);
+            writer.WriteInt32(m_pendingMemoryLoadByteCount);
+            writer.WriteByte(m_mouseMode);
+            writer.WriteByte(m_keyboardControl);
+            writer.WriteBool(m_keyboardInterruptLineActive);
+            writer.WriteBool(m_keyboardInterruptReassertPending);
+            writer.WriteBool(m_hasDeferredAdvanceWork);
+            writer.WriteBool(m_isDeferredInterruptReassertEnabled);
+            writer.WriteBool(m_isJoystickInterrogateCoalescingEnabled);
+            writer.WriteInt32(m_queuedKeyboardInjectedByteCount);
+            writer.WriteInt32(m_queuedMousePacketByteCount);
+            writer.WriteInt32(m_queuedJoystickEventByteCount);
+            writer.WriteInt32(m_queuedJoystickInterrogateResponseByteCount);
+            writer.WriteInt32(m_peakReceiveQueueCount);
+        }
+    }
+
+    internal void LoadState(ref StateReader reader)
+    {
+        lock (m_stateSync)
+        {
+            var queueCount = reader.ReadInt32();
+            if (queueCount < 0)
+                throw new InvalidOperationException("Invalid IKBD state (negative queue count).");
+
+            var queuedBytes = new byte[queueCount];
+            var queuedKinds = new ReceiveByteKind[queueCount];
+            reader.ReadBytes(queuedBytes);
+            for (var i = 0; i < queueCount; i++)
+                queuedKinds[i] = (ReceiveByteKind)reader.ReadByte();
+
+            m_keyboardReceiveQueue.Clear();
+            m_keyboardReceiveKinds.Clear();
+            EnsureReceiveQueueScratchCapacity(queueCount);
+            for (var i = 0; i < queueCount; i++)
+            {
+                m_keyboardReceiveQueue.Enqueue(queuedBytes[i]);
+                m_keyboardReceiveKinds.Enqueue(queuedKinds[i]);
+            }
+
+            reader.ReadBytes(m_lastJoystickStateBytes);
+            reader.ReadBytes(m_pendingCommandParameters);
+            m_mouseReportingEnabled = reader.ReadBool();
+            m_outputPaused = reader.ReadBool();
+            m_joystickEventModeEnabled = reader.ReadBool();
+            m_joystickMonitoringModeEnabled = reader.ReadBool();
+            m_joystickDisabled = reader.ReadBool();
+            m_pendingCommand = reader.ReadByte();
+            m_pendingCommandParameterCount = reader.ReadInt32();
+            m_pendingCommandParameterIndex = reader.ReadInt32();
+            m_pendingMemoryLoadByteCount = reader.ReadInt32();
+            m_mouseMode = reader.ReadByte();
+            m_keyboardControl = reader.ReadByte();
+            m_keyboardInterruptLineActive = reader.ReadBool();
+            m_keyboardInterruptReassertPending = reader.ReadBool();
+            m_hasDeferredAdvanceWork = reader.ReadBool();
+            m_isDeferredInterruptReassertEnabled = reader.ReadBool();
+            m_isJoystickInterrogateCoalescingEnabled = reader.ReadBool();
+            m_queuedKeyboardInjectedByteCount = reader.ReadInt32();
+            m_queuedMousePacketByteCount = reader.ReadInt32();
+            m_queuedJoystickEventByteCount = reader.ReadInt32();
+            m_queuedJoystickInterrogateResponseByteCount = reader.ReadInt32();
+            m_peakReceiveQueueCount = reader.ReadInt32();
+        }
     }
 
     private enum AciaRegister

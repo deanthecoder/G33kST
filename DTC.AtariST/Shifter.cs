@@ -10,6 +10,7 @@
 
 using DTC.Emulation;
 using DTC.Core.Image;
+using DTC.Emulation.Snapshot;
 
 namespace DTC.AtariST;
 
@@ -480,4 +481,57 @@ public sealed class Shifter : IVideoSource
 
     private static byte ScaleThreeBitToEightBit(int value) =>
         (byte)(value * 255 / 7);
+
+    internal int GetStateSize() =>
+        sizeof(double) * 2 +
+        m_paletteR.Length + m_paletteG.Length + m_paletteB.Length +
+        3 + // last clear rgb
+        1 + // has last clear color
+        sizeof(int) * 5 + // raster line + geometry
+        m_frameBuffer.ByteLength;
+
+    internal void SaveState(ref StateWriter writer)
+    {
+        writer.WriteDouble(m_ticksPerLine);
+        writer.WriteDouble(m_lineTickAccumulator);
+        writer.WriteBytes(m_paletteR);
+        writer.WriteBytes(m_paletteG);
+        writer.WriteBytes(m_paletteB);
+        writer.WriteByte(m_lastClearRed);
+        writer.WriteByte(m_lastClearGreen);
+        writer.WriteByte(m_lastClearBlue);
+        writer.WriteBool(m_hasLastClearColor);
+        writer.WriteInt32(m_currentRasterLine);
+        writer.WriteInt32(ActiveWidth);
+        writer.WriteInt32(ActiveHeight);
+        writer.WriteInt32(ActiveOriginX);
+        writer.WriteInt32(ActiveOriginY);
+        writer.WriteBytes(m_frameBuffer.Data);
+    }
+
+    internal void LoadState(ref StateReader reader)
+    {
+        m_ticksPerLine = reader.ReadDouble();
+        m_lineTickAccumulator = reader.ReadDouble();
+        reader.ReadBytes(m_paletteR);
+        reader.ReadBytes(m_paletteG);
+        reader.ReadBytes(m_paletteB);
+        m_lastClearRed = reader.ReadByte();
+        m_lastClearGreen = reader.ReadByte();
+        m_lastClearBlue = reader.ReadByte();
+        m_hasLastClearColor = reader.ReadBool();
+        m_currentRasterLine = reader.ReadInt32();
+        var activeWidth = reader.ReadInt32();
+        var activeHeight = reader.ReadInt32();
+        var activeOriginX = reader.ReadInt32();
+        var activeOriginY = reader.ReadInt32();
+        var frameWidth = Math.Max(1, activeWidth + activeOriginX * 2);
+        var frameHeight = Math.Max(1, activeHeight + activeOriginY * 2);
+        m_frameBuffer.Resize(frameWidth, frameHeight, BytesPerPixel);
+        ActiveWidth = activeWidth;
+        ActiveHeight = activeHeight;
+        ActiveOriginX = activeOriginX;
+        ActiveOriginY = activeOriginY;
+        reader.ReadBytes(m_frameBuffer.Data);
+    }
 }

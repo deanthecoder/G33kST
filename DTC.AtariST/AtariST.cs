@@ -10,6 +10,7 @@
 
 using DTC.Emulation;
 using DTC.Emulation.Devices;
+using DTC.Emulation.Snapshot;
 using DTC.M68000;
 
 namespace DTC.AtariST;
@@ -17,7 +18,7 @@ namespace DTC.AtariST;
 /// <summary>
 /// Wires together Atari ST-specific devices into a single emulated machine.
 /// </summary>
-public sealed class AtariST : IMachine
+public sealed class AtariST : IMachine, IMachineSnapshotter
 {
     // Atari ST memory map:
     // $000000-$007FFF: ROM (first 32KB, typically for TOS)
@@ -117,7 +118,7 @@ public sealed class AtariST : IMachine
 
     public IAudioSource Audio => m_psg;
 
-    public IMachineSnapshotter Snapshotter => null;
+    public IMachineSnapshotter Snapshotter => this;
 
     public Cpu Cpu { get; }
 
@@ -673,6 +674,298 @@ public sealed class AtariST : IMachine
     /// </summary>
     public IReadOnlyList<string> GetRecentFloppyTraceLines(int maxLines) =>
         m_floppyController.GetRecentTraceLines(maxLines);
+
+    int IMachineSnapshotter.GetStateSize() =>
+        GetSnapshotStateSize();
+
+    void IMachineSnapshotter.Save(MachineState state, Span<byte> frameBuffer)
+    {
+        if (state == null)
+            throw new ArgumentNullException(nameof(state));
+        if (state.Size != GetSnapshotStateSize())
+            throw new InvalidOperationException($"State buffer size mismatch. Expected {GetSnapshotStateSize()} bytes.");
+
+        var writer = state.CreateWriter();
+        WriteSnapshotState(ref writer);
+        if (writer.Offset != state.Size)
+            throw new InvalidOperationException($"State buffer write size mismatch. Wrote {writer.Offset} bytes, expected {state.Size}.");
+
+        m_video.CopyToFrameBuffer(frameBuffer);
+    }
+
+    void IMachineSnapshotter.Load(MachineState state)
+    {
+        if (state == null)
+            throw new ArgumentNullException(nameof(state));
+
+        var reader = state.CreateReader();
+        ReadSnapshotState(ref reader);
+        if (reader.Offset != state.Size)
+            throw new InvalidOperationException("State buffer read size mismatch.");
+    }
+
+    private int GetSnapshotStateSize()
+    {
+        var size =
+            sizeof(uint) + // magic
+            sizeof(ushort) + // version
+            sizeof(ushort) + // machine version
+            1 + // rtc-present flag
+            (Cpu?.GetStateSize() ?? 0) +
+            Ram.GetStateSize() +
+            m_systemControl.GetStateSize() +
+            m_aciaIkbd.GetStateSize() +
+            m_shifterRegisters.GetStateSize() +
+            m_psg.GetStateSize() +
+            m_floppyController.GetStateSize() +
+            m_mfp.GetStateSize() +
+            m_video.GetStateSize() +
+            (m_rtc?.GetStateSize() ?? 0) +
+            1114; // machine scalar state + pending-ack ring storage (excluding dynamic queues).
+
+        size += m_pendingInterrupts.Count * 3;
+
+        lock (m_mouseStateSync)
+            size += 86 + m_pendingMousePackets.Count * 4;
+
+        return size;
+    }
+
+    private void WriteSnapshotState(ref StateWriter writer)
+    {
+        const ushort snapshotVersion = 1;
+        writer.WriteUInt32(MachineState.Magic);
+        writer.WriteUInt16(MachineState.Version);
+        writer.WriteUInt16(snapshotVersion);
+        writer.WriteBool(m_rtc != null);
+
+        // Machine-level orchestration state first to avoid lock-order inversions with device locks.
+        writer.WriteByte(m_latchedInterruptLevel);
+        WriteInterruptAcknowledge(ref writer, m_latchedInterruptAcknowledge);
+        writer.WriteBool(m_hasLatchedInterrupt);
+        writer.WriteDouble(m_mousePacketTicksPerSample);
+        writer.WriteInt64(m_mfpTickRemainder);
+        writer.WriteByte((byte)m_monitorType);
+        writer.WriteByte((byte)m_videoRegion);
+
+        writer.WriteInt32(m_pendingInterrupts.Count);
+        foreach (var pending in m_pendingInterrupts)
+        {
+            writer.WriteByte(pending.Level);
+            WriteInterruptAcknowledge(ref writer, pending.AcknowledgeResult);
+        }
+
+        for (var level = 0; level < m_pendingAcknowledgeByLevel.Length; level++)
+        {
+            writer.WriteInt32(m_pendingAcknowledgeReadByLevel[level]);
+            writer.WriteInt32(m_pendingAcknowledgeCountByLevel[level]);
+            var entries = m_pendingAcknowledgeByLevel[level];
+            for (var i = 0; i < entries.Length; i++)
+                WriteInterruptAcknowledge(ref writer, entries[i]);
+        }
+
+        lock (m_mouseStateSync)
+        {
+            writer.WriteBool(m_isInputActive);
+            writer.WriteDouble(m_mousePacketTickAccumulator);
+            writer.WriteDouble(m_mouseInputTickAccumulator);
+            writer.WriteBool(m_wasMouseActive);
+            writer.WriteInt32(m_lastMouseX);
+            writer.WriteInt32(m_lastMouseY);
+            writer.WriteInt32(m_estimatedMouseX);
+            writer.WriteInt32(m_estimatedMouseY);
+            writer.WriteBool(m_isMouseDragPending);
+            writer.WriteInt32(m_mouseDownX);
+            writer.WriteInt32(m_mouseDownY);
+            writer.WriteBool(m_isLeftMouseButtonPressed);
+            writer.WriteBool(m_isRightMouseButtonPressed);
+            writer.WriteBool(m_isMousePacketCoalescingEnabled);
+            writer.WriteBool(m_isMousePacketRateLimitEnabled);
+            writer.WriteBool(m_isMouseInputSamplingEnabled);
+            writer.WriteBool(m_isIkbdMouseBackPressureEnabled);
+            writer.WriteBool(m_hasPendingHostMouseState);
+            writer.WriteDouble(m_pendingHostMouseState.NormalizedX);
+            writer.WriteDouble(m_pendingHostMouseState.NormalizedY);
+            writer.WriteBool(m_pendingHostMouseState.IsLeftButtonPressed);
+            writer.WriteBool(m_pendingHostMouseState.IsRightButtonPressed);
+            writer.WriteBool(m_pendingHostMouseState.IsPointerWithinDisplay);
+            writer.WriteInt64(m_droppedMousePacketsDueToIkbdBackPressureCount);
+            WriteJoystickState(ref writer, m_joystickState);
+            writer.WriteInt32(m_pendingMousePackets.Count);
+            foreach (var packet in m_pendingMousePackets)
+                WriteMousePacket(ref writer, packet);
+        }
+
+        // CPU state.
+        var cpuState = new MachineState(Cpu.GetStateSize());
+        Cpu.SaveState(cpuState);
+        var cpuBytes = new byte[cpuState.Size];
+        var cpuReader = cpuState.CreateReader();
+        cpuReader.ReadBytes(cpuBytes);
+        writer.WriteBytes(cpuBytes);
+
+        // Device state.
+        Ram.SaveState(ref writer);
+        m_systemControl.SaveState(ref writer);
+        m_aciaIkbd.SaveState(ref writer);
+        m_shifterRegisters.SaveState(ref writer);
+        m_psg.SaveState(ref writer);
+        m_floppyController.SaveState(ref writer);
+        m_mfp.SaveState(ref writer);
+        m_video.SaveState(ref writer);
+        if (m_rtc != null)
+            m_rtc.SaveState(ref writer);
+    }
+
+    private void ReadSnapshotState(ref StateReader reader)
+    {
+        const ushort snapshotVersion = 1;
+        var magic = reader.ReadUInt32();
+        if (magic != MachineState.Magic)
+            throw new InvalidOperationException("Invalid Atari ST state buffer (bad magic).");
+
+        var version = reader.ReadUInt16();
+        if (version != MachineState.Version)
+            throw new InvalidOperationException($"Unsupported Atari ST state version {version}.");
+
+        var machineVersion = reader.ReadUInt16();
+        if (machineVersion != snapshotVersion)
+            throw new InvalidOperationException($"Unsupported Atari ST snapshot layout version {machineVersion}.");
+
+        var stateHasRtc = reader.ReadBool();
+        if (stateHasRtc != (m_rtc != null))
+            throw new InvalidOperationException("Snapshot RTC configuration does not match the current machine.");
+
+        m_latchedInterruptLevel = reader.ReadByte();
+        m_latchedInterruptAcknowledge = ReadInterruptAcknowledge(ref reader);
+        m_hasLatchedInterrupt = reader.ReadBool();
+        m_mousePacketTicksPerSample = reader.ReadDouble();
+        m_mfpTickRemainder = reader.ReadInt64();
+        m_monitorType = (AtariMonitorType)reader.ReadByte();
+        m_videoRegion = (AtariVideoRegion)reader.ReadByte();
+        m_descriptor.SetVideoRegion(m_videoRegion);
+
+        var pendingInterruptCount = reader.ReadInt32();
+        if (pendingInterruptCount < 0 || pendingInterruptCount > MaxPendingInterrupts)
+            throw new InvalidOperationException("Snapshot pending interrupt queue is invalid.");
+        m_pendingInterrupts.Clear();
+        for (var i = 0; i < pendingInterruptCount; i++)
+            m_pendingInterrupts.Add(new PendingInterrupt(reader.ReadByte(), ReadInterruptAcknowledge(ref reader)));
+
+        for (var level = 0; level < m_pendingAcknowledgeByLevel.Length; level++)
+        {
+            m_pendingAcknowledgeReadByLevel[level] = reader.ReadInt32();
+            m_pendingAcknowledgeCountByLevel[level] = reader.ReadInt32();
+            var entries = m_pendingAcknowledgeByLevel[level];
+            for (var i = 0; i < entries.Length; i++)
+                entries[i] = ReadInterruptAcknowledge(ref reader);
+        }
+
+        lock (m_mouseStateSync)
+        {
+            m_isInputActive = reader.ReadBool();
+            m_mousePacketTickAccumulator = reader.ReadDouble();
+            m_mouseInputTickAccumulator = reader.ReadDouble();
+            m_wasMouseActive = reader.ReadBool();
+            m_lastMouseX = reader.ReadInt32();
+            m_lastMouseY = reader.ReadInt32();
+            m_estimatedMouseX = reader.ReadInt32();
+            m_estimatedMouseY = reader.ReadInt32();
+            m_isMouseDragPending = reader.ReadBool();
+            m_mouseDownX = reader.ReadInt32();
+            m_mouseDownY = reader.ReadInt32();
+            m_isLeftMouseButtonPressed = reader.ReadBool();
+            m_isRightMouseButtonPressed = reader.ReadBool();
+            m_isMousePacketCoalescingEnabled = reader.ReadBool();
+            m_isMousePacketRateLimitEnabled = reader.ReadBool();
+            m_isMouseInputSamplingEnabled = reader.ReadBool();
+            m_isIkbdMouseBackPressureEnabled = reader.ReadBool();
+            m_hasPendingHostMouseState = reader.ReadBool();
+            m_pendingHostMouseState = new HostMouseState(
+                reader.ReadDouble(),
+                reader.ReadDouble(),
+                reader.ReadBool(),
+                reader.ReadBool(),
+                reader.ReadBool());
+            m_droppedMousePacketsDueToIkbdBackPressureCount = reader.ReadInt64();
+            m_joystickState = ReadJoystickState(ref reader);
+            var pendingMousePacketCount = reader.ReadInt32();
+            if (pendingMousePacketCount < 0 || pendingMousePacketCount > MaxQueuedMousePackets)
+                throw new InvalidOperationException("Snapshot mouse packet queue is invalid.");
+            m_pendingMousePackets.Clear();
+            for (var i = 0; i < pendingMousePacketCount; i++)
+                m_pendingMousePackets.Add(ReadMousePacket(ref reader));
+        }
+
+        var cpuStateBytes = new byte[Cpu.GetStateSize()];
+        reader.ReadBytes(cpuStateBytes);
+        var cpuState = new MachineState(cpuStateBytes.Length);
+        var cpuWriter = cpuState.CreateWriter();
+        cpuWriter.WriteBytes(cpuStateBytes);
+        Cpu.LoadState(cpuState);
+
+        Ram.LoadState(ref reader);
+        m_systemControl.LoadState(ref reader);
+        m_aciaIkbd.LoadState(ref reader);
+        m_shifterRegisters.LoadState(ref reader);
+        m_psg.LoadState(ref reader);
+        m_floppyController.LoadState(ref reader);
+        m_mfp.LoadState(ref reader);
+        m_video.LoadState(ref reader);
+        if (m_rtc != null)
+            m_rtc.LoadState(ref reader);
+    }
+
+    private static void WriteInterruptAcknowledge(ref StateWriter writer, InterruptAcknowledgeResult value)
+    {
+        writer.WriteByte((byte)value.Type);
+        writer.WriteByte(value.VectorNumber);
+    }
+
+    private static InterruptAcknowledgeResult ReadInterruptAcknowledge(ref StateReader reader)
+    {
+        var type = (InterruptAcknowledgeType)reader.ReadByte();
+        var vectorNumber = reader.ReadByte();
+        return type switch
+        {
+            InterruptAcknowledgeType.Autovector => InterruptAcknowledgeResult.Autovector(),
+            InterruptAcknowledgeType.Spurious => InterruptAcknowledgeResult.Spurious(),
+            InterruptAcknowledgeType.VectorNumber => InterruptAcknowledgeResult.Vector(vectorNumber),
+            _ => throw new InvalidOperationException($"Invalid interrupt acknowledge type {type}.")
+        };
+    }
+
+    private static void WriteJoystickState(ref StateWriter writer, JoystickState state)
+    {
+        writer.WriteBool(state.IsUpPressed);
+        writer.WriteBool(state.IsDownPressed);
+        writer.WriteBool(state.IsLeftPressed);
+        writer.WriteBool(state.IsRightPressed);
+        writer.WriteBool(state.IsFirePressed);
+    }
+
+    private static JoystickState ReadJoystickState(ref StateReader reader) =>
+        new(
+            reader.ReadBool(),
+            reader.ReadBool(),
+            reader.ReadBool(),
+            reader.ReadBool(),
+            reader.ReadBool());
+
+    private static void WriteMousePacket(ref StateWriter writer, MousePacket packet)
+    {
+        writer.WriteByte((byte)packet.DeltaX);
+        writer.WriteByte((byte)packet.DeltaY);
+        writer.WriteBool(packet.IsLeftButtonPressed);
+        writer.WriteBool(packet.IsRightButtonPressed);
+    }
+
+    private static MousePacket ReadMousePacket(ref StateReader reader) =>
+        new(
+            unchecked((sbyte)reader.ReadByte()),
+            unchecked((sbyte)reader.ReadByte()),
+            reader.ReadBool(),
+            reader.ReadBool());
 
     /// <summary>
     /// Updates host mouse state and translates it into IKBD relative mouse packets.

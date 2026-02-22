@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using DTC.Emulation;
+using DTC.Emulation.Snapshot;
 
 namespace DTC.AtariST;
 
@@ -419,5 +420,41 @@ public sealed class MfpDevice : IMemDevice
         }
 
         return 0;
+    }
+
+    internal int GetStateSize() =>
+        m_registers.Length +
+        sizeof(int) * 6 +
+        2 +
+        sizeof(byte) * 2;
+
+    internal void SaveState(ref StateWriter writer)
+    {
+        writer.WriteBytes(m_registers);
+        writer.WriteInt32(m_timerCCurrent);
+        writer.WriteInt32(m_timerDCurrent);
+        writer.WriteInt32(m_timerBCurrent);
+        writer.WriteInt32(m_timerCAccumulator);
+        writer.WriteInt32(m_timerDAccumulator);
+        writer.WriteInt32(m_timerBAccumulator);
+        writer.WriteBool(m_aciaInterruptLineActiveLow);
+        writer.WriteBool(m_floppyInterruptLineActiveLow);
+        writer.WriteByte(m_gpipInputState);
+        writer.WriteByte(m_gpipOutputLatch);
+    }
+
+    internal void LoadState(ref StateReader reader)
+    {
+        reader.ReadBytes(m_registers);
+        m_timerCCurrent = reader.ReadInt32();
+        m_timerDCurrent = reader.ReadInt32();
+        m_timerBCurrent = reader.ReadInt32();
+        m_timerCAccumulator = reader.ReadInt32();
+        m_timerDAccumulator = reader.ReadInt32();
+        m_timerBAccumulator = reader.ReadInt32();
+        m_aciaInterruptLineActiveLow = reader.ReadBool();
+        m_floppyInterruptLineActiveLow = reader.ReadBool();
+        m_gpipInputState = reader.ReadByte();
+        m_gpipOutputLatch = reader.ReadByte();
     }
 }

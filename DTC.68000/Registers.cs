@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using System.Text;
+using DTC.Emulation.Snapshot;
 
 namespace DTC.M68000;
 
@@ -282,5 +283,34 @@ public sealed class Registers
     {
         if (index < 0 || index > 7)
             throw new ArgumentOutOfRangeException(paramName);
+    }
+
+    internal int GetStateSize() =>
+        (m_d.Length + m_a.Length) * sizeof(uint) +
+        sizeof(ushort) +
+        sizeof(uint) * 3;
+
+    internal void SaveState(ref StateWriter writer)
+    {
+        for (var i = 0; i < m_d.Length; i++)
+            writer.WriteUInt32(m_d[i]);
+        for (var i = 0; i < m_a.Length; i++)
+            writer.WriteUInt32(m_a[i]);
+        writer.WriteUInt16(m_statusRegister);
+        writer.WriteUInt32(UserStackPointer);
+        writer.WriteUInt32(SupervisorStackPointer);
+        writer.WriteUInt32(ProgramCounter);
+    }
+
+    internal void LoadState(ref StateReader reader)
+    {
+        for (var i = 0; i < m_d.Length; i++)
+            m_d[i] = reader.ReadUInt32();
+        for (var i = 0; i < m_a.Length; i++)
+            m_a[i] = reader.ReadUInt32();
+        m_statusRegister = reader.ReadUInt16();
+        UserStackPointer = reader.ReadUInt32();
+        SupervisorStackPointer = reader.ReadUInt32();
+        ProgramCounter = reader.ReadUInt32();
     }
 }

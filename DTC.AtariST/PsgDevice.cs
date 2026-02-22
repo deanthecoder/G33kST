@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using DTC.Emulation;
+using DTC.Emulation.Snapshot;
 
 namespace DTC.AtariST;
 
@@ -105,6 +106,8 @@ public sealed class PsgDevice : IMemDevice, IAudioSource
     /// Raised when PSG port-A output value changes.
     /// </summary>
     public event Action<byte> PortAChanged;
+
+    internal byte PortAValue => m_registers[PortARegister];
 
     /// <summary>
     /// Resets PSG registers and synthesis state.
@@ -391,5 +394,53 @@ public sealed class PsgDevice : IMemDevice, IAudioSource
         m_noiseShiftRegister = (m_noiseShiftRegister >> 1) | (feedback << 16);
         if (m_noiseShiftRegister == 0)
             m_noiseShiftRegister = NoiseShiftRegisterSeed;
+    }
+
+    internal int GetStateSize() =>
+        m_registers.Length +
+        m_channelEnabled.Length +
+        m_toneOutputHigh.Length +
+        sizeof(double) * (m_toneCounterTicks.Length + m_toneHighFraction.Length) +
+        sizeof(double) * 3 +
+        sizeof(uint) +
+        sizeof(int) +
+        sizeof(byte);
+
+    internal void SaveState(ref StateWriter writer)
+    {
+        writer.WriteBytes(m_registers);
+        for (var i = 0; i < m_channelEnabled.Length; i++)
+            writer.WriteBool(m_channelEnabled[i]);
+        for (var i = 0; i < m_toneOutputHigh.Length; i++)
+            writer.WriteBool(m_toneOutputHigh[i]);
+        for (var i = 0; i < m_toneCounterTicks.Length; i++)
+            writer.WriteDouble(m_toneCounterTicks[i]);
+        for (var i = 0; i < m_toneHighFraction.Length; i++)
+            writer.WriteDouble(m_toneHighFraction[i]);
+        writer.WriteDouble(m_ticksUntilNextSample);
+        writer.WriteDouble(m_noiseCounterTicks);
+        writer.WriteUInt32(m_noiseShiftRegister);
+        writer.WriteDouble(m_envelopeCounterTicks);
+        writer.WriteInt32(m_envelopePosition);
+        writer.WriteByte(m_selectedRegister);
+    }
+
+    internal void LoadState(ref StateReader reader)
+    {
+        reader.ReadBytes(m_registers);
+        for (var i = 0; i < m_channelEnabled.Length; i++)
+            m_channelEnabled[i] = reader.ReadBool();
+        for (var i = 0; i < m_toneOutputHigh.Length; i++)
+            m_toneOutputHigh[i] = reader.ReadBool();
+        for (var i = 0; i < m_toneCounterTicks.Length; i++)
+            m_toneCounterTicks[i] = reader.ReadDouble();
+        for (var i = 0; i < m_toneHighFraction.Length; i++)
+            m_toneHighFraction[i] = reader.ReadDouble();
+        m_ticksUntilNextSample = reader.ReadDouble();
+        m_noiseCounterTicks = reader.ReadDouble();
+        m_noiseShiftRegister = reader.ReadUInt32();
+        m_envelopeCounterTicks = reader.ReadDouble();
+        m_envelopePosition = reader.ReadInt32();
+        m_selectedRegister = reader.ReadByte();
     }
 }

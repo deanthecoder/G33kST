@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using DTC.Emulation;
+using DTC.Emulation.Snapshot;
 
 namespace DTC.AtariST;
 
@@ -54,4 +55,12 @@ public sealed class ShifterRegistersDevice : IMemDevice
             return;
         m_registers[index] = value;
     }
+
+    internal int GetStateSize() => m_registers.Length;
+
+    internal void SaveState(ref StateWriter writer) =>
+        writer.WriteBytes(m_registers);
+
+    internal void LoadState(ref StateReader reader) =>
+        reader.ReadBytes(m_registers);
 }

@@ -8,8 +8,9 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
-using DTC.Emulation;
 using System.Runtime.CompilerServices;
+using DTC.Emulation;
+using DTC.Emulation.Snapshot;
 
 namespace DTC.AtariST;
 
@@ -1099,6 +1100,100 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
         m_interruptLineIsActiveLow = activeLow;
         AddTraceLine(activeLow ? "IRQ line asserted (active low)." : "IRQ line cleared.");
         InterruptLineChanged?.Invoke(activeLow);
+    }
+
+    internal int GetStateSize()
+    {
+        lock (m_stateLock)
+        {
+            return m_writeProtectedByDrive.Length +
+                   sizeof(ushort) +
+                   sizeof(byte) * 11 +
+                   sizeof(ushort) * 4 +
+                   sizeof(uint) * 2 +
+                   sizeof(int) +
+                   6 + // bools
+                   sizeof(long) +
+                   sizeof(byte) +
+                   1;
+        }
+    }
+
+    internal void SaveState(ref StateWriter writer)
+    {
+        lock (m_stateLock)
+        {
+            for (var i = 0; i < m_writeProtectedByDrive.Length; i++)
+                writer.WriteBool(m_writeProtectedByDrive[i]);
+            writer.WriteUInt16(m_controlRegister);
+            writer.WriteByte(m_dataHighByte);
+            writer.WriteByte(m_controlHighByte);
+            writer.WriteByte(m_fdcStatusRegister);
+            writer.WriteByte(m_fdcTrackRegister);
+            writer.WriteByte(m_fdcSectorRegister);
+            writer.WriteByte(m_fdcDataRegister);
+            writer.WriteByte(m_modeControlRegister);
+            writer.WriteByte(m_sectorCountRegister);
+            writer.WriteByte(m_dmaStatusBits);
+            writer.WriteByte(m_lastCommand);
+            writer.WriteByte(m_lastStatusWord);
+            writer.WriteUInt16(m_recentDataRegisterValue);
+            writer.WriteUInt16(m_lastDmaStatusWord);
+            writer.WriteUInt16(m_dataReadLatch);
+            writer.WriteBool(m_hasDataReadLatch);
+            writer.WriteUInt16(m_statusReadLatch);
+            writer.WriteBool(m_hasStatusReadLatch);
+            writer.WriteUInt32(m_dmaAddressRegister);
+            writer.WriteUInt32(m_dmaAddressLimitExclusive);
+            writer.WriteByte(m_selectedSide);
+            writer.WriteInt32(m_selectedDrive);
+            writer.WriteBool(m_interruptLineIsActiveLow);
+            writer.WriteBool(m_statusWordRepresentsTypeI);
+            writer.WriteBool(m_hasPendingCompletion);
+            writer.WriteInt64(m_pendingCompletionTicks);
+            writer.WriteByte(m_pendingCompletionStatus);
+            writer.WriteBool(m_pendingCompletionHasDmaError);
+        }
+    }
+
+    internal void LoadState(ref StateReader reader)
+    {
+        lock (m_stateLock)
+        {
+            for (var i = 0; i < m_writeProtectedByDrive.Length; i++)
+                m_writeProtectedByDrive[i] = reader.ReadBool();
+            m_controlRegister = reader.ReadUInt16();
+            m_dataHighByte = reader.ReadByte();
+            m_controlHighByte = reader.ReadByte();
+            m_fdcStatusRegister = reader.ReadByte();
+            m_fdcTrackRegister = reader.ReadByte();
+            m_fdcSectorRegister = reader.ReadByte();
+            m_fdcDataRegister = reader.ReadByte();
+            m_modeControlRegister = reader.ReadByte();
+            m_sectorCountRegister = reader.ReadByte();
+            m_dmaStatusBits = reader.ReadByte();
+            m_lastCommand = reader.ReadByte();
+            m_lastStatusWord = reader.ReadByte();
+            m_recentDataRegisterValue = reader.ReadUInt16();
+            m_lastDmaStatusWord = reader.ReadUInt16();
+            m_dataReadLatch = reader.ReadUInt16();
+            m_hasDataReadLatch = reader.ReadBool();
+            m_statusReadLatch = reader.ReadUInt16();
+            m_hasStatusReadLatch = reader.ReadBool();
+            m_dmaAddressRegister = reader.ReadUInt32();
+            m_dmaAddressLimitExclusive = reader.ReadUInt32();
+            m_selectedSide = reader.ReadByte();
+            m_selectedDrive = reader.ReadInt32();
+            m_interruptLineIsActiveLow = reader.ReadBool();
+            m_statusWordRepresentsTypeI = reader.ReadBool();
+            m_hasPendingCompletion = reader.ReadBool();
+            m_pendingCompletionTicks = reader.ReadInt64();
+            m_pendingCompletionStatus = reader.ReadByte();
+            m_pendingCompletionHasDmaError = reader.ReadBool();
+            m_pendingCompletionDetail = string.Empty;
+            m_lastTraceLine = string.Empty;
+            m_traceLines.Clear();
+        }
     }
 
     [InterpolatedStringHandler]

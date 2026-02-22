@@ -27,6 +27,7 @@ using DTC.Emulation.Audio;
 using DTC.Emulation.Debuggers;
 using DTC.Emulation.Recording;
 using DTC.M68000;
+using G33kST.Snapshot;
 
 namespace G33kST.ViewModels;
 
@@ -44,6 +45,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private const double SpeedIndicatorSmoothingFactor = 0.18;
     private const double SpeedIndicatorSampleIntervalSeconds = 0.20;
     private const double MaxSpeedIndicatorPercent = 250.0;
+    private const string SnapshotFileExtension = ".stsnap";
     private readonly Lock m_frameUpdateLock = new();
     private readonly Stopwatch m_speedStopwatch = Stopwatch.StartNew();
     private readonly AtariST m_machine;
@@ -53,6 +55,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly InstructionTraceDebugger m_cpuHistoryTrace;
     private readonly DirectoryInfo m_romStoreDir;
     private readonly string m_recordingAvailabilityHint;
+    private FileInfo m_loadedRomFile;
+    private FileInfo m_mountedFloppyAFile;
     private LcdScreen m_screen;
     private FrameBuffer m_backFrameBuffer;
     private FrameBuffer m_frontFrameBuffer;
@@ -245,7 +249,10 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public void HardResetMachine()
     {
         if (m_machine.IsFloppyImageMounted(DriveAIndex))
+        {
             m_machine.UnmountFloppyImage(DriveAIndex);
+            m_mountedFloppyAFile = null;
+        }
 
         m_runner.Reset();
         ResetSpeedIndicatorSampler();
@@ -319,10 +326,73 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         command.Execute(null);
     }
 
+    public void OpenFile()
+    {
+        var command = new FileOpenCommand(
+            "Open ROM or Snapshot",
+            "Atari ST ROM Images / G33kST Snapshots",
+            ["*.img", "*.rom", "*.bin", "*.zip", "*.stsnap"]);
+        command.FileSelected += (_, file) =>
+        {
+            if (IsSnapshotFile(file))
+                RestoreSnapshotFromFile(file);
+            else
+                SwitchRomImage(file);
+        };
+        command.Execute(null);
+    }
+
+    public void OpenSnapshot()
+    {
+        var command = new FileOpenCommand(
+            "Open Snapshot",
+            "G33kST Snapshots",
+            ["*.stsnap"]);
+        command.FileSelected += (_, file) => RestoreSnapshotFromFile(file);
+        command.Execute(null);
+    }
+
     public void SelectRomImage()
     {
         var command = new FileOpenCommand("Select ROM Image", "Atari ST ROM Images", ["*.img", "*.rom", "*.bin", "*.zip"]);
         command.FileSelected += (_, romFile) => SwitchRomImage(romFile);
+        command.Execute(null);
+    }
+
+    public void SaveSnapshot()
+    {
+        if (!m_machine.HasLoadedCartridge)
+        {
+            Logger.Instance.Warn("Unable to save snapshot: No ROM loaded.");
+            return;
+        }
+
+        var romPath = m_loadedRomFile?.FullName ?? Settings.SelectedRomPath;
+        if (string.IsNullOrWhiteSpace(romPath))
+        {
+            Logger.Instance.Warn("Unable to save snapshot: ROM path is unknown.");
+            return;
+        }
+
+        var command = new FileSaveCommand(
+            "Save Snapshot",
+            "G33kST Snapshots",
+            ["*.stsnap"],
+            $"{AppTitle}_{DateTime.Now:yyyyMMdd_HHmmss}.stsnap");
+        command.FileSelected += (_, file) =>
+        {
+            try
+            {
+                var state = m_runner.CaptureState();
+                SnapshotFile.Save(file, state, romPath, m_mountedFloppyAFile?.FullName);
+                Logger.Instance.Info($"Snapshot saved: {file.FullName}");
+            }
+            catch (Exception e)
+            {
+                Logger.Instance.Exception($"Failed to save snapshot '{file.FullName}'.", e);
+                DialogService.Instance.ShowMessage("Unable to save snapshot.", e.Message);
+            }
+        };
         command.Execute(null);
     }
 
@@ -475,6 +545,92 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public void CloseCommand() =>
         Application.Current?.GetMainWindow()?.Close();
 
+    private void RestoreSnapshotFromFile(FileInfo snapshotFile)
+    {
+        if (snapshotFile == null)
+            return;
+        if (!snapshotFile.Exists())
+        {
+            Logger.Instance.Warn($"Unable to load snapshot '{snapshotFile.FullName}': File not found.");
+            return;
+        }
+
+        try
+        {
+            var state = SnapshotFile.Load(snapshotFile, out var romPath, out var floppyAPath, out _);
+            if (string.IsNullOrWhiteSpace(romPath))
+            {
+                DialogService.Instance.ShowMessage("Unable to restore snapshot.", "The snapshot does not contain a ROM path.");
+                return;
+            }
+
+            var romFile = new FileInfo(romPath);
+            if (!romFile.Exists())
+            {
+                DialogService.Instance.ShowMessage(
+                    "Unable to restore snapshot.",
+                    $"The ROM file was not found:\n{romFile.FullName}");
+                return;
+            }
+
+            FileInfo floppyAFile = null;
+            if (!string.IsNullOrWhiteSpace(floppyAPath))
+            {
+                floppyAFile = new FileInfo(floppyAPath);
+                if (!floppyAFile.Exists())
+                {
+                    DialogService.Instance.ShowMessage(
+                        "Unable to restore snapshot.",
+                        $"The floppy image file was not found:\n{floppyAFile.FullName}");
+                    return;
+                }
+            }
+
+            var wasRunning = m_runner.IsRunning;
+            if (wasRunning)
+                m_runner.Stop();
+
+            try
+            {
+                if (!TryLoadRom(romFile, shouldHardReset: false, updateSelection: true))
+                    return;
+
+                if (floppyAFile != null)
+                {
+                    if (!MountFloppyImageFromFile(floppyAFile, addToMru: false))
+                    {
+                        DialogService.Instance.ShowMessage(
+                            "Unable to restore snapshot.",
+                            $"Failed to mount floppy image '{floppyAFile.FullName}'.");
+                        return;
+                    }
+                }
+                else if (m_machine.IsFloppyImageMounted(DriveAIndex))
+                {
+                    m_machine.UnmountFloppyImage(DriveAIndex);
+                    m_mountedFloppyAFile = null;
+                    NotifyFloppyIndicatorChanged();
+                }
+
+                m_runner.LoadState(state);
+                ResetSpeedIndicatorSampler();
+                OnPropertyChanged(nameof(IsHighResolutionMode));
+                OnPropertyChanged(nameof(IsPalVideoRegion));
+                Logger.Instance.Info($"Snapshot restored: {snapshotFile.FullName}");
+            }
+            finally
+            {
+                if (wasRunning)
+                    m_runner.StartFromCurrentState();
+            }
+        }
+        catch (Exception e)
+        {
+            Logger.Instance.Exception($"Failed to restore snapshot '{snapshotFile.FullName}'.", e);
+            DialogService.Instance.ShowMessage("Unable to restore snapshot.", e.Message);
+        }
+    }
+
     internal bool MountFloppyImageFromFile(FileInfo imageFile, bool addToMru)
     {
         if (imageFile == null)
@@ -517,6 +673,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
         if (addToMru)
             FloppyMru.Add(imageFile);
+        m_mountedFloppyAFile = imageFile;
         NotifyFloppyIndicatorChanged();
 
         Logger.Instance.Info(wasMounted
@@ -612,10 +769,12 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             if (shouldHardReset && m_machine.IsFloppyImageMounted(DriveAIndex))
             {
                 m_machine.UnmountFloppyImage(DriveAIndex);
+                m_mountedFloppyAFile = null;
                 NotifyFloppyIndicatorChanged();
             }
 
             m_machine.LoadRom(romData, romFile.Name);
+            m_loadedRomFile = romFile;
             ResetSpeedIndicatorSampler();
             if (updateSelection)
                 Settings.SelectedRomPath = romFile.FullName;
@@ -952,6 +1111,10 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             safeName = $"rom_{DateTime.Now:yyyyMMdd_HHmmss}.img";
         return Path.HasExtension(safeName) ? safeName : $"{safeName}.img";
     }
+
+    private static bool IsSnapshotFile(FileInfo file) =>
+        file != null &&
+        file.Extension.Equals(SnapshotFileExtension, StringComparison.OrdinalIgnoreCase);
 
     private readonly record struct FrameToPresent(FrameBuffer Frame);
 }
