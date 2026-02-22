@@ -126,16 +126,6 @@ public sealed class AciaIkbdDevice : IMemDevice
     public event Action<bool> KeyboardInterruptLineChanged;
 
     /// <summary>
-    /// Gets whether deferred interrupt reassertion is enabled.
-    /// </summary>
-    public bool IsDeferredInterruptReassertEnabled => m_isDeferredInterruptReassertEnabled;
-
-    /// <summary>
-    /// Gets whether queued joystick interrogation replies are coalesced.
-    /// </summary>
-    public bool IsJoystickInterrogateCoalescingEnabled => m_isJoystickInterrogateCoalescingEnabled;
-
-    /// <summary>
     /// Gets the number of pending IKBD receive bytes.
     /// </summary>
     public int PendingReceiveQueueCount

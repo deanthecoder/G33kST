@@ -417,36 +417,12 @@ public sealed class AtariST : IMachine, IMachineSnapshotter
     /// </summary>
     public int PendingKeyboardInputByteCount =>
         m_aciaIkbd.PendingReceiveQueueCount;
-
-    /// <summary>
-    /// Gets the number of queued IKBD joystick-interrogate response bytes.
-    /// </summary>
-    public int PendingJoystickInterrogateResponseByteCount =>
-        m_aciaIkbd.PendingJoystickInterrogateResponseByteCount;
-
-    /// <summary>
-    /// Gets the number of queued IKBD bytes originating from injected keyboard scan codes.
-    /// </summary>
-    public int PendingKeyboardInjectedByteCount =>
-        m_aciaIkbd.PendingKeyboardInjectedByteCount;
-
+    
     /// <summary>
     /// Gets the number of queued IKBD bytes belonging to mouse packets.
     /// </summary>
     public int PendingIkbdMousePacketByteCount =>
         m_aciaIkbd.PendingMousePacketByteCount;
-
-    /// <summary>
-    /// Gets the number of queued IKBD bytes belonging to joystick-event packets.
-    /// </summary>
-    public int PendingIkbdJoystickEventByteCount =>
-        m_aciaIkbd.PendingJoystickEventByteCount;
-
-    /// <summary>
-    /// Gets the peak IKBD receive-queue depth since the last queue clear/reset.
-    /// </summary>
-    public int PeakIkbdQueueDepth =>
-        m_aciaIkbd.PeakReceiveQueueCount;
 
     /// <summary>
     /// Gets the number of queued host mouse packets awaiting cadence flush.
@@ -471,79 +447,7 @@ public sealed class AtariST : IMachine, IMachineSnapshotter
                 return m_droppedMousePacketsDueToIkbdBackPressureCount;
         }
     }
-
-    /// <summary>
-    /// Gets whether deferred IKBD interrupt reassert is enabled.
-    /// </summary>
-    public bool IsIkbdDeferredInterruptReassertEnabled =>
-        m_aciaIkbd.IsDeferredInterruptReassertEnabled;
-
-    /// <summary>
-    /// Gets whether queued IKBD joystick interrogation responses are coalesced.
-    /// </summary>
-    public bool IsIkbdJoystickInterrogateCoalescingEnabled =>
-        m_aciaIkbd.IsJoystickInterrogateCoalescingEnabled;
-
-    /// <summary>
-    /// Gets whether pending host mouse packets are coalesced before cadence flush.
-    /// </summary>
-    public bool IsMousePacketCoalescingEnabled
-    {
-        get
-        {
-            lock (m_mouseStateSync)
-                return m_isMousePacketCoalescingEnabled;
-        }
-    }
-
-    /// <summary>
-    /// Gets whether IKBD mouse packet output cadence is rate-limited.
-    /// </summary>
-    public bool IsMousePacketRateLimitEnabled
-    {
-        get
-        {
-            lock (m_mouseStateSync)
-                return m_isMousePacketRateLimitEnabled;
-        }
-    }
-
-    /// <summary>
-    /// Gets whether host mouse state is sampled on emulated-time cadence before packet generation.
-    /// </summary>
-    public bool IsMouseInputSamplingEnabled
-    {
-        get
-        {
-            lock (m_mouseStateSync)
-                return m_isMouseInputSamplingEnabled;
-        }
-    }
-
-    /// <summary>
-    /// Gets whether IKBD mouse back-pressure is enabled.
-    /// </summary>
-    public bool IsIkbdMouseBackPressureEnabled
-    {
-        get
-        {
-            lock (m_mouseStateSync)
-                return m_isIkbdMouseBackPressureEnabled;
-        }
-    }
-
-    /// <summary>
-    /// Enables or disables deferred IKBD interrupt reassert.
-    /// </summary>
-    public void SetIkbdDeferredInterruptReassertEnabled(bool isEnabled) =>
-        m_aciaIkbd.SetDeferredInterruptReassertEnabled(isEnabled);
-
-    /// <summary>
-    /// Enables or disables queued IKBD joystick interrogation-response coalescing.
-    /// </summary>
-    public void SetIkbdJoystickInterrogateCoalescingEnabled(bool isEnabled) =>
-        m_aciaIkbd.SetJoystickInterrogateCoalescingEnabled(isEnabled);
-
+    
     /// <summary>
     /// Enables or disables host mouse-packet coalescing before IKBD cadence flush.
     /// </summary>

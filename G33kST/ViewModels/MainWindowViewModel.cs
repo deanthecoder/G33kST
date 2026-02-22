@@ -453,27 +453,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             UpdateJoystickState(JoystickState.Neutral);
         OnPropertyChanged(nameof(IsJoystickInputEnabled));
     }
-
-    public void ClearInputQueues()
-    {
-        m_machine.ClearInputQueues();
-        Logger.Instance.Info("Cleared IKBD and host mouse input queues.");
-        ReportInputQueueSizes();
-    }
-
-    public void ReportInputQueueSizes()
-    {
-        var keyboardCount = m_machine.PendingKeyboardInputByteCount;
-        var joystickInterrogateReplyCount = m_machine.PendingJoystickInterrogateResponseByteCount;
-        var keyboardInjectedCount = m_machine.PendingKeyboardInjectedByteCount;
-        var ikbdMousePacketByteCount = m_machine.PendingIkbdMousePacketByteCount;
-        var mouseCount = m_machine.PendingMousePacketCount;
-        var peakIkbdDepth = m_machine.PeakIkbdQueueDepth;
-        Logger.Instance.Info(
-            $"Input queues: ikbdBytes={keyboardCount}, joyReplyBytes={joystickInterrogateReplyCount}, mousePackets={mouseCount}, " +
-            $"kbdInjectedBytes={keyboardInjectedCount}, ikbdMouseBytes={ikbdMousePacketByteCount}, ikbdPeak={peakIkbdDepth}.");
-    }
-
+    
     private void SetVideoRegion(AtariVideoRegion targetRegion)
     {
         if (m_machine.VideoRegion == targetRegion)

@@ -107,8 +107,6 @@ public sealed class PsgDevice : IMemDevice, IAudioSource
     /// </summary>
     public event Action<byte> PortAChanged;
 
-    internal byte PortAValue => m_registers[PortARegister];
-
     /// <summary>
     /// Resets PSG registers and synthesis state.
     /// </summary>

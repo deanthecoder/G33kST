@@ -52,11 +52,6 @@ public sealed class AtariSTDescriptor : IMachineDescriptor
     public int FrameHeight => Shifter.DefaultFrameHeight;
 
     /// <summary>
-    /// Gets the currently selected video timing region.
-    /// </summary>
-    public AtariVideoRegion VideoRegion => m_videoRegion;
-
-    /// <summary>
     /// Updates the video timing region used by the descriptor.
     /// </summary>
     public void SetVideoRegion(AtariVideoRegion videoRegion) =>
