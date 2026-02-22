@@ -512,7 +512,8 @@ public partial class MainWindow : Window
     private static bool ShouldTreatAsHostShortcut(KeyEventArgs e)
     {
         var modifiers = e.KeyModifiers;
-        var usesHostShortcutModifier = (modifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0;
+        var hostShortcutModifier = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
+        var usesHostShortcutModifier = (modifiers & hostShortcutModifier) != 0;
         if (!usesHostShortcutModifier)
             return false;
 
