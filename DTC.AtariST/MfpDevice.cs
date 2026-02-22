@@ -149,17 +149,62 @@ public sealed class MfpDevice : IMemDevice
     {
         if (!isDisplayEnableActive)
             return;
-        if ((m_registers[TimerBControl] & 0x0F) != 0x08)
-            return;
-        if (m_timerBCurrent == 0)
-            m_timerBCurrent = NormalizeTimerData(m_registers[TimerBData]);
+        AdvanceTimerBEventCount();
+    }
 
-        m_timerBCurrent--;
-        if (m_timerBCurrent > 0)
+    /// <summary>
+    /// Advances Timer A by one external event pulse when configured in event-count mode.
+    /// </summary>
+    /// <remarks>
+    /// Timer A event-count is driven by an external input on real hardware. This hook allows
+    /// the machine integration to surface those pulses when/if needed without special-casing timer logic.
+    /// </remarks>
+    public void NotifyTimerAEvent() =>
+        AdvanceTimerEventCount(
+            TimerAControl,
+            TimerAData,
+            ref m_timerACurrent,
+            InterruptEnableA,
+            InterruptMaskA,
+            InterruptPendingA,
+            TimerAInterruptMask,
+            TimerASourceNumber);
+
+    /// <summary>
+    /// Advances Timer B by one event-count pulse tied to Shifter display-enable edges.
+    /// </summary>
+    private void AdvanceTimerBEventCount() =>
+        AdvanceTimerEventCount(
+            TimerBControl,
+            TimerBData,
+            ref m_timerBCurrent,
+            InterruptEnableA,
+            InterruptMaskA,
+            InterruptPendingA,
+            TimerBInterruptMask,
+            TimerBSourceNumber);
+
+    private void AdvanceTimerEventCount(
+        int timerControlRegister,
+        int timerDataRegister,
+        ref int timerCurrent,
+        int interruptEnableRegister,
+        int interruptMaskRegister,
+        int interruptPendingRegister,
+        byte interruptMask,
+        byte sourceNumber)
+    {
+        if ((m_registers[timerControlRegister] & 0x0F) != 0x08)
+            return;
+        if (timerCurrent == 0)
+            timerCurrent = NormalizeTimerData(m_registers[timerDataRegister]);
+
+        timerCurrent--;
+        if (timerCurrent > 0)
             return;
 
-        m_timerBCurrent = NormalizeTimerData(m_registers[TimerBData]);
-        RaiseInterrupt(InterruptEnableA, InterruptMaskA, InterruptPendingA, TimerBInterruptMask, TimerBSourceNumber);
+        timerCurrent = NormalizeTimerData(m_registers[timerDataRegister]);
+        RaiseInterrupt(interruptEnableRegister, interruptMaskRegister, interruptPendingRegister, interruptMask, sourceNumber);
     }
 
     /// <summary>

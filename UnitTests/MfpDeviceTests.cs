@@ -289,6 +289,48 @@ public sealed class MfpDeviceTests
     }
 
     [Test]
+    public void TimerBEventCountShouldIgnoreHblankDuringVblank()
+    {
+        var mfp = new MfpDevice();
+        mfp.Reset();
+        mfp.Write8(TimerBDataRegister, 0x02);
+        mfp.Write8(TimerBControlRegister, 0x08);
+
+        mfp.NotifyHblank(false);
+        var valueAfterVblankHblank = mfp.Read8(TimerBDataRegister);
+        mfp.NotifyHblank(true);
+        var valueAfterDisplayEnableHblank = mfp.Read8(TimerBDataRegister);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(valueAfterVblankHblank, Is.EqualTo(2));
+            Assert.That(valueAfterDisplayEnableHblank, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void TimerBEventCountShouldLatchPendingWhenMasked()
+    {
+        var mfp = new MfpDevice();
+        mfp.Reset();
+        var interruptCount = 0;
+        mfp.InterruptRequested += (_, _) => interruptCount++;
+        mfp.Write8(InterruptEnableARegister, 0x01);
+        mfp.Write8(InterruptMaskARegister, 0x00);
+        mfp.Write8(TimerBDataRegister, 0x01);
+        mfp.Write8(TimerBControlRegister, 0x08);
+
+        mfp.NotifyHblank(true);
+        var interruptPendingValue = mfp.Read8(InterruptPendingARegister);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(interruptCount, Is.Zero);
+            Assert.That(interruptPendingValue & 0x01, Is.Not.Zero);
+        });
+    }
+
+    [Test]
     public void TimerBDelayModeShouldRaiseInterruptWhenEnabledAndUnmasked()
     {
         var mfp = new MfpDevice();
@@ -338,6 +380,36 @@ public sealed class MfpDeviceTests
         mfp.Write8(TimerAControlRegister, 0x01);
 
         mfp.Advance(4);
+        var interruptPendingValue = mfp.Read8(InterruptPendingARegister);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(interruptCount, Is.EqualTo(1));
+            Assert.That(interruptVector, Is.EqualTo(0x4D));
+            Assert.That(interruptPendingValue & 0x20, Is.Not.Zero);
+        });
+    }
+
+    [Test]
+    public void TimerAEventCountShouldRaiseInterruptWhenEnabledAndUnmasked()
+    {
+        var mfp = new MfpDevice();
+        mfp.Reset();
+        var interruptCount = 0;
+        var interruptVector = (byte)0;
+        mfp.InterruptRequested += (_, vector) =>
+        {
+            interruptCount++;
+            interruptVector = vector;
+        };
+
+        mfp.Write8(VectorRegister, 0x40);
+        mfp.Write8(InterruptEnableARegister, 0x20);
+        mfp.Write8(InterruptMaskARegister, 0x20);
+        mfp.Write8(TimerADataRegister, 0x01);
+        mfp.Write8(TimerAControlRegister, 0x08);
+
+        mfp.NotifyTimerAEvent();
         var interruptPendingValue = mfp.Read8(InterruptPendingARegister);
 
         Assert.Multiple(() =>
