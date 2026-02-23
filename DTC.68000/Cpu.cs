@@ -65,7 +65,7 @@ public sealed class Cpu : CpuBase
     /// This hook lets machine/bus code decide whether an interrupt resolves as an autovector,
     /// a spurious interrupt, or a device-supplied vector number.
     /// </summary>
-    public Func<byte, InterruptAcknowledgeResult> InterruptAcknowledge { get; set; }
+    public Func<byte, InterruptAcknowledgeResult> InterruptAcknowledge { get; init; }
 
     /// <summary>
     /// Enables post-instruction trace exceptions when the T bit is set.

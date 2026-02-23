@@ -258,7 +258,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             m_mountedFloppyAFile = null;
         }
 
-        m_runner.Reset();
+        m_runner.HardReset();
         ResetSpeedIndicatorSampler();
         OnPropertyChanged(nameof(IsHighResolutionMode));
         NotifyFloppyIndicatorChanged();

@@ -1103,19 +1103,7 @@ public sealed class AciaIkbdDevice : IMemDevice
         EnqueueKeyboardByteNoLock(value6);
         EnqueueKeyboardByteNoLock(value7);
     }
-
-    private void QueueClockResponseNoLock()
-    {
-        if (m_outputPaused)
-            return;
-
-        DropQueuedClockResponsesNoLock();
-
-        EnqueueKeyboardByteNoLock(IkbdClockResponseHeader, ReceiveByteKind.ClockResponse);
-        for (var i = 0; i < m_clockBytes.Length; i++)
-            EnqueueKeyboardByteNoLock(m_clockBytes[i], ReceiveByteKind.ClockResponse);
-    }
-
+    
     private void ScheduleClockResponseNoLock()
     {
         DropQueuedClockResponsesNoLock();
@@ -1643,10 +1631,10 @@ public sealed class AciaIkbdDevice : IMemDevice
         [UsedImplicitly] None = 0,
         AbsoluteMouseModeLimited = 1 << 0,
         MouseKeycodeMode = 1 << 1,
-        MouseThreshold = 1 << 2,
+        [UsedImplicitly] MouseThreshold = 1 << 2,
         MouseScale = 1 << 3,
         LoadMousePosition = 1 << 4,
-        MouseYOrigin = 1 << 5,
+        [UsedImplicitly] MouseYOrigin = 1 << 5,
         JoystickFireButtonMonitoring = 1 << 6,
         JoystickCursorKeycodes = 1 << 7,
         MouseButtonAction = 1 << 8,

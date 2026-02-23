@@ -18,7 +18,7 @@ namespace DTC.AtariST;
 /// <summary>
 /// Wires together Atari ST-specific devices into a single emulated machine.
 /// </summary>
-public sealed class AtariST : IMachine, IMachineSnapshotter
+public sealed class AtariST : IMachine, IMachineSnapshotter, IHardResettableMachine
 {
     // Atari ST memory map:
     // $000000-$007FFF: ROM (first 32KB, typically for TOS)
@@ -68,6 +68,7 @@ public sealed class AtariST : IMachine, IMachineSnapshotter
     private readonly RtcDevice m_rtc;
     private readonly MfpDevice m_mfp;
     private readonly AtariSTDescriptor m_descriptor;
+    private readonly Memory m_fullAddressSpace;
     private readonly Lock m_mouseStateSync = new();
     private readonly Lock m_keyboardInputSync = new();
     private readonly List<PendingInterrupt> m_pendingInterrupts = new(MaxPendingInterrupts);
@@ -166,8 +167,8 @@ public sealed class AtariST : IMachine, IMachineSnapshotter
 
         // Create bus with full 24-bit address space (16MB)
         // The 68000 has a 24-bit address bus, so create a backing device for full space.
-        var fullAddressSpace = new Memory(FullAddressSpaceSizeBytes);
-        var bus = new Bus(fullAddressSpace);
+        m_fullAddressSpace = new Memory(FullAddressSpaceSizeBytes);
+        var bus = new Bus(m_fullAddressSpace);
         AttachOpenBusGap(bus, options1.RamSizeBytes);
         bus.Attach(new OpenBusDevice(IoRegionFromAddress, IoRegionToAddress));
         bus.Attach(new BusErrorDevice(BlitterRegisterFromAddress, BlitterRegisterToAddress));
@@ -226,7 +227,6 @@ public sealed class AtariST : IMachine, IMachineSnapshotter
 
     public void Reset()
     {
-        m_video.Reset();
         m_systemControl.Reset();
         m_aciaIkbd.Reset();
         m_shifterRegisters.Reset();
@@ -236,6 +236,7 @@ public sealed class AtariST : IMachine, IMachineSnapshotter
         m_mfp.Reset();
         m_mfp.SetMonitorType(m_monitorType);
         SetBootVideoMode(Cpu.Bus);
+        m_video.Reset();
         m_pendingInterrupts.Clear();
         Array.Clear(m_pendingAcknowledgeReadByLevel, 0, m_pendingAcknowledgeReadByLevel.Length);
         Array.Clear(m_pendingAcknowledgeCountByLevel, 0, m_pendingAcknowledgeCountByLevel.Length);
@@ -266,6 +267,16 @@ public sealed class AtariST : IMachine, IMachineSnapshotter
             m_joystickState = JoystickState.Neutral;
         }
         Cpu.Reset();
+    }
+
+    /// <summary>
+    /// Performs a cold reset, clearing volatile memory before resetting devices and CPU state.
+    /// </summary>
+    public void HardReset()
+    {
+        Array.Clear(m_fullAddressSpace.Data, 0, m_fullAddressSpace.Data.Length);
+        Array.Clear(Ram.Data, 0, Ram.Data.Length);
+        Reset();
     }
 
     /// <summary>

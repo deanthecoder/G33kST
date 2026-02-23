@@ -339,6 +339,30 @@ public sealed class AtariSTTests : TestsBase
     }
 
     [Test]
+    public void ResetShouldPreserveRamContents()
+    {
+        var atariST = new AtariST();
+        const int ramOffset = 0x10000;
+        atariST.Ram.Data[ramOffset] = 0x5A;
+
+        atariST.Reset();
+
+        Assert.That(atariST.Ram.Data[ramOffset], Is.EqualTo(0x5A));
+    }
+
+    [Test]
+    public void HardResetShouldClearRamContents()
+    {
+        var atariST = new AtariST();
+        const int ramOffset = 0x10000;
+        atariST.Ram.Data[ramOffset] = 0x5A;
+
+        atariST.HardReset();
+
+        Assert.That(atariST.Ram.Data[ramOffset], Is.Zero);
+    }
+
+    [Test]
     public void RomDeviceShouldBeReadOnly()
     {
         var atariST = new AtariST();
