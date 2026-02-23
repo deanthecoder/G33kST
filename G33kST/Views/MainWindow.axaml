@@ -71,6 +71,12 @@
                             <Separator />
                             <MenuItem Header="Clear _Menu" Command="{Binding FloppyMru.Clear}" />
                         </MenuItem>
+
+                        <Separator />
+
+                        <MenuItem Header="_Eject Disk (A:)"
+                                  Command="{Binding EjectFloppyImage}"
+                                  IsEnabled="{Binding CanEjectFloppyImage}" />
                     </MenuItem>
 
                     <MenuItem Header="System _ROM">

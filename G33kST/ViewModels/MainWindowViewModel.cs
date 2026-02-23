@@ -172,6 +172,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     public bool IsSoundEnabled => Settings.IsSoundEnabled;
 
+    public bool CanEjectFloppyImage => m_machine.IsFloppyImageMounted(DriveAIndex);
+
     public bool IsSpeedIndicatorVisible => Settings.IsSpeedIndicatorVisible;
 
     public string SpeedIndicatorText => m_speedIndicatorText;
@@ -326,6 +328,21 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         var command = new FileOpenCommand("Mount Floppy Image", "Atari ST Floppy Images", ["*.st", "*.stx", "*.zip"]);
         command.FileSelected += (_, info) => MountFloppyImageFromFile(info, addToMru: true);
         command.Execute(null);
+    }
+
+    public void EjectFloppyImage()
+    {
+        if (!m_machine.IsFloppyImageMounted(DriveAIndex))
+        {
+            Logger.Instance.Info("Drive A: no floppy image to eject.");
+            return;
+        }
+
+        m_machine.UnmountFloppyImage(DriveAIndex);
+        m_mountedFloppyAFile = null;
+        Settings.LastFloppyImagePath = null;
+        NotifyFloppyIndicatorChanged();
+        Logger.Instance.Info("Drive A: floppy image ejected.");
     }
 
     public void OpenFile()
@@ -862,6 +879,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     {
         OnPropertyChanged(nameof(FloppyIndicatorState));
         OnPropertyChanged(nameof(FloppyIndicatorTooltip));
+        OnPropertyChanged(nameof(CanEjectFloppyImage));
     }
 
     private void ResetSpeedIndicatorSampler()
