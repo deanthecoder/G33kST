@@ -12,6 +12,7 @@ using DTC.Core;
 using DTC.Emulation;
 using DTC.Emulation.Snapshot;
 using JetBrains.Annotations;
+using System.Diagnostics;
 
 namespace DTC.AtariST;
 
@@ -66,6 +67,7 @@ public sealed class AciaIkbdDevice : IMemDevice
     private const byte IkbdReportJoystickModeKeycodeCommand = 0x99;
     private const byte IkbdReportJoystickAvailabilityCommand = 0x9A;
     private const byte IkbdStatusResponseHeader = 0xF6;
+    private const byte IkbdClockResponseHeader = 0xFC;
     private const byte JoystickInterrogationHeader = 0xFD;
     private const byte JoystickPacketHeaderPort0 = 0xFE;
     private const byte JoystickPacketHeaderPort1 = 0xFF;
@@ -78,10 +80,18 @@ public sealed class AciaIkbdDevice : IMemDevice
     private const byte IkbdResetParameter = 0x01;
     private const byte IkbdResetCompleteCode = 0xF1;
     private const byte IkbdMouseModeRelative = 0x08;
+    private const byte IkbdMouseButtonActionKeycodeBit = 0x04;
+    private const byte IkbdMouseLeftButtonScanCode = 0x74;
+    private const byte IkbdMouseRightButtonScanCode = 0x75;
+    private const long ClockResponseHeaderDelayCpuTicks = 56_000; // ~7ms at 8MHz.
+    private const long ClockResponseInterByteDelayCpuTicks = 10_500; // ~1.3ms at 8MHz (rough IKBD serial byte time).
     private readonly Lock m_stateSync = new();
     private readonly Queue<byte> m_keyboardReceiveQueue = [];
     private readonly Queue<ReceiveByteKind> m_keyboardReceiveKinds = [];
+    private readonly ulong[] m_loggedIkbdCommandCodes = new ulong[4];
     private readonly byte[] m_lastJoystickStateBytes = new byte[2];
+    private readonly byte[] m_clockBytes = [0x87, 0x01, 0x01, 0x00, 0x00, 0x00];
+    private readonly byte[] m_pendingClockResponseBytes = new byte[6];
     private readonly byte[] m_pendingCommandParameters = new byte[8];
     private byte[] m_receiveQueueScratch = new byte[16];
     private ReceiveByteKind[] m_receiveKindScratch = new ReceiveByteKind[16];
@@ -95,7 +105,16 @@ public sealed class AciaIkbdDevice : IMemDevice
     private int m_pendingCommandParameterIndex;
     private int m_pendingMemoryLoadByteCount;
     private byte m_mouseMode = IkbdMouseModeRelative;
+    private byte m_mouseButtonActionMode;
+    private byte m_mouseThresholdX = 1;
+    private byte m_mouseThresholdY = 1;
+    private byte m_mouseScaleX = 1;
+    private byte m_mouseScaleY = 1;
     private byte m_keyboardControl;
+    private byte m_keyboardDataRegisterLatch;
+    private bool m_isMouseYZeroTop = true;
+    private bool m_lastMouseLeftButtonPressed;
+    private bool m_lastMouseRightButtonPressed;
     private volatile bool m_keyboardInterruptLineActive;
     private volatile bool m_keyboardInterruptReassertPending;
     private volatile bool m_hasDeferredAdvanceWork;
@@ -106,7 +125,12 @@ public sealed class AciaIkbdDevice : IMemDevice
     private int m_queuedMousePacketByteCount;
     private int m_queuedJoystickEventByteCount;
     private int m_queuedJoystickInterrogateResponseByteCount;
+    private int m_queuedClockResponseByteCount;
     private int m_peakReceiveQueueCount;
+    private long m_clockLastHostTimestamp = Stopwatch.GetTimestamp();
+    private long m_pendingClockResponseDelayCpuTicks;
+    private int m_pendingClockResponseNextByteIndex;
+    private bool m_hasPendingClockResponse;
 
     /// <inheritdoc />
     public uint FromAddr => BaseAddress;
@@ -186,6 +210,18 @@ public sealed class AciaIkbdDevice : IMemDevice
     }
 
     /// <summary>
+    /// Gets the number of queued bytes belonging to IKBD clock response packets.
+    /// </summary>
+    public int PendingClockResponseByteCount
+    {
+        get
+        {
+            lock (m_stateSync)
+                return m_queuedClockResponseByteCount;
+        }
+    }
+
+    /// <summary>
     /// Gets the peak receive-queue depth since the last reset/clear.
     /// </summary>
     public int PeakReceiveQueueCount
@@ -231,6 +267,9 @@ public sealed class AciaIkbdDevice : IMemDevice
             m_keyboardReceiveKinds.Clear();
             m_keyboardInterruptReassertPending = false;
             m_hasDeferredAdvanceWork = false;
+            m_hasPendingClockResponse = false;
+            m_pendingClockResponseDelayCpuTicks = 0;
+            m_pendingClockResponseNextByteIndex = 0;
             ResetQueueByteCountersNoLock();
             RefreshInterruptLineNoLock();
         }
@@ -242,6 +281,24 @@ public sealed class AciaIkbdDevice : IMemDevice
     /// collapsing low->high reasserts into the same read call.
     /// </summary>
     public void Advance()
+    {
+        AdvanceDelayedOutputNoLock(0);
+        AdvanceDeferredInterruptReassertOnly();
+    }
+
+    /// <summary>
+    /// Advances delayed IKBD output scheduling and deferred ACIA line transitions using CPU ticks.
+    /// </summary>
+    public void Advance(long deltaCpuTicks)
+    {
+        if (deltaCpuTicks < 0)
+            deltaCpuTicks = 0;
+
+        AdvanceDelayedOutputNoLock(deltaCpuTicks);
+        AdvanceDeferredInterruptReassertOnly();
+    }
+
+    private void AdvanceDeferredInterruptReassertOnly()
     {
         if (!m_isDeferredInterruptReassertEnabled)
             return;
@@ -256,7 +313,10 @@ public sealed class AciaIkbdDevice : IMemDevice
     public void QueueKeyboardByte(byte value)
     {
         lock (m_stateSync)
+        {
+            DropStaleTransientInputBacklogForKeyboardNoLock();
             EnqueueKeyboardByteNoLock(value, ReceiveByteKind.KeyboardInjected);
+        }
     }
 
     /// <summary>
@@ -269,6 +329,14 @@ public sealed class AciaIkbdDevice : IMemDevice
             if (!m_mouseReportingEnabled || m_outputPaused || m_mouseMode != IkbdMouseModeRelative)
                 return;
 
+            if ((m_mouseButtonActionMode & IkbdMouseButtonActionKeycodeBit) != 0)
+            {
+                QueueMouseButtonActionKeycodesNoLock(isLeftButtonPressed, isRightButtonPressed);
+                return;
+            }
+
+            m_lastMouseLeftButtonPressed = isLeftButtonPressed;
+            m_lastMouseRightButtonPressed = isRightButtonPressed;
             var header = MousePacketHeaderBase;
             if (isRightButtonPressed)
                 header |= 0x01;
@@ -279,6 +347,28 @@ public sealed class AciaIkbdDevice : IMemDevice
             EnqueueKeyboardByteNoLock((byte)deltaX, ReceiveByteKind.MousePacket);
             EnqueueKeyboardByteNoLock((byte)deltaY, ReceiveByteKind.MousePacket);
         }
+    }
+
+    private void QueueMouseButtonActionKeycodesNoLock(bool isLeftButtonPressed, bool isRightButtonPressed)
+    {
+        if (isLeftButtonPressed != m_lastMouseLeftButtonPressed)
+        {
+            var leftCode = isLeftButtonPressed
+                ? IkbdMouseLeftButtonScanCode
+                : (byte)(IkbdMouseLeftButtonScanCode | 0x80);
+            EnqueueKeyboardByteNoLock(leftCode);
+        }
+
+        if (isRightButtonPressed != m_lastMouseRightButtonPressed)
+        {
+            var rightCode = isRightButtonPressed
+                ? IkbdMouseRightButtonScanCode
+                : (byte)(IkbdMouseRightButtonScanCode | 0x80);
+            EnqueueKeyboardByteNoLock(rightCode);
+        }
+
+        m_lastMouseLeftButtonPressed = isLeftButtonPressed;
+        m_lastMouseRightButtonPressed = isRightButtonPressed;
     }
 
     /// <summary>
@@ -343,6 +433,15 @@ public sealed class AciaIkbdDevice : IMemDevice
             m_mouseReportingEnabled = true;
             m_outputPaused = false;
             m_mouseMode = IkbdMouseModeRelative;
+            m_keyboardDataRegisterLatch = 0;
+            m_mouseButtonActionMode = 0;
+            m_mouseThresholdX = 1;
+            m_mouseThresholdY = 1;
+            m_mouseScaleX = 1;
+            m_mouseScaleY = 1;
+            m_isMouseYZeroTop = true;
+            m_lastMouseLeftButtonPressed = false;
+            m_lastMouseRightButtonPressed = false;
             m_joystickEventModeEnabled = true;
             m_joystickMonitoringModeEnabled = false;
             m_joystickDisabled = false;
@@ -351,7 +450,11 @@ public sealed class AciaIkbdDevice : IMemDevice
             m_lastJoystickStateBytes[1] = 0;
             m_keyboardInterruptReassertPending = false;
             m_hasDeferredAdvanceWork = false;
+            m_hasPendingClockResponse = false;
+            m_pendingClockResponseDelayCpuTicks = 0;
+            m_pendingClockResponseNextByteIndex = 0;
             ResetQueueByteCountersNoLock();
+            Array.Clear(m_loggedIkbdCommandCodes, 0, m_loggedIkbdCommandCodes.Length);
             EnqueueKeyboardByteNoLock(IkbdResetCompleteCode);
         }
     }
@@ -414,7 +517,7 @@ public sealed class AciaIkbdDevice : IMemDevice
     private byte ReadKeyboardDataNoLock()
     {
         if (m_keyboardReceiveQueue.Count == 0)
-            return 0x00;
+            return m_keyboardDataRegisterLatch;
 
         var value = m_keyboardReceiveQueue.Dequeue();
         var byteKind = m_keyboardReceiveKinds.Dequeue();
@@ -433,6 +536,8 @@ public sealed class AciaIkbdDevice : IMemDevice
         {
             RefreshInterruptLineNoLock();
         }
+
+        m_keyboardDataRegisterLatch = value;
 
         return value;
     }
@@ -458,9 +563,16 @@ public sealed class AciaIkbdDevice : IMemDevice
         m_pendingCommandParameterIndex = 0;
         m_pendingMemoryLoadByteCount = 0;
         m_keyboardControl = 0;
+        m_keyboardDataRegisterLatch = 0;
+        m_lastMouseLeftButtonPressed = false;
+        m_lastMouseRightButtonPressed = false;
         m_keyboardInterruptReassertPending = false;
         m_hasDeferredAdvanceWork = false;
+        m_hasPendingClockResponse = false;
+        m_pendingClockResponseDelayCpuTicks = 0;
+        m_pendingClockResponseNextByteIndex = 0;
         ResetQueueByteCountersNoLock();
+        Array.Clear(m_loggedIkbdCommandCodes, 0, m_loggedIkbdCommandCodes.Length);
         RefreshInterruptLineNoLock();
     }
 
@@ -485,7 +597,10 @@ public sealed class AciaIkbdDevice : IMemDevice
         }
 
         if (!TryGetIkbdCommandParameterCount(value, out var parameterCount))
+        {
+            WarnUnknownIkbdCommandOnceNoLock(value);
             return;
+        }
 
         if (parameterCount == 0)
         {
@@ -510,6 +625,15 @@ public sealed class AciaIkbdDevice : IMemDevice
                 m_mouseReportingEnabled = true;
                 m_outputPaused = false;
                 m_mouseMode = IkbdMouseModeRelative;
+                m_keyboardDataRegisterLatch = 0;
+                m_mouseButtonActionMode = 0;
+                m_mouseThresholdX = 1;
+                m_mouseThresholdY = 1;
+                m_mouseScaleX = 1;
+                m_mouseScaleY = 1;
+                m_isMouseYZeroTop = true;
+                m_lastMouseLeftButtonPressed = false;
+                m_lastMouseRightButtonPressed = false;
                 m_joystickEventModeEnabled = true;
                 m_joystickMonitoringModeEnabled = false;
                 m_joystickDisabled = false;
@@ -518,6 +642,9 @@ public sealed class AciaIkbdDevice : IMemDevice
                 m_lastJoystickStateBytes[1] = 0;
                 m_keyboardInterruptReassertPending = false;
                 m_hasDeferredAdvanceWork = false;
+                m_hasPendingClockResponse = false;
+                m_pendingClockResponseDelayCpuTicks = 0;
+                m_pendingClockResponseNextByteIndex = 0;
                 ResetQueueByteCountersNoLock();
                 EnqueueKeyboardByteNoLock(IkbdResetCompleteCode);
             }
@@ -531,11 +658,24 @@ public sealed class AciaIkbdDevice : IMemDevice
             return;
         }
 
-        if (command == IkbdSetMouseButtonActionCommand)
+        if (command == IkbdInterrogateMousePositionCommand)
         {
             WarnUnsupportedFeatureOnceNoLock(
-                UnsupportedFeatureWarningFlag.MouseButtonAction,
-                "IKBD mouse button action command (0x07) received, but button-action mode semantics are not implemented (only button bits in mouse packets are supported).");
+                UnsupportedFeatureWarningFlag.InterrogateMousePosition,
+                "IKBD interrogate mouse position command (0x0D) received, but absolute mouse position response is not implemented.");
+            return;
+        }
+
+        if (command == IkbdSetMouseButtonActionCommand)
+        {
+            LogIkbdCommandOnceNoLock(command, parameters, "IKBD mouse button action command handled.");
+            m_mouseButtonActionMode = parameters.Length > 0 ? parameters[0] : (byte)0;
+            if ((m_mouseButtonActionMode & ~IkbdMouseButtonActionKeycodeBit) != 0)
+            {
+                WarnUnsupportedFeatureOnceNoLock(
+                    UnsupportedFeatureWarningFlag.MouseButtonAction,
+                    "IKBD mouse button action command uses unsupported bits; only keycode mode bit 0x04 is currently applied.");
+            }
             return;
         }
 
@@ -561,9 +701,11 @@ public sealed class AciaIkbdDevice : IMemDevice
 
         if (command == IkbdSetMouseThresholdCommand)
         {
-            WarnUnsupportedFeatureOnceNoLock(
-                UnsupportedFeatureWarningFlag.MouseThreshold,
-                "IKBD mouse threshold command (0x0B) received, but threshold behavior is not currently applied.");
+            LogIkbdCommandOnceNoLock(command, parameters, "IKBD mouse threshold command handled (values stored).");
+            if (parameters.Length > 0)
+                m_mouseThresholdX = parameters[0];
+            if (parameters.Length > 1)
+                m_mouseThresholdY = parameters[1];
             return;
         }
 
@@ -571,7 +713,11 @@ public sealed class AciaIkbdDevice : IMemDevice
         {
             WarnUnsupportedFeatureOnceNoLock(
                 UnsupportedFeatureWarningFlag.MouseScale,
-                "IKBD mouse scale command (0x0C) received, but scale behavior is not currently applied.");
+                "IKBD mouse scale command (0x0C) values are stored for status reporting, but scale behavior is not currently applied.");
+            if (parameters.Length > 0)
+                m_mouseScaleX = parameters[0];
+            if (parameters.Length > 1)
+                m_mouseScaleY = parameters[1];
             return;
         }
 
@@ -585,17 +731,15 @@ public sealed class AciaIkbdDevice : IMemDevice
 
         if (command == IkbdSetYZeroBottomCommand)
         {
-            WarnUnsupportedFeatureOnceNoLock(
-                UnsupportedFeatureWarningFlag.MouseYOrigin,
-                "IKBD mouse Y-origin commands (0x0F/0x10) are accepted but currently not applied.");
+            LogIkbdCommandOnceNoLock(command, parameters, "IKBD mouse Y-origin set to bottom.");
+            m_isMouseYZeroTop = false;
             return;
         }
 
         if (command == IkbdSetYZeroTopCommand)
         {
-            WarnUnsupportedFeatureOnceNoLock(
-                UnsupportedFeatureWarningFlag.MouseYOrigin,
-                "IKBD mouse Y-origin commands (0x0F/0x10) are accepted but currently not applied.");
+            LogIkbdCommandOnceNoLock(command, parameters, "IKBD mouse Y-origin set to top.");
+            m_isMouseYZeroTop = true;
             return;
         }
 
@@ -671,34 +815,58 @@ public sealed class AciaIkbdDevice : IMemDevice
         }
 
         if (command == IkbdSetClockCommand)
+        {
+            LogIkbdCommandOnceNoLock(command, parameters, "IKBD set clock command handled (raw clock bytes stored).");
+            for (var i = 0; i < m_clockBytes.Length; i++)
+            {
+                if (i >= parameters.Length)
+                    break;
+                if (!IsPackedBcd(parameters[i]))
+                    continue;
+                m_clockBytes[i] = parameters[i];
+            }
+            m_clockLastHostTimestamp = Stopwatch.GetTimestamp();
             return;
+        }
 
         if (command == IkbdReadClockCommand)
+        {
+            LogIkbdCommandOnceNoLock(command, parameters, "IKBD read clock command handled (raw stored clock bytes returned).");
+            AdvanceClockFromHostTimeNoLock();
+            ScheduleClockResponseNoLock();
             return;
+        }
 
         if (command == IkbdMemoryLoadCommand)
         {
+            LogIkbdCommandOnceNoLock(command, parameters, "IKBD memory load command received. Data bytes are accepted and discarded.");
             m_pendingMemoryLoadByteCount = parameters.Length > 2 ? parameters[2] : 0;
             return;
         }
 
         if (command == IkbdMemoryReadCommand)
         {
+            LogIkbdCommandOnceNoLock(command, parameters, "IKBD memory read command handled with placeholder status response.");
             QueueStatusResponseNoLock(0x20, 0, 0, 0, 0, 0, 0);
             return;
         }
 
         if (command == IkbdExecuteCommand)
+        {
+            LogIkbdCommandOnceNoLock(command, parameters, "IKBD execute command received, but execution is not implemented.");
             return;
+        }
 
         if (command == IkbdReportMouseButtonActionCommand)
         {
-            QueueStatusResponseNoLock(0x07, 0, 0, 0, 0, 0, 0);
+            LogIkbdCommandOnceNoLock(command, parameters, "IKBD mouse button-action report request handled.");
+            QueueStatusResponseNoLock(0x07, m_mouseButtonActionMode, 0, 0, 0, 0, 0);
             return;
         }
 
         if (command is IkbdReportMouseModeRelativeCommand or IkbdReportMouseModeAbsoluteCommand or IkbdReportMouseModeKeycodeCommand)
         {
+            LogIkbdCommandOnceNoLock(command, parameters, "IKBD mouse mode report request handled.");
             var mode = m_mouseMode switch
             {
                 IkbdMouseModeRelative when m_mouseReportingEnabled => (byte)0x08,
@@ -712,24 +880,28 @@ public sealed class AciaIkbdDevice : IMemDevice
 
         if (command == IkbdReportMouseThresholdCommand)
         {
-            QueueStatusResponseNoLock(0x0B, 0, 0, 0, 0, 0, 0);
+            LogIkbdCommandOnceNoLock(command, parameters, "IKBD mouse threshold report request handled.");
+            QueueStatusResponseNoLock(0x0B, m_mouseThresholdX, m_mouseThresholdY, 0, 0, 0, 0);
             return;
         }
 
         if (command == IkbdReportMouseScaleCommand)
         {
-            QueueStatusResponseNoLock(0x0C, 0, 0, 0, 0, 0, 0);
+            LogIkbdCommandOnceNoLock(command, parameters, "IKBD mouse scale report request handled.");
+            QueueStatusResponseNoLock(0x0C, m_mouseScaleX, m_mouseScaleY, 0, 0, 0, 0);
             return;
         }
 
         if (command is IkbdReportMouseVerticalBottomCommand or IkbdReportMouseVerticalTopCommand)
         {
-            QueueStatusResponseNoLock(0x10, 0, 0, 0, 0, 0, 0);
+            LogIkbdCommandOnceNoLock(command, parameters, "IKBD mouse vertical-origin report request handled.");
+            QueueStatusResponseNoLock(m_isMouseYZeroTop ? (byte)0x10 : (byte)0x0F, 0, 0, 0, 0, 0, 0);
             return;
         }
 
         if (command == IkbdReportMouseAvailabilityCommand)
         {
+            LogIkbdCommandOnceNoLock(command, parameters, "IKBD mouse availability report request handled.");
             var availability = m_mouseMode == 0 || !m_mouseReportingEnabled ? (byte)0x12 : (byte)0x00;
             QueueStatusResponseNoLock(availability, 0, 0, 0, 0, 0, 0);
             return;
@@ -737,6 +909,7 @@ public sealed class AciaIkbdDevice : IMemDevice
 
         if (command is IkbdReportJoystickModeEventCommand or IkbdReportJoystickModeInterrogateCommand or IkbdReportJoystickModeKeycodeCommand)
         {
+            LogIkbdCommandOnceNoLock(command, parameters, "IKBD joystick mode report request handled.");
             var mode = m_joystickEventModeEnabled ? (byte)0x14 : (byte)0x15;
             if (m_joystickMonitoringModeEnabled)
                 mode = 0x17;
@@ -746,13 +919,17 @@ public sealed class AciaIkbdDevice : IMemDevice
 
         if (command == IkbdReportJoystickAvailabilityCommand)
         {
+            LogIkbdCommandOnceNoLock(command, parameters, "IKBD joystick availability report request handled.");
             var availability = m_joystickDisabled ? (byte)0x1A : (byte)0x00;
             QueueStatusResponseNoLock(availability, 0, 0, 0, 0, 0, 0);
             return;
         }
 
         if (command == IkbdInterrogateJoystickStateCommand)
+        {
+            LogIkbdCommandOnceNoLock(command, parameters, "IKBD joystick interrogate request handled.");
             QueueJoystickInterrogationResponseNoLock();
+        }
     }
 
     private static bool TryGetIkbdCommandParameterCount(byte command, out int parameterCount)
@@ -826,6 +1003,38 @@ public sealed class AciaIkbdDevice : IMemDevice
         KeyboardDataReady?.Invoke(this, EventArgs.Empty);
     }
 
+    private void DropStaleTransientInputBacklogForKeyboardNoLock()
+    {
+        if (m_keyboardReceiveQueue.Count == 0)
+            return;
+        if (m_queuedKeyboardInjectedByteCount != 0)
+            return;
+
+        if (!HasOnlyDroppableBacklogBeforeKeyboardNoLock())
+            return;
+
+        DropQueuedBytesByKindNoLock(ReceiveByteKind.MousePacket);
+        DropQueuedBytesByKindNoLock(ReceiveByteKind.JoystickEvent);
+        DropQueuedBytesByKindNoLock(ReceiveByteKind.JoystickInterrogateResponse);
+        DropQueuedBytesByKindNoLock(ReceiveByteKind.JoystickMonitoring);
+    }
+
+    private bool HasOnlyDroppableBacklogBeforeKeyboardNoLock()
+    {
+        foreach (var kind in m_keyboardReceiveKinds)
+        {
+            if (kind is ReceiveByteKind.MousePacket or
+                ReceiveByteKind.JoystickEvent or
+                ReceiveByteKind.JoystickInterrogateResponse or
+                ReceiveByteKind.JoystickMonitoring)
+                continue;
+
+            return false;
+        }
+
+        return m_keyboardReceiveKinds.Count > 0;
+    }
+
     private void IncrementQueuedByteKindCountNoLock(ReceiveByteKind byteKind)
     {
         if (byteKind == ReceiveByteKind.KeyboardInjected)
@@ -836,6 +1045,8 @@ public sealed class AciaIkbdDevice : IMemDevice
             m_queuedJoystickEventByteCount++;
         else if (byteKind == ReceiveByteKind.JoystickInterrogateResponse)
             m_queuedJoystickInterrogateResponseByteCount++;
+        else if (byteKind == ReceiveByteKind.ClockResponse)
+            m_queuedClockResponseByteCount++;
         else if (byteKind == ReceiveByteKind.JoystickMonitoring)
             m_queuedJoystickEventByteCount++;
     }
@@ -850,6 +1061,8 @@ public sealed class AciaIkbdDevice : IMemDevice
             m_queuedJoystickEventByteCount = Math.Max(0, m_queuedJoystickEventByteCount - 1);
         else if (byteKind == ReceiveByteKind.JoystickInterrogateResponse)
             m_queuedJoystickInterrogateResponseByteCount = Math.Max(0, m_queuedJoystickInterrogateResponseByteCount - 1);
+        else if (byteKind == ReceiveByteKind.ClockResponse)
+            m_queuedClockResponseByteCount = Math.Max(0, m_queuedClockResponseByteCount - 1);
         else if (byteKind == ReceiveByteKind.JoystickMonitoring)
             m_queuedJoystickEventByteCount = Math.Max(0, m_queuedJoystickEventByteCount - 1);
     }
@@ -860,6 +1073,7 @@ public sealed class AciaIkbdDevice : IMemDevice
         m_queuedMousePacketByteCount = 0;
         m_queuedJoystickEventByteCount = 0;
         m_queuedJoystickInterrogateResponseByteCount = 0;
+        m_queuedClockResponseByteCount = 0;
         m_peakReceiveQueueCount = 0;
     }
 
@@ -888,6 +1102,71 @@ public sealed class AciaIkbdDevice : IMemDevice
         EnqueueKeyboardByteNoLock(value5);
         EnqueueKeyboardByteNoLock(value6);
         EnqueueKeyboardByteNoLock(value7);
+    }
+
+    private void QueueClockResponseNoLock()
+    {
+        if (m_outputPaused)
+            return;
+
+        DropQueuedClockResponsesNoLock();
+
+        EnqueueKeyboardByteNoLock(IkbdClockResponseHeader, ReceiveByteKind.ClockResponse);
+        for (var i = 0; i < m_clockBytes.Length; i++)
+            EnqueueKeyboardByteNoLock(m_clockBytes[i], ReceiveByteKind.ClockResponse);
+    }
+
+    private void ScheduleClockResponseNoLock()
+    {
+        DropQueuedClockResponsesNoLock();
+        for (var i = 0; i < m_clockBytes.Length; i++)
+            m_pendingClockResponseBytes[i] = m_clockBytes[i];
+
+        m_pendingClockResponseNextByteIndex = -1; // Emit 0xFC header first.
+        m_pendingClockResponseDelayCpuTicks = ClockResponseHeaderDelayCpuTicks;
+        m_hasPendingClockResponse = true;
+    }
+
+    private void AdvanceDelayedOutputNoLock(long deltaCpuTicks)
+    {
+        lock (m_stateSync)
+        {
+            if (!m_hasPendingClockResponse)
+                return;
+            if (m_outputPaused)
+                return;
+
+            if (deltaCpuTicks > 0 && m_pendingClockResponseDelayCpuTicks > 0)
+                m_pendingClockResponseDelayCpuTicks -= deltaCpuTicks;
+
+            if (m_pendingClockResponseDelayCpuTicks > 0)
+                return;
+            if (m_keyboardReceiveQueue.Count > 0)
+                return;
+
+            if (m_pendingClockResponseNextByteIndex < 0)
+            {
+                EnqueueKeyboardByteNoLock(IkbdClockResponseHeader, ReceiveByteKind.ClockResponse);
+                m_pendingClockResponseNextByteIndex = 0;
+                m_pendingClockResponseDelayCpuTicks = ClockResponseInterByteDelayCpuTicks;
+                return;
+            }
+
+            if (m_pendingClockResponseNextByteIndex < m_pendingClockResponseBytes.Length)
+            {
+                EnqueueKeyboardByteNoLock(m_pendingClockResponseBytes[m_pendingClockResponseNextByteIndex], ReceiveByteKind.ClockResponse);
+                m_pendingClockResponseNextByteIndex++;
+                if (m_pendingClockResponseNextByteIndex < m_pendingClockResponseBytes.Length)
+                {
+                    m_pendingClockResponseDelayCpuTicks = ClockResponseInterByteDelayCpuTicks;
+                    return;
+                }
+            }
+
+            m_hasPendingClockResponse = false;
+            m_pendingClockResponseDelayCpuTicks = 0;
+            m_pendingClockResponseNextByteIndex = 0;
+        }
     }
 
     private void QueueActiveJoystickStatePacketsNoLock()
@@ -927,6 +1206,40 @@ public sealed class AciaIkbdDevice : IMemDevice
         Logger.Instance.Warn(message);
     }
 
+    private void WarnUnknownIkbdCommandOnceNoLock(byte command)
+    {
+        if (!TryMarkIkbdCommandLoggedNoLock(command))
+            return;
+
+        Logger.Instance.Warn($"Unknown IKBD command 0x{command:X2} received.");
+    }
+
+    private void LogIkbdCommandOnceNoLock(byte command, ReadOnlySpan<byte> parameters, string message)
+    {
+        if (!TryMarkIkbdCommandLoggedNoLock(command))
+            return;
+
+        if (parameters.Length == 0)
+        {
+            Logger.Instance.Info($"IKBD command 0x{command:X2}: {message}");
+            return;
+        }
+
+        var parameterBytes = string.Join(" ", parameters.ToArray().Select(p => p.ToString("X2")));
+        Logger.Instance.Info($"IKBD command 0x{command:X2} [{parameterBytes}]: {message}");
+    }
+
+    private bool TryMarkIkbdCommandLoggedNoLock(byte command)
+    {
+        var bucket = command >> 6;
+        var bit = 1UL << (command & 0x3F);
+        if ((m_loggedIkbdCommandCodes[bucket] & bit) != 0)
+            return false;
+
+        m_loggedIkbdCommandCodes[bucket] |= bit;
+        return true;
+    }
+
     private void RefreshInterruptLineNoLock()
     {
         var isActive = m_keyboardReceiveQueue.Count > 0 && (m_keyboardControl & InterruptRequestFlag) != 0;
@@ -951,7 +1264,10 @@ public sealed class AciaIkbdDevice : IMemDevice
     }
 
     private static bool IsJoystickDeferredReassertKind(ReceiveByteKind byteKind) =>
-        byteKind is ReceiveByteKind.JoystickEvent or ReceiveByteKind.JoystickInterrogateResponse or ReceiveByteKind.JoystickMonitoring;
+        byteKind is ReceiveByteKind.JoystickEvent or
+        ReceiveByteKind.JoystickInterrogateResponse or
+        ReceiveByteKind.JoystickMonitoring or
+        ReceiveByteKind.ClockResponse;
 
     private void TryReassertKeyboardInterruptFast()
     {
@@ -1009,6 +1325,93 @@ public sealed class AciaIkbdDevice : IMemDevice
             m_hasDeferredAdvanceWork = false;
             RefreshInterruptLineNoLock();
         }
+    }
+
+    private void DropQueuedClockResponsesNoLock()
+    {
+        if (m_queuedClockResponseByteCount <= 0)
+            return;
+
+        DropQueuedBytesByKindNoLock(ReceiveByteKind.ClockResponse);
+    }
+
+    private static bool IsPackedBcd(byte value) =>
+        (value & 0x0F) <= 9 && ((value >> 4) & 0x0F) <= 9;
+
+    private void AdvanceClockFromHostTimeNoLock()
+    {
+        var now = Stopwatch.GetTimestamp();
+        var elapsedTicks = now - m_clockLastHostTimestamp;
+        if (elapsedTicks <= 0)
+            return;
+
+        var elapsedSeconds = elapsedTicks / Stopwatch.Frequency;
+        if (elapsedSeconds <= 0)
+            return;
+
+        m_clockLastHostTimestamp += elapsedSeconds * Stopwatch.Frequency;
+        AdvanceClockSecondsNoLock((int)Math.Min(int.MaxValue, elapsedSeconds));
+    }
+
+    private void AdvanceClockSecondsNoLock(int seconds)
+    {
+        if (seconds <= 0)
+            return;
+        if (!TryGetClockDateTimeNoLock(out var clock))
+            return;
+
+        clock = clock.AddSeconds(seconds);
+        SetClockBytesFromDateTimeNoLock(clock);
+    }
+
+    private bool TryGetClockDateTimeNoLock(out DateTime value)
+    {
+        value = default;
+
+        if (!TryGetBcdInt(m_clockBytes[0], out var year) ||
+            !TryGetBcdInt(m_clockBytes[1], out var month) ||
+            !TryGetBcdInt(m_clockBytes[2], out var day) ||
+            !TryGetBcdInt(m_clockBytes[3], out var hour) ||
+            !TryGetBcdInt(m_clockBytes[4], out var minute) ||
+            !TryGetBcdInt(m_clockBytes[5], out var second))
+            return false;
+
+        var fullYear = year >= 80 ? 1900 + year : 2000 + year;
+        try
+        {
+            value = new DateTime(fullYear, month, day, hour, minute, second, DateTimeKind.Local);
+            return true;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+    }
+
+    private void SetClockBytesFromDateTimeNoLock(DateTime value)
+    {
+        m_clockBytes[0] = ToBcdByte(value.Year % 100);
+        m_clockBytes[1] = ToBcdByte(value.Month);
+        m_clockBytes[2] = ToBcdByte(value.Day);
+        m_clockBytes[3] = ToBcdByte(value.Hour);
+        m_clockBytes[4] = ToBcdByte(value.Minute);
+        m_clockBytes[5] = ToBcdByte(value.Second);
+    }
+
+    private static bool TryGetBcdInt(byte bcd, out int value)
+    {
+        value = 0;
+        if (!IsPackedBcd(bcd))
+            return false;
+
+        value = ((bcd >> 4) * 10) + (bcd & 0x0F);
+        return true;
+    }
+
+    private static byte ToBcdByte(int value)
+    {
+        value = Math.Clamp(value, 0, 99);
+        return (byte)(((value / 10) << 4) | (value % 10));
     }
 
     private void DropQueuedBytesByKindNoLock(ReceiveByteKind kindToDrop)
@@ -1084,11 +1487,15 @@ public sealed class AciaIkbdDevice : IMemDevice
                    m_keyboardReceiveQueue.Count + // queue bytes
                    m_keyboardReceiveKinds.Count + // queue kinds
                    m_lastJoystickStateBytes.Length +
+                   m_clockBytes.Length +
+                   m_pendingClockResponseBytes.Length +
                    m_pendingCommandParameters.Length +
-                   5 + // mode/state booleans
-                   sizeof(byte) * 3 + // pending command/mouse mode/kbd ctrl
-                   sizeof(int) * 8 + // pending counts + queued counters + peak
-                   5; // volatile bools
+                   8 + // mode/state booleans
+                   sizeof(byte) * 9 + // pending command/mouse state bytes/kbd ctrl + data latch
+                   sizeof(int) * 9 + // pending counts + queued counters + peak
+                   sizeof(long) +
+                   sizeof(int) +
+                   6; // volatile/scheduled booleans
         }
     }
 
@@ -1104,6 +1511,8 @@ public sealed class AciaIkbdDevice : IMemDevice
                 writer.WriteByte((byte)b);
 
             writer.WriteBytes(m_lastJoystickStateBytes);
+            writer.WriteBytes(m_clockBytes);
+            writer.WriteBytes(m_pendingClockResponseBytes);
             writer.WriteBytes(m_pendingCommandParameters);
             writer.WriteBool(m_mouseReportingEnabled);
             writer.WriteBool(m_outputPaused);
@@ -1115,16 +1524,29 @@ public sealed class AciaIkbdDevice : IMemDevice
             writer.WriteInt32(m_pendingCommandParameterIndex);
             writer.WriteInt32(m_pendingMemoryLoadByteCount);
             writer.WriteByte(m_mouseMode);
+            writer.WriteByte(m_mouseButtonActionMode);
+            writer.WriteByte(m_mouseThresholdX);
+            writer.WriteByte(m_mouseThresholdY);
+            writer.WriteByte(m_mouseScaleX);
+            writer.WriteByte(m_mouseScaleY);
             writer.WriteByte(m_keyboardControl);
+            writer.WriteByte(m_keyboardDataRegisterLatch);
+            writer.WriteBool(m_isMouseYZeroTop);
+            writer.WriteBool(m_lastMouseLeftButtonPressed);
+            writer.WriteBool(m_lastMouseRightButtonPressed);
             writer.WriteBool(m_keyboardInterruptLineActive);
             writer.WriteBool(m_keyboardInterruptReassertPending);
             writer.WriteBool(m_hasDeferredAdvanceWork);
             writer.WriteBool(m_isDeferredInterruptReassertEnabled);
             writer.WriteBool(m_isJoystickInterrogateCoalescingEnabled);
+            writer.WriteBool(m_hasPendingClockResponse);
+            writer.WriteInt64(m_pendingClockResponseDelayCpuTicks);
+            writer.WriteInt32(m_pendingClockResponseNextByteIndex);
             writer.WriteInt32(m_queuedKeyboardInjectedByteCount);
             writer.WriteInt32(m_queuedMousePacketByteCount);
             writer.WriteInt32(m_queuedJoystickEventByteCount);
             writer.WriteInt32(m_queuedJoystickInterrogateResponseByteCount);
+            writer.WriteInt32(m_queuedClockResponseByteCount);
             writer.WriteInt32(m_peakReceiveQueueCount);
         }
     }
@@ -1153,6 +1575,8 @@ public sealed class AciaIkbdDevice : IMemDevice
             }
 
             reader.ReadBytes(m_lastJoystickStateBytes);
+            reader.ReadBytes(m_clockBytes);
+            reader.ReadBytes(m_pendingClockResponseBytes);
             reader.ReadBytes(m_pendingCommandParameters);
             m_mouseReportingEnabled = reader.ReadBool();
             m_outputPaused = reader.ReadBool();
@@ -1164,17 +1588,31 @@ public sealed class AciaIkbdDevice : IMemDevice
             m_pendingCommandParameterIndex = reader.ReadInt32();
             m_pendingMemoryLoadByteCount = reader.ReadInt32();
             m_mouseMode = reader.ReadByte();
+            m_mouseButtonActionMode = reader.ReadByte();
+            m_mouseThresholdX = reader.ReadByte();
+            m_mouseThresholdY = reader.ReadByte();
+            m_mouseScaleX = reader.ReadByte();
+            m_mouseScaleY = reader.ReadByte();
             m_keyboardControl = reader.ReadByte();
+            m_keyboardDataRegisterLatch = reader.ReadByte();
+            m_isMouseYZeroTop = reader.ReadBool();
+            m_lastMouseLeftButtonPressed = reader.ReadBool();
+            m_lastMouseRightButtonPressed = reader.ReadBool();
             m_keyboardInterruptLineActive = reader.ReadBool();
             m_keyboardInterruptReassertPending = reader.ReadBool();
             m_hasDeferredAdvanceWork = reader.ReadBool();
             m_isDeferredInterruptReassertEnabled = reader.ReadBool();
             m_isJoystickInterrogateCoalescingEnabled = reader.ReadBool();
+            m_hasPendingClockResponse = reader.ReadBool();
+            m_pendingClockResponseDelayCpuTicks = reader.ReadInt64();
+            m_pendingClockResponseNextByteIndex = reader.ReadInt32();
             m_loggedUnsupportedFeatureWarnings = 0;
+            Array.Clear(m_loggedIkbdCommandCodes, 0, m_loggedIkbdCommandCodes.Length);
             m_queuedKeyboardInjectedByteCount = reader.ReadInt32();
             m_queuedMousePacketByteCount = reader.ReadInt32();
             m_queuedJoystickEventByteCount = reader.ReadInt32();
             m_queuedJoystickInterrogateResponseByteCount = reader.ReadInt32();
+            m_queuedClockResponseByteCount = reader.ReadInt32();
             m_peakReceiveQueueCount = reader.ReadInt32();
         }
     }
@@ -1195,7 +1633,8 @@ public sealed class AciaIkbdDevice : IMemDevice
         MousePacket = 2,
         JoystickEvent = 3,
         JoystickInterrogateResponse = 4,
-        JoystickMonitoring = 5
+        JoystickMonitoring = 5,
+        ClockResponse = 6
     }
 
     [Flags]
@@ -1211,6 +1650,7 @@ public sealed class AciaIkbdDevice : IMemDevice
         JoystickFireButtonMonitoring = 1 << 6,
         JoystickCursorKeycodes = 1 << 7,
         MouseButtonAction = 1 << 8,
-        JoystickMonitoringTiming = 1 << 9
+        JoystickMonitoringTiming = 1 << 9,
+        InterrogateMousePosition = 1 << 10
     }
 }

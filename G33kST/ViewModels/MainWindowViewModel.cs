@@ -213,7 +213,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     /// Forwards one keyboard key transition into the IKBD stream.
     /// </summary>
     public void UpdateKeyboardState(byte scanCode, bool isPressed) =>
-        m_machine.InjectKeyboardKeyState(scanCode, isPressed);
+        m_machine.QueueKeyboardKeyState(scanCode, isPressed);
 
     /// <summary>
     /// Clears any queued IKBD keyboard/controller output bytes.

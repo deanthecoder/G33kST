@@ -69,11 +69,13 @@ public sealed class AtariST : IMachine, IMachineSnapshotter
     private readonly MfpDevice m_mfp;
     private readonly AtariSTDescriptor m_descriptor;
     private readonly Lock m_mouseStateSync = new();
+    private readonly Lock m_keyboardInputSync = new();
     private readonly List<PendingInterrupt> m_pendingInterrupts = new(MaxPendingInterrupts);
     private readonly InterruptAcknowledgeResult[][] m_pendingAcknowledgeByLevel = CreatePendingAcknowledgeStorage();
     private readonly int[] m_pendingAcknowledgeReadByLevel = new int[8];
     private readonly int[] m_pendingAcknowledgeCountByLevel = new int[8];
     private readonly List<MousePacket> m_pendingMousePackets = [];
+    private readonly Queue<byte> m_pendingHostKeyboardScanCodes = [];
     private readonly bool m_isJoystickMirroredToPort0;
     private readonly double m_mouseInputTicksPerSample;
     private readonly long m_cpuClockHz;
@@ -238,6 +240,8 @@ public sealed class AtariST : IMachine, IMachineSnapshotter
         Array.Clear(m_pendingAcknowledgeReadByLevel, 0, m_pendingAcknowledgeReadByLevel.Length);
         Array.Clear(m_pendingAcknowledgeCountByLevel, 0, m_pendingAcknowledgeCountByLevel.Length);
         m_pendingMousePackets.Clear();
+        lock (m_keyboardInputSync)
+            m_pendingHostKeyboardScanCodes.Clear();
         m_mousePacketTickAccumulator = 0;
         m_mouseInputTickAccumulator = 0;
         m_hasPendingHostMouseState = false;
@@ -297,12 +301,13 @@ public sealed class AtariST : IMachine, IMachineSnapshotter
 
     public void StepCpu()
     {
+        FlushPendingHostKeyboardScanCodes();
         Cpu.Step();
     }
 
     public void AdvanceDevices(long deltaTicks)
     {
-        m_aciaIkbd.Advance();
+        m_aciaIkbd.Advance(deltaTicks);
         m_psg.AdvanceCycles(deltaTicks);
         m_video.Advance(deltaTicks, OnHblank, OnVblank);
         m_floppyController.Advance(deltaTicks);
@@ -388,7 +393,23 @@ public sealed class AtariST : IMachine, IMachineSnapshotter
     /// Clears pending IKBD receive bytes.
     /// </summary>
     public void ClearKeyboardInputQueue() =>
-        m_aciaIkbd.ClearReceiveQueue();
+        ClearKeyboardInputQueueInternal();
+
+    /// <summary>
+    /// Queues one host keyboard key state transition to be applied on the emulation thread as an IKBD make/break scan code.
+    /// </summary>
+    /// <remarks>
+    /// Routing host input through the emulation thread avoids cross-thread ACIA/MFP interrupt timing races.
+    /// </remarks>
+    public void QueueKeyboardKeyState(byte scanCode, bool isPressed)
+    {
+        var keyCode = (byte)(scanCode & 0x7F);
+        if (!isPressed)
+            keyCode |= 0x80;
+
+        lock (m_keyboardInputSync)
+            m_pendingHostKeyboardScanCodes.Enqueue(keyCode);
+    }
 
     /// <summary>
     /// Clears queued host mouse packets awaiting IKBD cadence flush.
@@ -423,6 +444,29 @@ public sealed class AtariST : IMachine, IMachineSnapshotter
     /// </summary>
     public int PendingIkbdMousePacketByteCount =>
         m_aciaIkbd.PendingMousePacketByteCount;
+
+    private void ClearKeyboardInputQueueInternal()
+    {
+        lock (m_keyboardInputSync)
+            m_pendingHostKeyboardScanCodes.Clear();
+        m_aciaIkbd.ClearReceiveQueue();
+    }
+
+    private void FlushPendingHostKeyboardScanCodes()
+    {
+        while (true)
+        {
+            byte scanCode;
+            lock (m_keyboardInputSync)
+            {
+                if (m_pendingHostKeyboardScanCodes.Count == 0)
+                    return;
+                scanCode = m_pendingHostKeyboardScanCodes.Dequeue();
+            }
+
+            m_aciaIkbd.QueueKeyboardByte(scanCode);
+        }
+    }
 
     /// <summary>
     /// Gets the number of queued host mouse packets awaiting cadence flush.

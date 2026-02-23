@@ -27,12 +27,14 @@ namespace G33kST.Views;
 public partial class MainWindow : Window
 {
     private const int KeyHoldDelayMs = 300;
+    private const int FunctionKeyMinimumPressMs = 200;
     private const int AutoFireIntervalMs = 60; // Match MasterG33k cadence.
     private static readonly string[] SupportedDroppedFileExtensions = [".st", ".zip"];
     private bool m_isLoaded;
     private bool m_isPointerInsideDisplay;
     private bool m_isLeftMouseButtonPressed;
     private readonly Dictionary<Key, HeldKeyState> m_pressedMachineKeys = [];
+    private readonly List<Key> m_keysToReleaseOnTick = [];
     private readonly DispatcherTimer m_keyHoldTimer;
     private readonly DispatcherTimer m_joystickAutoFireTimer;
     private JoystickState m_joystickState;
@@ -277,10 +279,11 @@ public partial class MainWindow : Window
         if (m_pressedMachineKeys.ContainsKey(e.Key))
             return;
 
-        if (IsImmediateHoldModifierKey(e.Key))
+        if (IsImmediateHoldKey(e.Key))
         {
+            var keyDownTick = Stopwatch.GetTimestamp();
             ViewModel.UpdateKeyboardState(scanCode, isPressed: true);
-            m_pressedMachineKeys[e.Key] = new HeldKeyState(scanCode, holdActivationTick: 0)
+            m_pressedMachineKeys[e.Key] = new HeldKeyState(scanCode, holdActivationTick: 0, keyDownTick: keyDownTick)
             {
                 IsHeld = true
             };
@@ -294,7 +297,7 @@ public partial class MainWindow : Window
 
         // If still held after a short delay, treat it as a held key.
         var now = Stopwatch.GetTimestamp();
-        m_pressedMachineKeys[e.Key] = new HeldKeyState(scanCode, now + MsToTicks(KeyHoldDelayMs));
+        m_pressedMachineKeys[e.Key] = new HeldKeyState(scanCode, now + MsToTicks(KeyHoldDelayMs), now);
         if (!m_keyHoldTimer.IsEnabled)
             m_keyHoldTimer.Start();
         e.Handled = true;
@@ -319,7 +322,24 @@ public partial class MainWindow : Window
             return;
 
         if (state.IsHeld)
+        {
+            if (IsFunctionKey(e.Key))
+            {
+                var minimumReleaseTick = state.KeyDownTick + MsToTicks(FunctionKeyMinimumPressMs);
+                var now = Stopwatch.GetTimestamp();
+                if (now < minimumReleaseTick)
+                {
+                    state.PendingReleaseTick = minimumReleaseTick;
+                    m_pressedMachineKeys[e.Key] = state;
+                    if (!m_keyHoldTimer.IsEnabled)
+                        m_keyHoldTimer.Start();
+                    e.Handled = true;
+                    return;
+                }
+            }
+
             ViewModel.UpdateKeyboardState(state.ScanCode, isPressed: false);
+        }
         if (m_pressedMachineKeys.Count == 0)
             m_keyHoldTimer.Stop();
         e.Handled = true;
@@ -331,14 +351,29 @@ public partial class MainWindow : Window
             return;
 
         var now = Stopwatch.GetTimestamp();
-        foreach (var state in m_pressedMachineKeys.Values)
+        m_keysToReleaseOnTick.Clear();
+        foreach (var pair in m_pressedMachineKeys)
         {
+            var key = pair.Key;
+            var state = pair.Value;
+            if (state.PendingReleaseTick > 0 && now >= state.PendingReleaseTick)
+            {
+                ViewModel.UpdateKeyboardState(state.ScanCode, isPressed: false);
+                m_keysToReleaseOnTick.Add(key);
+                continue;
+            }
             if (state.IsHeld || now < state.HoldActivationTick)
                 continue;
 
             ViewModel.UpdateKeyboardState(state.ScanCode, isPressed: true);
             state.IsHeld = true;
         }
+
+        foreach (var key in m_keysToReleaseOnTick)
+            m_pressedMachineKeys.Remove(key);
+
+        if (m_pressedMachineKeys.Count == 0)
+            m_keyHoldTimer.Stop();
     }
 
     private void ReleaseAllPressedMachineKeys()
@@ -503,8 +538,9 @@ public partial class MainWindow : Window
     private static bool IsJoystickControlKey(Key key) =>
         key is Key.Up or Key.Down or Key.Left or Key.Right or Key.Z or Key.A;
 
-    private static bool IsImmediateHoldModifierKey(Key key) =>
-        key is Key.LeftShift or Key.RightShift or Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt;
+    private static bool IsImmediateHoldKey(Key key) =>
+        key is Key.LeftShift or Key.RightShift or Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt ||
+        key >= Key.F1 && key <= Key.F10;
 
     private static long MsToTicks(int milliseconds) =>
         milliseconds * Stopwatch.Frequency / 1000;
@@ -521,19 +557,27 @@ public partial class MainWindow : Window
         return e.Key is not Key.LeftCtrl and not Key.RightCtrl and not Key.LeftAlt and not Key.RightAlt and not Key.LWin and not Key.RWin;
     }
 
+    private static bool IsFunctionKey(Key key) =>
+        key >= Key.F1 && key <= Key.F12;
+
     private sealed class HeldKeyState
     {
-        public HeldKeyState(byte scanCode, long holdActivationTick)
+        public HeldKeyState(byte scanCode, long holdActivationTick, long keyDownTick)
         {
             ScanCode = scanCode;
             HoldActivationTick = holdActivationTick;
+            KeyDownTick = keyDownTick;
         }
 
         public byte ScanCode { get; }
 
         public long HoldActivationTick { get; }
 
+        public long KeyDownTick { get; }
+
         public bool IsHeld { get; set; }
+
+        public long PendingReleaseTick { get; set; }
     }
 
     private static bool TryGetFirstSupportedDroppedFile(DragEventArgs e, out FileInfo file)

@@ -19,6 +19,8 @@ public sealed class AciaIkbdDeviceTests
     private const uint KeyboardDataAddress = 0x00FFFC02;
     private const uint MidiStatusAddress = 0x00FFFC04;
     private const uint MidiDataAddress = 0x00FFFC06;
+    private const long ClockResponseDelayCpuTicks = 56_000;
+    private const long ClockResponseInterByteDelayCpuTicks = 10_500;
 
     [Test]
     public void KeyboardStatusShouldReportTransmitReadyWhenQueueIsEmpty()
@@ -125,6 +127,74 @@ public sealed class AciaIkbdDeviceTests
         {
             Assert.That(status & 0x01, Is.Not.Zero);
             Assert.That(value, Is.EqualTo(0x1C));
+        });
+    }
+
+    [Test]
+    public void EmptyKeyboardDataReadShouldReturnLastLatchedByte()
+    {
+        var device = new AciaIkbdDevice();
+        device.QueueKeyboardByte(0x3B);
+
+        var firstRead = device.Read8(KeyboardDataAddress);
+        var emptyRead = device.Read8(KeyboardDataAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(firstRead, Is.EqualTo(0x3B));
+            Assert.That(emptyRead, Is.EqualTo(0x3B));
+        });
+    }
+
+    [Test]
+    public void QueueKeyboardByteShouldDropTransientInputBacklogAndPrioritizeKeyboardInput()
+    {
+        var device = new AciaIkbdDevice();
+
+        device.QueueRelativeMousePacket(5, -2, isLeftButtonPressed: true, isRightButtonPressed: false);
+        device.QueueJoystickState(1, new JoystickState(
+            IsUpPressed: false,
+            IsDownPressed: false,
+            IsLeftPressed: false,
+            IsRightPressed: true,
+            IsFirePressed: true));
+        device.QueueKeyboardByte(0x3B);
+
+        var queuedBeforeRead = device.PendingReceiveQueueCount;
+        var keyboardBytesBeforeRead = device.PendingKeyboardInjectedByteCount;
+        var mouseBytesBeforeRead = device.PendingMousePacketByteCount;
+        var joystickBytesBeforeRead = device.PendingJoystickEventByteCount;
+        var value = device.Read8(KeyboardDataAddress);
+        var statusAfterRead = device.Read8(KeyboardStatusAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(queuedBeforeRead, Is.EqualTo(1), "Expected stale mouse/joystick packets to be dropped before keyboard injection.");
+            Assert.That(keyboardBytesBeforeRead, Is.EqualTo(1));
+            Assert.That(mouseBytesBeforeRead, Is.Zero);
+            Assert.That(joystickBytesBeforeRead, Is.Zero);
+            Assert.That(value, Is.EqualTo(0x3B));
+            Assert.That(statusAfterRead & 0x01, Is.Zero);
+        });
+    }
+
+    [Test]
+    public void QueueKeyboardByteShouldNotDropGenericIkbdResponseBytes()
+    {
+        var device = new AciaIkbdDevice();
+
+        device.Write8(KeyboardDataAddress, 0x80);
+        device.Write8(KeyboardDataAddress, 0x01);
+        device.QueueRelativeMousePacket(1, 0, isLeftButtonPressed: false, isRightButtonPressed: false);
+        device.QueueKeyboardByte(0x3B);
+
+        var first = device.Read8(KeyboardDataAddress);
+        var second = device.Read8(KeyboardDataAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(first, Is.EqualTo(0xF1), "Reset-ack response should be preserved.");
+            Assert.That(second, Is.EqualTo(0xF8), "Queued mouse packet should remain when generic IKBD response bytes are present.");
         });
     }
 
@@ -256,6 +326,28 @@ public sealed class AciaIkbdDeviceTests
         _ = device.Read8(KeyboardDataAddress); // State byte.
 
         Assert.That(assertedCount, Is.EqualTo(1), "Expected no deferred reassert edge while feature is disabled.");
+    }
+
+    [Test]
+    public void ReadingClockResponseBytesShouldRearmKeyboardInterruptForRemainingPacketAfterAdvance()
+    {
+        var device = new AciaIkbdDevice();
+        var assertedCount = 0;
+        device.KeyboardInterruptLineChanged += isActiveLow =>
+        {
+            if (isActiveLow)
+                assertedCount++;
+        };
+        device.Write8(KeyboardStatusAddress, 0x80); // Enable receive IRQ signaling.
+
+        device.Write8(KeyboardDataAddress, 0x1C); // Read clock.
+        device.Advance(ClockResponseDelayCpuTicks);
+
+        _ = device.Read8(KeyboardDataAddress); // 0xFC header.
+        device.Advance(ClockResponseInterByteDelayCpuTicks);
+        _ = device.Read8(KeyboardDataAddress); // First clock byte.
+
+        Assert.That(assertedCount, Is.EqualTo(2), "Expected deferred reassert to flow multi-byte clock response packets.");
     }
 
     [Test]
@@ -657,6 +749,74 @@ public sealed class AciaIkbdDeviceTests
         });
     }
 
+    [Test]
+    public void MouseButtonActionModeShouldReportConfiguredValueAndEmitButtonKeycodes()
+    {
+        var device = new AciaIkbdDevice();
+
+        device.Write8(KeyboardDataAddress, 0x07);
+        device.Write8(KeyboardDataAddress, 0x04);
+        device.Write8(KeyboardDataAddress, 0x87);
+        var statusReport = new byte[8];
+        for (var i = 0; i < statusReport.Length; i++)
+            statusReport[i] = device.Read8(KeyboardDataAddress);
+
+        device.QueueRelativeMousePacket(12, -7, isLeftButtonPressed: true, isRightButtonPressed: false);
+        var leftPress = device.Read8(KeyboardDataAddress);
+        var statusAfterPress = device.Read8(KeyboardStatusAddress);
+        device.QueueRelativeMousePacket(0, 0, isLeftButtonPressed: false, isRightButtonPressed: false);
+        var leftRelease = device.Read8(KeyboardDataAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(statusReport, Is.EqualTo(new byte[] { 0xF6, 0x07, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00 }));
+            Assert.That(leftPress, Is.EqualTo(0x74), "0x07 bit 0x04 should map mouse-button transitions to keycodes.");
+            Assert.That(statusAfterPress & 0x01, Is.Zero, "Mouse motion bytes should be suppressed in button-action keycode mode.");
+            Assert.That(leftRelease, Is.EqualTo(0xF4));
+        });
+    }
+
+    [Test]
+    public void MouseThresholdReportShouldReturnConfiguredThresholdValues()
+    {
+        var device = new AciaIkbdDevice();
+
+        device.Write8(KeyboardDataAddress, 0x0B);
+        device.Write8(KeyboardDataAddress, 0x03);
+        device.Write8(KeyboardDataAddress, 0x07);
+        device.Write8(KeyboardDataAddress, 0x8B);
+        var statusReport = new byte[8];
+        for (var i = 0; i < statusReport.Length; i++)
+            statusReport[i] = device.Read8(KeyboardDataAddress);
+
+        Assert.That(statusReport, Is.EqualTo(new byte[] { 0xF6, 0x0B, 0x03, 0x07, 0x00, 0x00, 0x00, 0x00 }));
+    }
+
+    [Test]
+    public void MouseYOriginReportShouldReturnConfiguredOriginMode()
+    {
+        var device = new AciaIkbdDevice();
+
+        device.Write8(KeyboardDataAddress, 0x0F);
+        device.Write8(KeyboardDataAddress, 0x90);
+        var bottomReport = new byte[8];
+        for (var i = 0; i < bottomReport.Length; i++)
+            bottomReport[i] = device.Read8(KeyboardDataAddress);
+
+        device.Write8(KeyboardDataAddress, 0x10);
+        device.Write8(KeyboardDataAddress, 0x8F);
+        var topReport = new byte[8];
+        for (var i = 0; i < topReport.Length; i++)
+            topReport[i] = device.Read8(KeyboardDataAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bottomReport, Is.EqualTo(new byte[] { 0xF6, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }));
+            Assert.That(topReport, Is.EqualTo(new byte[] { 0xF6, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }));
+        });
+    }
+
+    [Test]
     public void RelativeMousePacketShouldIgnoreYOriginCommands()
     {
         var device = new AciaIkbdDevice();
@@ -721,6 +881,83 @@ public sealed class AciaIkbdDeviceTests
         {
             Assert.That(status, Is.EqualTo(0xFF));
             Assert.That(data, Is.EqualTo(0xFF));
+        });
+    }
+
+    [Test]
+    public void SetAndReadClockCommandsShouldReturnClockPacketHeaderAndRawClockBytes()
+    {
+        var device = new AciaIkbdDevice();
+        var expectedClockBytes = new byte[] { 0x25, 0x06, 0x07, 0x12, 0x34, 0x56 };
+
+        device.Write8(KeyboardDataAddress, 0x1B);
+        foreach (var b in expectedClockBytes)
+            device.Write8(KeyboardDataAddress, b);
+        device.Write8(KeyboardDataAddress, 0x1C);
+        device.Advance(ClockResponseDelayCpuTicks);
+
+        var header = device.Read8(KeyboardDataAddress);
+        var actualClockBytes = new byte[6];
+        for (var i = 0; i < actualClockBytes.Length; i++)
+        {
+            device.Advance(ClockResponseInterByteDelayCpuTicks);
+            actualClockBytes[i] = device.Read8(KeyboardDataAddress);
+        }
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(header, Is.EqualTo(0xFC));
+            Assert.That(actualClockBytes, Is.EqualTo(expectedClockBytes));
+        });
+    }
+
+    [Test]
+    public void RepeatedReadClockCommandsShouldCoalesceToLatestClockResponsePacket()
+    {
+        var device = new AciaIkbdDevice();
+
+        device.Write8(KeyboardDataAddress, 0x1B);
+        foreach (var b in new byte[] { 0x25, 0x06, 0x07, 0x00, 0x00, 0x01 })
+            device.Write8(KeyboardDataAddress, b);
+        device.Write8(KeyboardDataAddress, 0x1C);
+        device.Write8(KeyboardDataAddress, 0x1B);
+        foreach (var b in new byte[] { 0x25, 0x06, 0x07, 0x00, 0x00, 0x02 })
+            device.Write8(KeyboardDataAddress, b);
+        device.Write8(KeyboardDataAddress, 0x1C);
+        device.Advance(ClockResponseDelayCpuTicks + (ClockResponseInterByteDelayCpuTicks * 6));
+
+        var values = new byte[7];
+        for (var i = 0; i < values.Length; i++)
+        {
+            values[i] = device.Read8(KeyboardDataAddress);
+            device.Advance(ClockResponseInterByteDelayCpuTicks);
+        }
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(device.PendingClockResponseByteCount, Is.Zero);
+            Assert.That(values, Is.EqualTo(new byte[] { 0xFC, 0x25, 0x06, 0x07, 0x00, 0x00, 0x02 }));
+        });
+    }
+
+    [Test]
+    public void QueueKeyboardByteShouldNotDropBackloggedClockResponsePacket()
+    {
+        var device = new AciaIkbdDevice();
+
+        device.Write8(KeyboardDataAddress, 0x1B);
+        foreach (var b in new byte[] { 0x25, 0x06, 0x07, 0x00, 0x00, 0x01 })
+            device.Write8(KeyboardDataAddress, b);
+        device.Write8(KeyboardDataAddress, 0x1C);
+        device.Advance(ClockResponseDelayCpuTicks); // Header is now queued.
+        device.QueueKeyboardByte(0x3B);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(device.PendingClockResponseByteCount, Is.EqualTo(1));
+            Assert.That(device.PendingKeyboardInjectedByteCount, Is.EqualTo(1));
+            Assert.That(device.PendingReceiveQueueCount, Is.EqualTo(2));
+            Assert.That(device.Read8(KeyboardDataAddress), Is.EqualTo(0xFC));
         });
     }
 }
