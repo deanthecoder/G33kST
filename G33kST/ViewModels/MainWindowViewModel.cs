@@ -438,6 +438,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public void ToggleCrtEmulation() =>
         Settings.IsCrtEmulationEnabled = !Settings.IsCrtEmulationEnabled;
 
+    public void ToggleRetroScanlineEffect() =>
+        Settings.IsRetroScanlineEffectEnabled = !Settings.IsRetroScanlineEffectEnabled;
+
     public void ToggleDisplayResolutionMode()
     {
         var targetMode = m_machine.IsHighResolutionMode
@@ -981,6 +984,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         m_screen = new LcdScreen(width, height);
         m_screen.CrtBlendWeights = new CrtBlendWeights(CrtPreviousFrameBlendWeight, CrtCurrentFrameBlendWeight);
         m_screen.FrameBuffer.IsCrt = Settings.IsCrtEmulationEnabled;
+        m_screen.FrameBuffer.IsRetroScanlineEffectEnabled = Settings.IsRetroScanlineEffectEnabled;
         oldScreen.Dispose();
         m_screenInputWidth = width;
         m_screenInputHeight = height;
@@ -998,6 +1002,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             case nameof(Settings.IsCrtEmulationEnabled):
                 m_screen.FrameBuffer.IsCrt = Settings.IsCrtEmulationEnabled;
                 return;
+            case nameof(Settings.IsRetroScanlineEffectEnabled):
+                m_screen.FrameBuffer.IsRetroScanlineEffectEnabled = Settings.IsRetroScanlineEffectEnabled;
+                return;
             case nameof(Settings.IsSpeedIndicatorVisible):
                 if (Settings.IsSpeedIndicatorVisible)
                     ResetSpeedIndicatorSampler();
@@ -1014,6 +1021,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     {
         m_audioDevice.SetEnabled(Settings.IsSoundEnabled);
         m_screen.FrameBuffer.IsCrt = Settings.IsCrtEmulationEnabled;
+        m_screen.FrameBuffer.IsRetroScanlineEffectEnabled = Settings.IsRetroScanlineEffectEnabled;
     }
 
     private string GetCaptureTitle()

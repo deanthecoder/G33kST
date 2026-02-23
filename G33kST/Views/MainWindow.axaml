@@ -146,6 +146,13 @@
                             <icons:MaterialIcon Kind="Tick" IsVisible="{Binding Settings.IsCrtEmulationEnabled}" />
                         </MenuItem.Icon>
                     </MenuItem>
+                    <MenuItem Header="Retro Scanline Sweep"
+                              Command="{Binding ToggleRetroScanlineEffect}"
+                              IsEnabled="{Binding Settings.IsCrtEmulationEnabled}">
+                        <MenuItem.Icon>
+                            <icons:MaterialIcon Kind="Tick" IsVisible="{Binding Settings.IsRetroScanlineEffectEnabled}" />
+                        </MenuItem.Icon>
+                    </MenuItem>
                     <MenuItem Header="Ambient Blur" Command="{Binding ToggleAmbientBlur}">
                         <MenuItem.Effect>
                             <BlurEffect Radius="2" />

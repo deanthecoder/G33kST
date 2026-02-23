@@ -24,6 +24,7 @@ public sealed class Settings : UserSettingsBase
         IsSoundEnabled = true;
         IsAmbientBlurred = true;
         IsCrtEmulationEnabled = true;
+        IsRetroScanlineEffectEnabled = true;
         IsSpeedIndicatorVisible = true;
         IsCpuHistoryTracked = false;
         IsCpuExceptionCaptureEnabled = false;
@@ -43,6 +44,12 @@ public sealed class Settings : UserSettingsBase
     }
 
     public bool IsCrtEmulationEnabled
+    {
+        get => Get<bool>();
+        set => Set(value);
+    }
+
+    public bool IsRetroScanlineEffectEnabled
     {
         get => Get<bool>();
         set => Set(value);

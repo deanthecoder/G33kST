@@ -47,4 +47,41 @@ public sealed class CrtFrameBufferTests
 
         Assert.That(rgbBytes.All(channel => channel == 0), Is.True, "Plain mode should not apply CRT black-floor lifting.");
     }
+
+    [Test]
+    public void ApplyInCrtModeShouldApplyRetroScanlineSweepWhenEnabled()
+    {
+        var crt = new CrtFrameBuffer(4, 40)
+        {
+            IsCrt = true,
+            IsRetroScanlineEffectEnabled = false
+        };
+        var source = Enumerable.Repeat((byte)32, 4 * 40 * 3).ToArray();
+
+        var withoutSweep = crt.Apply(source).ToArray();
+        crt.IsRetroScanlineEffectEnabled = true;
+        var withSweep = crt.Apply(source).ToArray();
+
+        Assert.That(withSweep, Is.Not.EqualTo(withoutSweep), "Retro scanline sweep should change CRT output when enabled.");
+    }
+
+    [Test]
+    public void ApplyInCrtModeShouldLetRetroScanlineSweepBrightenBlackPixels()
+    {
+        var crt = new CrtFrameBuffer(4, 80)
+        {
+            IsCrt = true,
+            IsRetroScanlineEffectEnabled = false
+        };
+        var source = new byte[4 * 80 * 3];
+
+        var withoutSweep = crt.Apply(source).ToArray();
+        crt.IsRetroScanlineEffectEnabled = true;
+        var withSweep = crt.Apply(source).ToArray();
+
+        var maxWithoutSweep = withoutSweep.Where((_, index) => index % CrtFrameBuffer.BytesPerPixel != 3).Max();
+        var maxWithSweep = withSweep.Where((_, index) => index % CrtFrameBuffer.BytesPerPixel != 3).Max();
+
+        Assert.That(maxWithSweep, Is.GreaterThan(maxWithoutSweep), "Sweep should add a little emissive brightness even over black source pixels.");
+    }
 }
