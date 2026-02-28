@@ -793,6 +793,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             }
 
             m_machine.LoadRom(romData, romFile.Name);
+            if (shouldHardReset)
+                m_machine.HardReset();
             m_loadedRomFile = romFile;
             ResetSpeedIndicatorSampler();
             if (updateSelection)
