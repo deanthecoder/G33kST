@@ -132,6 +132,11 @@ public sealed class AciaIkbdDevice : IMemDevice
     private int m_pendingClockResponseNextByteIndex;
     private bool m_hasPendingClockResponse;
 
+    public AciaIkbdDevice()
+    {
+        SeedClockFromHostTimeNoLock();
+    }
+
     /// <inheritdoc />
     public uint FromAddr => BaseAddress;
 
@@ -453,6 +458,8 @@ public sealed class AciaIkbdDevice : IMemDevice
             m_hasPendingClockResponse = false;
             m_pendingClockResponseDelayCpuTicks = 0;
             m_pendingClockResponseNextByteIndex = 0;
+            if (!TryGetClockDateTimeNoLock(out _))
+                SeedClockFromHostTimeNoLock();
             ResetQueueByteCountersNoLock();
             Array.Clear(m_loggedIkbdCommandCodes, 0, m_loggedIkbdCommandCodes.Length);
             EnqueueKeyboardByteNoLock(IkbdResetCompleteCode);
@@ -1384,6 +1391,12 @@ public sealed class AciaIkbdDevice : IMemDevice
         m_clockBytes[3] = ToBcdByte(value.Hour);
         m_clockBytes[4] = ToBcdByte(value.Minute);
         m_clockBytes[5] = ToBcdByte(value.Second);
+    }
+
+    private void SeedClockFromHostTimeNoLock()
+    {
+        SetClockBytesFromDateTimeNoLock(DateTime.Now);
+        m_clockLastHostTimestamp = Stopwatch.GetTimestamp();
     }
 
     private static bool TryGetBcdInt(byte bcd, out int value)

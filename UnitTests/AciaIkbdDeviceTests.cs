@@ -912,6 +912,34 @@ public sealed class AciaIkbdDeviceTests
     }
 
     [Test]
+    public void ReadClockCommandShouldDefaultToCurrentHostLocalTime()
+    {
+        var device = new AciaIkbdDevice();
+        var beforeRead = DateTime.Now;
+
+        device.Write8(KeyboardDataAddress, 0x1C);
+        device.Advance(ClockResponseDelayCpuTicks);
+
+        var header = device.Read8(KeyboardDataAddress);
+        var clockBytes = new byte[6];
+        for (var i = 0; i < clockBytes.Length; i++)
+        {
+            device.Advance(ClockResponseInterByteDelayCpuTicks);
+            clockBytes[i] = device.Read8(KeyboardDataAddress);
+        }
+
+        var afterRead = DateTime.Now;
+        var decodedClock = DecodeIkbdClock(clockBytes);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(header, Is.EqualTo(0xFC));
+            Assert.That(decodedClock, Is.GreaterThanOrEqualTo(beforeRead.AddSeconds(-1)));
+            Assert.That(decodedClock, Is.LessThanOrEqualTo(afterRead.AddSeconds(1)));
+        });
+    }
+
+    [Test]
     public void RepeatedReadClockCommandsShouldCoalesceToLatestClockResponsePacket()
     {
         var device = new AciaIkbdDevice();
@@ -959,5 +987,29 @@ public sealed class AciaIkbdDeviceTests
             Assert.That(device.PendingReceiveQueueCount, Is.EqualTo(2));
             Assert.That(device.Read8(KeyboardDataAddress), Is.EqualTo(0xFC));
         });
+    }
+
+    private static DateTime DecodeIkbdClock(ReadOnlySpan<byte> clockBytes)
+    {
+        Assert.That(clockBytes.Length, Is.EqualTo(6), "Expected YY/MM/DD/hh/mm/ss clock payload.");
+
+        var year = DecodeBcd(clockBytes[0]);
+        var month = DecodeBcd(clockBytes[1]);
+        var day = DecodeBcd(clockBytes[2]);
+        var hour = DecodeBcd(clockBytes[3]);
+        var minute = DecodeBcd(clockBytes[4]);
+        var second = DecodeBcd(clockBytes[5]);
+        var fullYear = year >= 80 ? 1900 + year : 2000 + year;
+
+        return new DateTime(fullYear, month, day, hour, minute, second, DateTimeKind.Local);
+    }
+
+    private static int DecodeBcd(byte value)
+    {
+        var highNibble = (value >> 4) & 0x0F;
+        var lowNibble = value & 0x0F;
+        Assert.That(highNibble, Is.InRange(0, 9), $"Invalid BCD high nibble in 0x{value:X2}.");
+        Assert.That(lowNibble, Is.InRange(0, 9), $"Invalid BCD low nibble in 0x{value:X2}.");
+        return (highNibble * 10) + lowNibble;
     }
 }
