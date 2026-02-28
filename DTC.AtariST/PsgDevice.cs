@@ -21,6 +21,7 @@ namespace DTC.AtariST;
 public sealed class PsgDevice : IMemDevice, IAudioSource
 {
     private const uint BaseAddress = 0x00FF8800;
+    private const uint MirroredWindowSize = 0x0100;
     private const int RegisterCount = 16;
     private const int VoiceCount = 3;
     private const int EnvelopeLength = 32 * 3;
@@ -96,7 +97,7 @@ public sealed class PsgDevice : IMemDevice, IAudioSource
     public uint FromAddr => BaseAddress;
 
     /// <inheritdoc />
-    public uint ToAddr => BaseAddress + 3;
+    public uint ToAddr => BaseAddress + MirroredWindowSize - 1;
 
     int IAudioSource.ChannelCount => VoiceCount;
 
@@ -130,10 +131,13 @@ public sealed class PsgDevice : IMemDevice, IAudioSource
     /// <inheritdoc />
     public byte Read8(uint address)
     {
-        var offset = address - BaseAddress;
-        if (offset > 3)
+        if (address < BaseAddress || address > ToAddr)
             return 0xFF;
-        if (offset == 0 || offset == 2)
+
+        // YM2149 decoding on ST effectively mirrors every 4 bytes across FF8800-FF88FF.
+        // Many real programs use MOVEP forms that target odd/shadow addresses.
+        var offset = (int)((address - BaseAddress) & 0x03);
+        if (offset is 0 or 2)
             return m_registers[m_selectedRegister];
         return 0xFF;
     }
@@ -141,16 +145,16 @@ public sealed class PsgDevice : IMemDevice, IAudioSource
     /// <inheritdoc />
     public void Write8(uint address, byte value)
     {
-        var offset = address - BaseAddress;
-        if (offset > 3)
+        if (address < BaseAddress || address > ToAddr)
             return;
 
-        if (offset == 0)
+        var offset = (int)((address - BaseAddress) & 0x03);
+        if (offset is 0 or 1)
         {
             m_selectedRegister = (byte)(value & 0x0F);
             return;
         }
-        if (offset != 2)
+        if (offset is not (2 or 3))
             return;
 
         WriteRegister(m_selectedRegister, value);

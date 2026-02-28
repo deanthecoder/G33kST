@@ -26,6 +26,10 @@ public sealed class AtariSTTests : TestsBase
     private const uint UnmappedIoHoleAddress = 0x00FF9001;
     private const uint BlitterConfigRegister = 0x00FF8A3C;
     private const uint VideoModeRegister = 0x00FF8260;
+    private const uint VideoBaseHighRegister = 0x00FF8201;
+    private const uint VideoBaseMidRegister = 0x00FF8203;
+    private const uint VideoCounterHighRegister = 0x00FF8205;
+    private const uint VideoCounterMidRegister = 0x00FF8207;
 
     [Test]
     public void ConstructorShouldInitializeMachineWithDefaultDescriptor()
@@ -62,6 +66,36 @@ public sealed class AtariSTTests : TestsBase
         bus.Write8(VideoModeRegister, 0x02);
         shifter.Reset();
         Assert.That((atariST.Video.FrameWidth, atariST.Video.FrameHeight), Is.EqualTo((704, 448)));
+    }
+
+    [Test]
+    public void ShifterVideoCounterRegistersShouldAdvanceWithRasterTiming()
+    {
+        var atariST = new AtariST();
+        var shifter = (Shifter)atariST.Video;
+        var bus = atariST.Cpu.Bus;
+
+        bus.Write8(VideoModeRegister, 0x00);
+        bus.Write8(VideoBaseHighRegister, 0x07);
+        bus.Write8(VideoBaseMidRegister, 0x80);
+        shifter.Reset();
+
+        var startHigh = bus.Read8(VideoCounterHighRegister);
+        var startMid = bus.Read8(VideoCounterMidRegister);
+
+        var ticksPerLine = (long)Math.Ceiling(atariST.Descriptor.CpuHz / (atariST.Descriptor.VideoHz * 262.0));
+        atariST.AdvanceDevices(ticksPerLine * 12);
+
+        var laterHigh = bus.Read8(VideoCounterHighRegister);
+        var laterMid = bus.Read8(VideoCounterMidRegister);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(startHigh, Is.EqualTo(0x07));
+            Assert.That(startMid, Is.EqualTo(0x80));
+            Assert.That((laterHigh, laterMid), Is.Not.EqualTo((startHigh, startMid)));
+            Assert.That(laterHigh, Is.EqualTo(0x07));
+        });
     }
 
     [Test]
@@ -937,6 +971,19 @@ public sealed class AtariSTTests : TestsBase
     }
 
     [Test]
+    public void BlitterRegisterRangeShouldRaiseBusErrorOnStfm()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(() => atariST.Cpu.Bus.Write8(0x00FF8A3C, 0x12), Throws.TypeOf<BusErrorException>());
+            Assert.That(() => atariST.Cpu.Bus.Read8(0x00FF8A3C), Throws.TypeOf<BusErrorException>());
+        });
+    }
+
+    [Test]
     public void RomMirrorShouldBeAttachedToBus()
     {
         var atariST = new AtariST();
@@ -1035,6 +1082,56 @@ public sealed class AtariSTTests : TestsBase
     }
 
     [Test]
+    public void VideoShouldIgnoreSteLowScreenBaseByteOnStfm()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        var shifter = (Shifter)atariST.Video;
+        var bus = atariST.Cpu.Bus;
+        const uint screenBaseAddress = 0x00000100;
+        const uint wrongScreenBaseAddress = 0x00000180;
+        const uint videoBaseHighRegister = 0x00FF8201;
+        const uint videoBaseMidRegister = 0x00FF8203;
+        const uint videoBaseLowRegister = 0x00FF820D;
+        const uint videoModeRegister = 0x00FF8260;
+        const uint paletteBaseRegister = 0x00FF8240;
+        var oneFrameTicks = (long)Math.Ceiling(atariST.Descriptor.CpuHz / atariST.Descriptor.VideoHz);
+        var bytesPerPixel = atariST.Video.FrameBytesPerPixel;
+        bus.Write8(0x00FF8001, 0x01);
+
+        bus.Write8(videoModeRegister, 0x00);
+        bus.Write8(videoBaseHighRegister, 0x00);
+        bus.Write8(videoBaseMidRegister, 0x01);
+        bus.Write8(videoBaseLowRegister, 0x80); // STE-only register; should be ignored on STFM.
+        bus.Write16BigEndian(paletteBaseRegister + 2, 0x0700); // Palette index 1 = red.
+
+        // Correct ST screen base ($000100): first pixel = palette index 1.
+        bus.Write16BigEndian(screenBaseAddress, 0x8000);
+        bus.Write16BigEndian(screenBaseAddress + 2, 0x0000);
+        bus.Write16BigEndian(screenBaseAddress + 4, 0x0000);
+        bus.Write16BigEndian(screenBaseAddress + 6, 0x0000);
+
+        // If $FF820D were (incorrectly) honored, renderer would use $000180 instead and show black.
+        bus.Write16BigEndian(wrongScreenBaseAddress, 0x0000);
+        bus.Write16BigEndian(wrongScreenBaseAddress + 2, 0x0000);
+        bus.Write16BigEndian(wrongScreenBaseAddress + 4, 0x0000);
+        bus.Write16BigEndian(wrongScreenBaseAddress + 6, 0x0000);
+
+        atariST.AdvanceDevices(oneFrameTicks);
+
+        var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * bytesPerPixel];
+        atariST.Video.CopyToFrameBuffer(frameBuffer);
+        var firstPixelOffset = (shifter.ActiveOriginY * atariST.Video.FrameWidth + shifter.ActiveOriginX) * bytesPerPixel;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(frameBuffer[firstPixelOffset], Is.EqualTo(255));
+            Assert.That(frameBuffer[firstPixelOffset + 1], Is.Zero);
+            Assert.That(frameBuffer[firstPixelOffset + 2], Is.Zero);
+        });
+    }
+
+    [Test]
     public void VideoShouldRenderHighResolutionMonochromeWithZeroAsWhite()
     {
         var atariST = new AtariST();
@@ -1058,6 +1155,9 @@ public sealed class AtariSTTests : TestsBase
 
         // Bit 15 set (pixel 0 "ink"), remaining bits clear (background).
         bus.Write16BigEndian(screenBaseAddress, 0x8000);
+
+        // Latch the configured mode/base for the upcoming frame.
+        shifter.Reset();
 
         atariST.AdvanceDevices(oneFrameTicks);
         var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * bytesPerPixel];
@@ -1112,6 +1212,9 @@ public sealed class AtariSTTests : TestsBase
         // First 16-pixel chunk: pixel 0 has index 2, others index 0.
         bus.Write16BigEndian(screenBaseAddress, 0x0000); // Plane 0
         bus.Write16BigEndian(screenBaseAddress + 2, 0x8000); // Plane 1
+
+        // Latch the configured mode/base/palette for the upcoming frame.
+        shifter.Reset();
 
         atariST.AdvanceDevices(oneFrameTicks);
         var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * bytesPerPixel];
@@ -1201,6 +1304,70 @@ public sealed class AtariSTTests : TestsBase
 
             Assert.That(frameBuffer[line1PixelOffset], Is.Zero);
             Assert.That(frameBuffer[line1PixelOffset + 1], Is.EqualTo(255));
+            Assert.That(frameBuffer[line1PixelOffset + 2], Is.Zero);
+        });
+    }
+
+    [Test]
+    public void VideoShouldLatchLowResolutionScreenBaseForCurrentFrame()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        var shifter = (Shifter)atariST.Video;
+        var bus = atariST.Cpu.Bus;
+        const uint screenBaseA = 0x000100;
+        const uint screenBaseB = 0x008100;
+        const uint videoBaseHighRegister = 0x00FF8201;
+        const uint videoBaseMidRegister = 0x00FF8203;
+        const uint videoModeRegister = 0x00FF8260;
+        const uint paletteBaseRegister = 0x00FF8240;
+        const int lowResBytesPerLine = 160;
+        var ticksPerLine = (long)Math.Ceiling(atariST.Descriptor.CpuHz / (atariST.Descriptor.VideoHz * 262.0));
+        var bytesPerPixel = atariST.Video.FrameBytesPerPixel;
+        bus.Write8(0x00FF8001, 0x01);
+
+        bus.Write8(videoModeRegister, 0x00);
+        bus.Write8(videoBaseHighRegister, 0x00);
+        bus.Write8(videoBaseMidRegister, 0x01); // $000100 (base A)
+        bus.Write16BigEndian(paletteBaseRegister + 2, 0x0700); // index 1 = red
+        bus.Write16BigEndian(paletteBaseRegister + 4, 0x0070); // index 2 = green
+
+        var line1A = screenBaseA + lowResBytesPerLine;
+        bus.Write16BigEndian(line1A, 0x8000); // plane 0 => pixel index 1 (red)
+        bus.Write16BigEndian(line1A + 2, 0x0000);
+        bus.Write16BigEndian(line1A + 4, 0x0000);
+        bus.Write16BigEndian(line1A + 6, 0x0000);
+
+        var line1B = screenBaseB + lowResBytesPerLine;
+        bus.Write16BigEndian(line1B, 0x0000);
+        bus.Write16BigEndian(line1B + 2, 0x8000); // plane 1 => pixel index 2 (green)
+        bus.Write16BigEndian(line1B + 4, 0x0000);
+        bus.Write16BigEndian(line1B + 6, 0x0000);
+
+        shifter.Reset();
+
+        var switchedBase = false;
+        shifter.Advance(
+            ticksPerLine,
+            () =>
+            {
+                if (switchedBase)
+                    return;
+
+                switchedBase = true;
+                bus.Write8(videoBaseHighRegister, 0x00);
+                bus.Write8(videoBaseMidRegister, 0x81); // $008100 (base B) mid-frame
+            },
+            null);
+
+        var frameBuffer = new byte[atariST.Video.FrameWidth * atariST.Video.FrameHeight * bytesPerPixel];
+        atariST.Video.CopyToFrameBuffer(frameBuffer);
+        var line1PixelOffset = ((shifter.ActiveOriginY + 1) * atariST.Video.FrameWidth + shifter.ActiveOriginX) * bytesPerPixel;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(frameBuffer[line1PixelOffset], Is.EqualTo(255), "Line 1 should still be rendered from the frame-start screen base.");
+            Assert.That(frameBuffer[line1PixelOffset + 1], Is.Zero);
             Assert.That(frameBuffer[line1PixelOffset + 2], Is.Zero);
         });
     }

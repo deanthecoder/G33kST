@@ -42,6 +42,8 @@ public sealed class Shifter : IVideoSource
     // ST Shifter/MMU registers (minimal subset for frame base, mode, and palette decode).
     private const uint VideoBaseHighRegister = 0x00FF8201;
     private const uint VideoBaseMidRegister = 0x00FF8203;
+    private const uint VideoCounterHighRegister = 0x00FF8205;
+    private const uint VideoCounterMidRegister = 0x00FF8207;
     private const uint VideoBaseLowRegister = 0x00FF820D; // STE extension; ignored on plain ST.
     private const uint VideoModeRegister = 0x00FF8260;
     private const uint PaletteBaseRegister = 0x00FF8240;
@@ -58,6 +60,7 @@ public sealed class Shifter : IVideoSource
     private bool m_hasLastClearColor;
     private double m_lineTickAccumulator;
     private int m_currentRasterLine;
+    private uint m_latchedScreenBaseAddress;
 
     /// <summary>
     /// Default frame width used at startup (low-resolution mode plus margins).
@@ -198,9 +201,21 @@ public sealed class Shifter : IVideoSource
         m_frameBuffer.Data.CopyTo(frameBuffer);
     }
 
+    internal byte? TryReadDynamicRegister(uint address)
+    {
+        if (address != VideoCounterHighRegister && address != VideoCounterMidRegister)
+            return null;
+
+        var currentVideoCounter = GetCurrentVideoAddressCounter();
+        if (address == VideoCounterHighRegister)
+            return (byte)((currentVideoCounter >> 16) & 0xFF);
+        return (byte)((currentVideoCounter >> 8) & 0xFF);
+    }
+
     private void BeginFrame()
     {
         var mode = m_bus.Read8(VideoModeRegister) & 0x03;
+        m_latchedScreenBaseAddress = ReadScreenBaseAddress();
         ConfigureGeometryForMode(mode);
         switch (mode)
         {
@@ -235,11 +250,11 @@ public sealed class Shifter : IVideoSource
             case 1:
                 RefreshPalette();
                 ClearToColorIfNeeded(m_paletteR[0], m_paletteG[0], m_paletteB[0]);
-                RenderMediumResolutionFrame(ReadScreenBaseAddress());
+                RenderMediumResolutionFrame(m_latchedScreenBaseAddress);
                 return;
             case 2:
                 ClearToColorIfNeeded(255, 255, 255);
-                RenderHighResolutionMonochromeFrame(ReadScreenBaseAddress());
+                RenderHighResolutionMonochromeFrame(m_latchedScreenBaseAddress);
                 return;
             default:
                 return;
@@ -252,7 +267,7 @@ public sealed class Shifter : IVideoSource
             return;
 
         RefreshPalette();
-        var screenBaseAddress = ReadScreenBaseAddress();
+        var screenBaseAddress = m_latchedScreenBaseAddress;
         var borderRed = m_paletteR[0];
         var borderGreen = m_paletteG[0];
         var borderBlue = m_paletteB[0];
@@ -401,9 +416,39 @@ public sealed class Shifter : IVideoSource
     {
         var high = m_bus.Read8(VideoBaseHighRegister);
         var mid = m_bus.Read8(VideoBaseMidRegister);
-        var low = m_bus.Read8(VideoBaseLowRegister);
-        var address = (uint)((high << 16) | (mid << 8) | low);
-        return address & 0x00FF_FFFE;
+        _ = m_bus.Read8(VideoBaseLowRegister);
+
+        // $FF820D is an STE-only extension. For the current STF/STFM target, the screen
+        // base uses only the high and middle bytes and remains 256-byte aligned.
+        var address = (uint)((high << 16) | (mid << 8));
+        return address & 0x00FF_FF00;
+    }
+
+    private uint GetCurrentVideoAddressCounter()
+    {
+        var mode = GetVideoMode();
+        var bytesPerVisibleLine = mode switch
+        {
+            0 => LowResBytesPerLine,
+            1 => MediumResBytesPerLine,
+            2 => HighResBytesPerLine,
+            _ => 0
+        };
+
+        if (bytesPerVisibleLine <= 0)
+            return m_latchedScreenBaseAddress & 0x00FF_FFFF;
+
+        var completedVisibleLines = Math.Clamp(m_currentRasterLine, 0, VisibleRasterLines);
+        var currentAddress = unchecked(m_latchedScreenBaseAddress + (uint)(completedVisibleLines * bytesPerVisibleLine));
+
+        if (m_currentRasterLine >= 0 && m_currentRasterLine < VisibleRasterLines && m_ticksPerLine > 0)
+        {
+            var lineProgress = Math.Clamp(m_lineTickAccumulator / m_ticksPerLine, 0.0, 0.999999);
+            var bytesIntoLine = (int)Math.Floor(lineProgress * bytesPerVisibleLine);
+            currentAddress = unchecked(currentAddress + (uint)bytesIntoLine);
+        }
+
+        return currentAddress & 0x00FF_FFFF;
     }
 
     private void RefreshPalette()
@@ -533,5 +578,6 @@ public sealed class Shifter : IVideoSource
         ActiveOriginX = activeOriginX;
         ActiveOriginY = activeOriginY;
         reader.ReadBytes(m_frameBuffer.Data);
+        m_latchedScreenBaseAddress = ReadScreenBaseAddress();
     }
 }

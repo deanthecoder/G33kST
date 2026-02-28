@@ -248,7 +248,7 @@ public sealed class MfpDevice : IMemDevice
     /// Signals a pending interrupt from GPIP5 (the line used by floppy FDC completion on ST machines).
     /// Returns <c>true</c> when the interrupt is both enabled and unmasked and therefore raised.
     /// </summary>
-    private void RaiseGpip5Interrupt() =>
+    private bool RaiseGpip5Interrupt() =>
         RaiseInterrupt(InterruptEnableB, InterruptMaskB, InterruptPendingB, Gpip5InterruptMask,
             Gpip5SourceNumber);
 
@@ -459,9 +459,12 @@ public sealed class MfpDevice : IMemDevice
         if (!interruptEnabled)
             return false;
 
+        var wasPending = (m_registers[interruptPendingRegister] & interruptMask) != 0;
         m_registers[interruptPendingRegister] |= interruptMask;
         var interruptUnmasked = (m_registers[interruptMaskRegister] & interruptMask) != 0;
         if (!interruptUnmasked)
+            return false;
+        if (wasPending)
             return false;
 
         var vectorBase = (byte)(m_registers[VectorRegister] & 0xF0);
@@ -478,7 +481,10 @@ public sealed class MfpDevice : IMemDevice
         if (!m_aciaInterruptLineActiveLow)
             return;
 
-        RaiseGpip4Interrupt();
+        if (RaiseGpip4Interrupt())
+            return;
+
+        RaisePendingInterruptIfVisible(InterruptEnableB, InterruptMaskB, InterruptPendingB, Gpip4InterruptMask, Gpip4SourceNumber);
     }
 
     private void TryRaiseFloppyInterruptIfPending()
@@ -486,7 +492,34 @@ public sealed class MfpDevice : IMemDevice
         if (!m_floppyInterruptLineActiveLow)
             return;
 
-        RaiseGpip5Interrupt();
+        if (RaiseGpip5Interrupt())
+            return;
+
+        RaisePendingInterruptIfVisible(InterruptEnableB, InterruptMaskB, InterruptPendingB, Gpip5InterruptMask, Gpip5SourceNumber);
+    }
+
+    private void RaisePendingInterruptIfVisible(
+        int interruptEnableRegister,
+        int interruptMaskRegister,
+        int interruptPendingRegister,
+        byte interruptMask,
+        byte sourceNumber)
+    {
+        var interruptPending = (m_registers[interruptPendingRegister] & interruptMask) != 0;
+        if (!interruptPending)
+            return;
+
+        var interruptEnabled = (m_registers[interruptEnableRegister] & interruptMask) != 0;
+        if (!interruptEnabled)
+            return;
+
+        var interruptUnmasked = (m_registers[interruptMaskRegister] & interruptMask) != 0;
+        if (!interruptUnmasked)
+            return;
+
+        var vectorBase = (byte)(m_registers[VectorRegister] & 0xF0);
+        var vectorNumber = (byte)(vectorBase + sourceNumber);
+        InterruptRequested?.Invoke(InterruptLevel, vectorNumber);
     }
 
     private byte ReadGpipState()

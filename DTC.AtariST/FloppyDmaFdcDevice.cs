@@ -41,6 +41,7 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
     private const byte FdcCrcErrorMask = 0x08;
     private const byte FdcRecordNotFoundMask = 0x10;
     private const byte FdcWriteProtectMask = 0x40;
+    private const byte MaxPhysicalTrack = 90;
     private const int SectorSizeBytes = 512;
     private const int MaxTraceLines = 256;
     private const uint DmaTransferAddressMaskSt = 0x003F_FFFF;
@@ -57,6 +58,7 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
     private readonly byte[][] m_mountedImageByDrive;
     private readonly string[] m_mountedImageNameByDrive;
     private readonly bool[] m_writeProtectedByDrive;
+    private readonly byte[] m_headTrackByDrive;
     private readonly long m_cpuHz;
     private readonly double m_transferSpeedMultiplier;
     private readonly bool m_hasTimingModel;
@@ -83,6 +85,7 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
     private uint m_dmaAddressLimitExclusive = DmaTransferAddressMaskSt + 1;
     private byte m_selectedSide;
     private int m_selectedDrive = -1;
+    private int m_stepDirection = 1;
     private bool m_interruptLineIsActiveLow;
     private bool m_statusWordRepresentsTypeI = true;
     private long m_commandCount;
@@ -141,6 +144,7 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
         m_mountedImageByDrive = new byte[m_drivePresent.Length][];
         m_mountedImageNameByDrive = new string[m_drivePresent.Length];
         m_writeProtectedByDrive = new bool[m_drivePresent.Length];
+        m_headTrackByDrive = new byte[m_drivePresent.Length];
         m_cpuHz = Math.Max(0, cpuHz);
         m_transferSpeedMultiplier = transferSpeedMultiplier <= 0 ? DefaultTransferSpeedMultiplier : transferSpeedMultiplier;
         m_hasTimingModel = m_cpuHz > 0;
@@ -305,6 +309,9 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
             m_pendingCompletionDetail = string.Empty;
             m_selectedSide = 0;
             m_selectedDrive = -1;
+            m_stepDirection = 1;
+            for (var i = 0; i < m_headTrackByDrive.Length; i++)
+                m_headTrackByDrive[i] = 0;
             SetInterruptLine(activeLow: false);
             AddTraceLine("Reset.");
         }
@@ -531,7 +538,8 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
         if (opcode is 0x80 or 0x90)
             m_readSectorCommandCount++;
         var driveConnected = IsSelectedDrivePresent(out var selectedDrive);
-        AddTraceLine($"Command 0x{command:X2} ({DescribeCommand(opcode)}) drive={GetDriveName(selectedDrive)} track={m_fdcTrackRegister} sector={m_fdcSectorRegister} side={m_selectedSide} sc={m_sectorCountRegister} dma=0x{m_dmaAddressRegister:X6}.");
+        var headTrack = driveConnected ? m_headTrackByDrive[selectedDrive] : m_fdcTrackRegister;
+        AddTraceLine($"Command 0x{command:X2} ({DescribeCommand(opcode)}) drive={GetDriveName(selectedDrive)} track={m_fdcTrackRegister} head={headTrack} sector={m_fdcSectorRegister} side={m_selectedSide} sc={m_sectorCountRegister} dma=0x{m_dmaAddressRegister:X6}.");
 
         switch (opcode)
         {
@@ -542,6 +550,7 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
             case 0x00: // Restore.
                 if (driveConnected)
                 {
+                    m_headTrackByDrive[selectedDrive] = 0;
                     m_fdcTrackRegister = 0;
                     CompleteCommand(0, hasDmaError: false, "Restore.", GetCommandDelayTicks(opcode, isMultiSectorRead: false));
                 }
@@ -552,7 +561,9 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
             case 0x10: // Seek.
                 if (driveConnected)
                 {
-                    m_fdcTrackRegister = m_fdcDataRegister;
+                    var seekTrack = Math.Min(MaxPhysicalTrack, m_fdcDataRegister);
+                    m_headTrackByDrive[selectedDrive] = seekTrack;
+                    m_fdcTrackRegister = seekTrack;
                     CompleteCommand(0, hasDmaError: false, "Seek.", GetCommandDelayTicks(opcode, isMultiSectorRead: false));
                 }
                 else
@@ -561,6 +572,12 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
 
             case 0x20: // Step.
             case 0x30: // Step + update.
+                if (driveConnected)
+                {
+                    var nextHeadTrack = MoveSelectedHeadTrack(selectedDrive, m_stepDirection);
+                    if (opcode == 0x30)
+                        m_fdcTrackRegister = nextHeadTrack;
+                }
                 CompleteCommand(
                     driveConnected ? (byte)0 : FdcRecordNotFoundMask,
                     hasDmaError: !driveConnected,
@@ -570,8 +587,13 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
 
             case 0x40: // Step in.
             case 0x50: // Step in + update.
-                if (driveConnected && m_fdcTrackRegister < byte.MaxValue)
-                    m_fdcTrackRegister++;
+                m_stepDirection = 1;
+                if (driveConnected)
+                {
+                    var nextHeadTrack = MoveSelectedHeadTrack(selectedDrive, m_stepDirection);
+                    if (opcode == 0x50)
+                        m_fdcTrackRegister = nextHeadTrack;
+                }
                 CompleteCommand(
                     driveConnected ? (byte)0 : FdcRecordNotFoundMask,
                     hasDmaError: !driveConnected,
@@ -581,8 +603,13 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
 
             case 0x60: // Step out.
             case 0x70: // Step out + update.
-                if (driveConnected && m_fdcTrackRegister > 0)
-                    m_fdcTrackRegister--;
+                m_stepDirection = -1;
+                if (driveConnected)
+                {
+                    var nextHeadTrack = MoveSelectedHeadTrack(selectedDrive, m_stepDirection);
+                    if (opcode == 0x70)
+                        m_fdcTrackRegister = nextHeadTrack;
+                }
                 CompleteCommand(
                     driveConnected ? (byte)0 : FdcRecordNotFoundMask,
                     hasDmaError: !driveConnected,
@@ -599,7 +626,7 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
                 }
 
                 var isMultiSectorRead = opcode == 0x90;
-                if (TryReadSectorIntoDma(selectedDrive, isMultiSectorRead, out var readSectorHasDmaError))
+                if (TryReadSectorIntoDma(selectedDrive, m_headTrackByDrive[selectedDrive], isMultiSectorRead, out var readSectorHasDmaError))
                     CompleteCommand(0, hasDmaError: readSectorHasDmaError, isMultiSectorRead ? "Read multi-sector." : "Read sector.", GetCommandDelayTicks(opcode, isMultiSectorRead));
                 else
                     CompleteCommand(FdcRecordNotFoundMask, hasDmaError: true, "Read sector failed.", GetCommandDelayTicks(opcode, isMultiSectorRead));
@@ -618,7 +645,7 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
                     return;
                 }
 
-                if (TryReadAddressIntoDma(selectedDrive, out var readAddressHasDmaError))
+                if (TryReadAddressIntoDma(selectedDrive, m_headTrackByDrive[selectedDrive], out var readAddressHasDmaError))
                     CompleteCommand(0, hasDmaError: readAddressHasDmaError, "Read address.", GetCommandDelayTicks(opcode, isMultiSectorRead: false));
                 else
                     CompleteCommand(FdcRecordNotFoundMask, hasDmaError: true, "Read address failed.", GetCommandDelayTicks(opcode, isMultiSectorRead: false));
@@ -733,7 +760,7 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
         {
             // Type-I status updates some signal-backed bits (track 0 / write-protect) live.
             status = (byte)(status & ~FdcCrcErrorMask);
-            if (m_fdcTrackRegister == 0)
+            if (m_headTrackByDrive[driveIndex] == 0)
                 status |= FdcTrackZeroMask;
             else
                 status = (byte)(status & ~FdcTrackZeroMask);
@@ -750,6 +777,24 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
         }
 
         return status;
+    }
+
+    private byte MoveSelectedHeadTrack(int driveIndex, int direction)
+    {
+        if (!IsValidDriveIndex(driveIndex))
+            return 0;
+
+        var headTrack = m_headTrackByDrive[driveIndex];
+        if (direction < 0)
+        {
+            if (headTrack > 0)
+                headTrack--;
+        }
+        else if (headTrack < MaxPhysicalTrack)
+            headTrack++;
+
+        m_headTrackByDrive[driveIndex] = headTrack;
+        return headTrack;
     }
 
     private static bool IsTypeICommand(byte command) =>
@@ -814,7 +859,7 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
         return m_drivePresent[m_selectedDrive];
     }
 
-    private bool TryReadSectorIntoDma(int driveIndex, bool isMultiSectorTransfer, out bool hasDmaError)
+    private bool TryReadSectorIntoDma(int driveIndex, int headTrack, bool isMultiSectorTransfer, out bool hasDmaError)
     {
         hasDmaError = false;
         if (!TryGetSelectedDriveImage(driveIndex, out var imageData))
@@ -827,9 +872,9 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
             AddTraceLine("Read sector failed: geometry inference failed.");
             return false;
         }
-        if (!TryGetLinearSectorIndex(geometry, m_fdcTrackRegister, m_selectedSide, m_fdcSectorRegister, out var firstSectorIndex))
+        if (!TryGetLinearSectorIndex(geometry, headTrack, m_selectedSide, m_fdcSectorRegister, out var firstSectorIndex))
         {
-            AddTraceLine($"Read sector failed: invalid CHS track={m_fdcTrackRegister} side={m_selectedSide} sector={m_fdcSectorRegister}.");
+            AddTraceLine($"Read sector failed: invalid CHS track={m_fdcTrackRegister} head={headTrack} side={m_selectedSide} sector={m_fdcSectorRegister}.");
             return false;
         }
         if (DmaWrite8 == null)
@@ -878,11 +923,11 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
             : (byte)Math.Max(0, m_sectorCountRegister - 1);
         m_successfulReadSectorCommandCount++;
         m_dmaBytesWritten += transferBytes;
-        AddTraceLine($"Read sector ok: sectors={sectorsToTransfer} bytes={transferBytes} dma=0x{m_dmaAddressRegister:X6}.");
+        AddTraceLine($"Read sector ok: track={m_fdcTrackRegister} head={headTrack} sectors={sectorsToTransfer} bytes={transferBytes} dma=0x{m_dmaAddressRegister:X6}.");
         return true;
     }
 
-    private bool TryReadAddressIntoDma(int driveIndex, out bool hasDmaError)
+    private bool TryReadAddressIntoDma(int driveIndex, int headTrack, out bool hasDmaError)
     {
         hasDmaError = false;
         if (!TryGetSelectedDriveImage(driveIndex, out var imageData))
@@ -919,7 +964,7 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
             return false;
         }
 
-        DmaWrite8(NormalizeDmaTransferAddress(dmaAddress), m_fdcTrackRegister);
+        DmaWrite8(NormalizeDmaTransferAddress(dmaAddress), (byte)headTrack);
         DmaWrite8(NormalizeDmaTransferAddress(dmaAddress + 1), m_selectedSide);
         DmaWrite8(NormalizeDmaTransferAddress(dmaAddress + 2), sector);
         DmaWrite8(NormalizeDmaTransferAddress(dmaAddress + 3), 2); // 512-byte sector size code.
@@ -929,7 +974,7 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
         m_dmaAddressRegister = NormalizeDmaAddress(dmaAddress + 6);
         m_sectorCountRegister = (byte)Math.Max(0, m_sectorCountRegister - 1);
         m_dmaBytesWritten += 6;
-        AddTraceLine($"Read address ok: track={m_fdcTrackRegister} side={m_selectedSide} sector={sector} dma=0x{m_dmaAddressRegister:X6}.");
+        AddTraceLine($"Read address ok: track={m_fdcTrackRegister} head={headTrack} side={m_selectedSide} sector={sector} dma=0x{m_dmaAddressRegister:X6}.");
         return true;
     }
 
@@ -1112,6 +1157,8 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
                    sizeof(ushort) * 4 +
                    sizeof(uint) * 2 +
                    sizeof(int) +
+                   m_headTrackByDrive.Length +
+                   sizeof(int) +
                    6 + // bools
                    sizeof(long) +
                    sizeof(byte) +
@@ -1147,6 +1194,9 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
             writer.WriteUInt32(m_dmaAddressLimitExclusive);
             writer.WriteByte(m_selectedSide);
             writer.WriteInt32(m_selectedDrive);
+            for (var i = 0; i < m_headTrackByDrive.Length; i++)
+                writer.WriteByte(m_headTrackByDrive[i]);
+            writer.WriteInt32(m_stepDirection);
             writer.WriteBool(m_interruptLineIsActiveLow);
             writer.WriteBool(m_statusWordRepresentsTypeI);
             writer.WriteBool(m_hasPendingCompletion);
@@ -1184,6 +1234,9 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
             m_dmaAddressLimitExclusive = reader.ReadUInt32();
             m_selectedSide = reader.ReadByte();
             m_selectedDrive = reader.ReadInt32();
+            for (var i = 0; i < m_headTrackByDrive.Length; i++)
+                m_headTrackByDrive[i] = reader.ReadByte();
+            m_stepDirection = reader.ReadInt32();
             m_interruptLineIsActiveLow = reader.ReadBool();
             m_statusWordRepresentsTypeI = reader.ReadBool();
             m_hasPendingCompletion = reader.ReadBool();

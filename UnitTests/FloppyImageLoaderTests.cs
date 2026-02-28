@@ -280,6 +280,73 @@ public sealed class FloppyImageLoaderTests
         });
     }
 
+    [Test]
+    public void ReadImageShouldKeepRawStLayoutWithoutHeuristicRemap()
+    {
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var file = new FileInfo(Path.Combine(tempDir.FullName, "side-major.st"));
+            var trackMajorImage = CreateFat12ImageWithRootEntries("README.TXT");
+            var sideMajorImage = ConvertTrackMajorToSideMajorLayout(trackMajorImage, tracks: 80, sides: 2, sectorsPerTrack: 9);
+            File.WriteAllBytes(file.FullName, sideMajorImage);
+
+            var result = FloppyImageLoader.ReadImage(file);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(result.SourceFormat, Is.EqualTo(FloppyImageFormat.St));
+                Assert.That(result.ImageData, Is.EqualTo(sideMajorImage));
+            });
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    [Test]
+    public void ReadImageShouldKeepTrackMajorRawStLayoutWhenAlreadyPlausible()
+    {
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var file = new FileInfo(Path.Combine(tempDir.FullName, "track-major.st"));
+            var trackMajorImage = CreateFat12ImageWithRootEntries("README.TXT");
+            File.WriteAllBytes(file.FullName, trackMajorImage);
+
+            var result = FloppyImageLoader.ReadImage(file);
+            var summary = FloppyImageLoader.DescribeImage(result.ImageData);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(result.SourceFormat, Is.EqualTo(FloppyImageFormat.St));
+                Assert.That(result.ImageData, Is.EqualTo(trackMajorImage));
+                Assert.That(summary, Does.Contain("README.TXT"));
+            });
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    [Test]
+    public void DescribeImageShouldSanitizeNonAsciiRootEntryCharacters()
+    {
+        var imageData = CreateFat12ImageWithRootEntries("README.TXT");
+        const int rootDirOffset = (1 + 2 * 3) * 512;
+
+        imageData[rootDirOffset] = 0xC3;
+        var summary = FloppyImageLoader.DescribeImage(imageData);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(summary, Does.Contain("?EADME.TXT"));
+            Assert.That(summary.Any(c => c > 0x7E), Is.False);
+        });
+    }
+
     private static DirectoryInfo CreateTempDirectory()
     {
         var dir = new DirectoryInfo(Path.Combine(Path.GetTempPath(), $"g33kst-tests-{Guid.NewGuid():N}"));
@@ -325,6 +392,36 @@ public sealed class FloppyImageLoaderTests
         }
 
         return image;
+    }
+
+    private static byte[] ConvertTrackMajorToSideMajorLayout(byte[] trackMajorImage, int tracks, int sides, int sectorsPerTrack)
+    {
+        if (trackMajorImage == null || trackMajorImage.Length == 0 || trackMajorImage.Length % 512 != 0)
+            throw new ArgumentException("Expected non-empty 512-byte aligned image data.", nameof(trackMajorImage));
+        if (tracks <= 0 || sides <= 0 || sectorsPerTrack <= 0)
+            throw new ArgumentOutOfRangeException(nameof(tracks), "Expected positive geometry values.");
+
+        var totalSectors = trackMajorImage.Length / 512;
+        if (tracks * sides * sectorsPerTrack != totalSectors)
+            throw new ArgumentException("Geometry does not match image size.", nameof(trackMajorImage));
+
+        var sideMajorImage = new byte[trackMajorImage.Length];
+        for (var track = 0; track < tracks; track++)
+        {
+            for (var side = 0; side < sides; side++)
+            {
+                for (var sector = 0; sector < sectorsPerTrack; sector++)
+                {
+                    var sourceLinearSector = ((track * sides) + side) * sectorsPerTrack + sector;
+                    var destinationLinearSector = ((side * tracks) + track) * sectorsPerTrack + sector;
+                    var sourceOffset = sourceLinearSector * 512;
+                    var destinationOffset = destinationLinearSector * 512;
+                    trackMajorImage.AsSpan(sourceOffset, 512).CopyTo(sideMajorImage.AsSpan(destinationOffset, 512));
+                }
+            }
+        }
+
+        return sideMajorImage;
     }
 
     private static void WriteDosName(Span<byte> destination, string name)

@@ -26,6 +26,8 @@ public sealed class ShifterRegistersDevice : IMemDevice
     private const int RegisterCount = 0x80;
     private readonly byte[] m_registers = new byte[RegisterCount];
 
+    internal Func<uint, byte?> DynamicRead8 { get; set; }
+
     /// <inheritdoc />
     public uint FromAddr => BaseAddress;
 
@@ -44,6 +46,10 @@ public sealed class ShifterRegistersDevice : IMemDevice
         var index = (int)(address - BaseAddress);
         if (index < 0 || index >= RegisterCount)
             return 0xFF;
+
+        var dynamicValue = DynamicRead8?.Invoke(address);
+        if (dynamicValue.HasValue)
+            return dynamicValue.Value;
         return m_registers[index];
     }
 

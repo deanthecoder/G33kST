@@ -17,6 +17,10 @@ public sealed class PsgDeviceTests
 {
     private const uint RegisterSelectAddress = 0x00FF8800;
     private const uint DataAddress = 0x00FF8802;
+    private const uint RegisterSelectShadowAddress = 0x00FF8801;
+    private const uint DataShadowAddress = 0x00FF8803;
+    private const uint RegisterSelectMirroredAddress = 0x00FF8805;
+    private const uint DataMirroredAddress = 0x00FF8807;
     private const byte PortARegister = 0x0E;
     private const byte MixerRegister = 0x07;
     private const byte ToneAFineRegister = 0x00;
@@ -58,6 +62,32 @@ public sealed class PsgDeviceTests
             Assert.That(eventRaised, Is.True);
             Assert.That(observedValue, Is.EqualTo(0x05));
         });
+    }
+
+    [Test]
+    public void ShadowAddressesShouldMirrorPrimaryRegisterSelectAndDataWrites()
+    {
+        var device = new PsgDevice();
+        device.Write8(RegisterSelectShadowAddress, PortARegister);
+        device.Write8(DataShadowAddress, 0x05);
+
+        device.Write8(RegisterSelectAddress, PortARegister);
+        var portA = device.Read8(RegisterSelectAddress);
+
+        Assert.That(portA, Is.EqualTo(0x05));
+    }
+
+    [Test]
+    public void MirroredWindowShouldDecodeUsingLowTwoAddressBits()
+    {
+        var device = new PsgDevice();
+        device.Write8(RegisterSelectMirroredAddress, PortARegister);
+        device.Write8(DataMirroredAddress, 0x03);
+
+        device.Write8(RegisterSelectAddress, PortARegister);
+        var portA = device.Read8(RegisterSelectAddress);
+
+        Assert.That(portA, Is.EqualTo(0x03));
     }
 
     [Test]

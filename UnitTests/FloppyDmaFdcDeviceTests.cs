@@ -26,6 +26,9 @@ public sealed class FloppyDmaFdcDeviceTests
     private const ushort FdcDataAccessControl = 0x0086;
     private const ushort DmaSectorCountAccessControl = 0x0090;
     private const byte RestoreCommand = 0x00;
+    private const byte StepCommand = 0x20;
+    private const byte StepInCommand = 0x40;
+    private const byte StepOutUpdateCommand = 0x70;
     private const byte ReadSectorCommand = 0x80;
     private const byte WriteSectorCommand = 0xA0;
     private const byte ReadAddressCommand = 0xC0;
@@ -291,6 +294,94 @@ public sealed class FloppyDmaFdcDeviceTests
     }
 
     [Test]
+    public void StepInWithoutUpdateShouldMoveHeadButKeepTrackRegister()
+    {
+        var device = new FloppyDmaFdcDevice(driveAPresent: true, driveBPresent: false);
+        var transferred = new Dictionary<uint, byte>();
+        device.DmaWrite8 = (address, value) => transferred[address] = value;
+
+        var image = new byte[80 * 2 * 9 * 512];
+        image[0 * 18 * 512] = 0x11; // Track 0, side 0, sector 1.
+        image[1 * 18 * 512] = 0x22; // Track 1, side 0, sector 1.
+        Assert.That(device.TryMountImage(0, image, "disk"), Is.True);
+        device.ApplyPortA(0x05);
+
+        device.Write8(DmaAddressHighRegisterAddress, 0x00);
+        device.Write8(DmaAddressMidRegisterAddress, 0x10);
+        device.Write8(DmaAddressLowRegisterAddress, 0x00);
+
+        WriteWord(device, ControlRegisterAddress, FdcTrackAccessControl);
+        WriteWord(device, DataRegisterAddress, 0x0000);
+        WriteWord(device, ControlRegisterAddress, FdcStatusAccessControl);
+        WriteWord(device, DataRegisterAddress, StepInCommand);
+
+        WriteWord(device, ControlRegisterAddress, FdcTrackAccessControl);
+        var trackRegister = ReadWord(device, DataRegisterAddress);
+
+        WriteWord(device, ControlRegisterAddress, FdcSectorAccessControl);
+        WriteWord(device, DataRegisterAddress, 0x0001);
+        WriteWord(device, ControlRegisterAddress, DmaSectorCountAccessControl);
+        WriteWord(device, DataRegisterAddress, 0x0001);
+        WriteWord(device, ControlRegisterAddress, FdcStatusAccessControl);
+        WriteWord(device, DataRegisterAddress, ReadSectorCommand);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(trackRegister & 0x00FF, Is.EqualTo(0x00), "STEP without update should not change FDC track register.");
+            Assert.That(transferred[0x001000], Is.EqualTo(0x22), "Read should use the moved physical head track.");
+        });
+    }
+
+    [Test]
+    public void StepCommandShouldUsePreviousStepDirectionForHeadMovement()
+    {
+        var device = new FloppyDmaFdcDevice(driveAPresent: true, driveBPresent: false);
+        var transferred = new Dictionary<uint, byte>();
+        device.DmaWrite8 = (address, value) => transferred[address] = value;
+
+        var image = new byte[80 * 2 * 9 * 512];
+        image[0 * 18 * 512] = 0x31; // Track 0.
+        image[1 * 18 * 512] = 0x32; // Track 1.
+        image[2 * 18 * 512] = 0x33; // Track 2.
+        Assert.That(device.TryMountImage(0, image, "disk"), Is.True);
+        device.ApplyPortA(0x05);
+
+        device.Write8(DmaAddressHighRegisterAddress, 0x00);
+        device.Write8(DmaAddressMidRegisterAddress, 0x10);
+        device.Write8(DmaAddressLowRegisterAddress, 0x00);
+
+        // Seek head+track to 2.
+        WriteWord(device, ControlRegisterAddress, FdcDataAccessControl);
+        WriteWord(device, DataRegisterAddress, 0x0002);
+        WriteWord(device, ControlRegisterAddress, FdcStatusAccessControl);
+        WriteWord(device, DataRegisterAddress, 0x0010);
+
+        // Set direction to step-out and move once with update -> head=1, TR=1.
+        WriteWord(device, ControlRegisterAddress, FdcStatusAccessControl);
+        WriteWord(device, DataRegisterAddress, StepOutUpdateCommand);
+
+        // STEP without update should move head again in same direction -> head=0, TR stays 1.
+        WriteWord(device, ControlRegisterAddress, FdcStatusAccessControl);
+        WriteWord(device, DataRegisterAddress, StepCommand);
+
+        WriteWord(device, ControlRegisterAddress, FdcTrackAccessControl);
+        var trackRegister = ReadWord(device, DataRegisterAddress);
+
+        WriteWord(device, ControlRegisterAddress, FdcSectorAccessControl);
+        WriteWord(device, DataRegisterAddress, 0x0001);
+        WriteWord(device, ControlRegisterAddress, DmaSectorCountAccessControl);
+        WriteWord(device, DataRegisterAddress, 0x0001);
+        WriteWord(device, ControlRegisterAddress, FdcStatusAccessControl);
+        WriteWord(device, DataRegisterAddress, ReadSectorCommand);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(trackRegister & 0x00FF, Is.EqualTo(0x01), "STEP without update should keep FDC track register unchanged.");
+            Assert.That(transferred[0x001000], Is.EqualTo(0x31), "STEP should follow previous step direction and move head to track 0.");
+        });
+    }
+
+    [Test]
     public void DmaStatusShouldExposeSectorCountZeroBit()
     {
         var device = new FloppyDmaFdcDevice(driveAPresent: true, driveBPresent: false);
@@ -355,7 +446,7 @@ public sealed class FloppyDmaFdcDeviceTests
     }
 
     [Test]
-    public void ReadAddressCommandShouldWriteIdTupleToDma()
+    public void ReadAddressCommandShouldWritePhysicalHeadTrackInIdTuple()
     {
         var device = new FloppyDmaFdcDevice(driveAPresent: true, driveBPresent: false);
         var transferred = new Dictionary<uint, byte>();
@@ -377,7 +468,7 @@ public sealed class FloppyDmaFdcDeviceTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(transferred[0x002000], Is.EqualTo(0x03));
+            Assert.That(transferred[0x002000], Is.EqualTo(0x00), "Read-address should return the physical head track, not an arbitrary track-register write.");
             Assert.That(transferred[0x002001], Is.EqualTo(0x00));
             Assert.That(transferred[0x002002], Is.EqualTo(0x05));
             Assert.That(transferred[0x002003], Is.EqualTo(0x02));

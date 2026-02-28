@@ -161,6 +161,8 @@ public static class FloppyImageLoader
             return new FloppyImageLoadResult(imageName, null, ParseImageFormat(extension));
 
         var format = ParseImageFormat(extension);
+        if (format == FloppyImageFormat.St)
+            return new FloppyImageLoadResult(imageName, imageData, format);
         if (format != FloppyImageFormat.Stx)
             return new FloppyImageLoadResult(imageName, imageData, format);
 
@@ -590,7 +592,7 @@ public static class FloppyImageLoader
             var c = rawName[i];
             if (c == (byte)' ')
                 break;
-            nameBuffer[nameLength++] = (char)c;
+            nameBuffer[nameLength++] = FormatDosDisplayChar(c);
         }
 
         var extStart = nameLength;
@@ -602,7 +604,7 @@ public static class FloppyImageLoader
                 break;
             if (extLength == 0)
                 nameBuffer[nameLength++] = '.';
-            nameBuffer[nameLength++] = (char)c;
+            nameBuffer[nameLength++] = FormatDosDisplayChar(c);
             extLength++;
         }
 
@@ -610,6 +612,9 @@ public static class FloppyImageLoader
             nameLength = extStart;
         return new string(nameBuffer[..nameLength]);
     }
+
+    private static char FormatDosDisplayChar(byte value) =>
+        value is >= 0x20 and <= 0x7E ? (char)value : '?';
 
     private readonly record struct FloppyGeometry(int Tracks, int Sides, int SectorsPerTrack);
 

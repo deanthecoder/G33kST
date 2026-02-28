@@ -218,11 +218,13 @@ public sealed class AtariST : IMachine, IMachineSnapshotter, IHardResettableMach
         // Create CPU
         Cpu = new Cpu(bus)
         {
-            InterruptAcknowledge = ResolveInterruptAcknowledge
+            InterruptAcknowledge = ResolveInterruptAcknowledge,
+            EnableTraceExceptions = true
         };
 
         // Create minimal low-resolution video source.
         m_video = new Shifter(bus, Descriptor.CpuHz, Descriptor.VideoHz);
+        m_shifterRegisters.DynamicRead8 = m_video.TryReadDynamicRegister;
     }
 
     public void Reset()
