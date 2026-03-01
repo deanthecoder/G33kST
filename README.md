@@ -1,58 +1,72 @@
 [![Twitter URL](https://img.shields.io/twitter/url/https/twitter.com/deanthecoder.svg?style=social&label=Follow%20%40deanthecoder)](https://twitter.com/deanthecoder)
 
-<p align="center">xs
+<p align="center">
   <img src="img/g33kst.png" alt="G33kST Logo">
 </p>
 
 # G33kST
-A cross-platform Avalonia-based Atari ST emulator.
+A cross-platform Atari ST (520 STFM) emulator written in C#/.NET with an Avalonia UI.
 
-## Purpose
-After building a [ZX Spectrum emulator](https://github.com/deanthecoder/ZXSpeculator), a [Game Boy emulator](https://github.com/deanthecoder/G33kBoy), and a [Sega Master System emulator](https://github.com/deanthecoder/MasterG33k), I wanted to tackle the Atari ST.
-G33kST is my way of learning its hardware properly, starting from a pragmatic and reusable Motorola 68000 core.
+This is a work-in-progress emulator focused on getting real software running reliably, with a pragmatic Motorola 68000 core designed to be reusable in other retro projects.
+
+## Screenshots
+<table>
+  <tr>
+    <td><img src="img/st-ocean-intro.png" alt="Ocean intro" width="100%"></td>
+    <td><img src="img/st-wizball-title.png" alt="Wizball title screen" width="100%"></td>
+    <td><img src="img/st-robocop-title.png" alt="Robocop title screen" width="100%"></td>
+  </tr>
+  <tr>
+    <td><img src="img/st-buggy-boy-title.png" alt="Buggy Boy title screen" width="100%"></td>
+    <td><img src="img/st-tos-desktop.png" alt="EmuTOS desktop" width="100%"></td>
+    <td><img src="img/st-golden-axe-title.png" alt="Golden Axe title screen" width="100%"></td>
+  </tr>
+</table>
+
+## Quick start
+1. Install the .NET 9 SDK.
+2. Run the UI: `dotnet run --project G33kST/G33kST.csproj`
+3. Insert a floppy image:
+   - Menu: `File -> Floppy -> Insert Disk (A:)...` (Ctrl/Command+O)
+   - Drag and drop `.st`, `.stx`, or `.zip` onto the window (quick path)
+4. Select a ROM (optional):
+   - Menu: `File -> System ROM -> Use Bundled EmuTOS` or `Choose TOS...`
+
+## What you can do
+- Boot into EmuTOS and reach the desktop.
+- Load floppy images (`.st`, `.stx`, `.zip`) via the UI menu and MRU list.
+- Save screenshots and recordings from the `File -> Capture` menu.
+- Save/load emulator snapshots (`.stsnap`).
 
 ## Status
-- Early bring-up.
-- Focus is on CPU correctness, basic memory mapping, and a minimal boot path.
+- Early bring-up, but it's past "hello world": EmuTOS boots and a growing set of titles run.
+- Expect rough edges (accuracy gaps, missing peripherals, and the occasional crash).
 
-## Pragmatic compatibility notes
-- Goal is to run Atari ST software first, then improve edge-case accuracy where needed.
-- Some exception-heavy CPU behavior (for example, full 68000 address-error frame handling) may be deferred unless real software depends on it.
-- Current single-step tests temporarily treat expected address-error cases as skipped until full exception flow is implemented.
+## Controls (default)
+- Mouse: Move/click inside the display area.
+- Keyboard: Mapped to ST keys (including function keys).
+- Joystick: Toggle host keyboard-to-joystick routing with `Ctrl+J` / `⌘+J` (off by default, not persisted).
+  - With joystick input enabled: arrow keys = directions, `Z` = fire, `A` = auto-fire.
 
-## Deferred behavior (post phase 1)
-- `RESET` is currently privilege-gated; external bus/device reset side effects are still to be modeled.
-- `STOP` currently follows the single-step test harness expectation; full halted-state + interrupt wake behavior is still to be modeled.
-- Full 68000 address-error/bus-error stack frame behavior is still to be modeled.
-
-## CPU roadmap (toward full 68000 support)
-- [x] Add an opcode-completeness audit so legal opcodes are implemented and illegal ones route to the exception path.
-- [x] Implement broad instruction coverage and status-flag behavior validated by single-step suites.
-- [x] Add baseline cycle accounting (`Cpu.CyclesSinceCpuStart`) with pragmatic per-instruction timing.
-- [x] Boot EmuTOS to desktop as a software-level smoke test.
-- [ ] Complete remaining exception/interrupt edge behavior (detailed bus/address error frames, precise trace flow, and full interrupt edge cases).
-- [ ] Complete execution-state edge behavior for `STOP`/halt/wake and full reset side effects.
-- [ ] Tighten timing accuracy (EA + exception timing, and only then case-by-case cycle tuning where compatibility needs it).
-- [ ] Improve prefetch fidelity where software depends on queue refill/flush details.
-- [ ] Expand platform bring-up for ST peripherals (floppy path, DMA/FDC behavior, GEM-visible device behavior).
-
-Current note for exception/interrupt work:
-- Basic interrupt request + acknowledge plumbing is in place (`RequestInterrupt`, autovector/spurious/explicit vector result support, and interrupt mask update on entry).
-- Trace exception entry support exists behind `EnableTraceExceptions` so single-step compatibility can remain stable while the behavior is being integrated.
+## Keyboard shortcuts
+- Reset: `Ctrl+R` / `⌘+R`
+- Hard reset: `Ctrl+Shift+R` / `⌘+Shift+R`
+- Insert disk (A:): `Ctrl+O` / `⌘+O`
+- Choose TOS: `Ctrl+Shift+O` / `⌘+Shift+O`
+- Screenshot: `Ctrl+S` / `⌘+S`
+- Toggle recording: `Ctrl+M` / `⌘+M`
+- Toggle joystick input: `Ctrl+J` / `⌘+J`
+- Quit: `Ctrl+Q` / `⌘+Q`
 
 ## Highlights
-- **68000 core** - A clean, reusable Motorola 68000 implementation (work in progress).
-- **Shared core utilities** - `DTC.Core` provides commands, extensions, converters, and Avalonia helpers shared across projects.
-- **Shared emulator host** - `DTC.Emulation` is the shared host repo used to write each emulator in this family.
-- **Avalonia UI shell** - A cross-platform desktop shell will host the emulator.
-- **Unit tests** - NUnit-based tests will validate CPU behavior and core subsystems.
+- **Boots EmuTOS**: enough bring-up to reach the desktop and run a growing set of titles.
+- **Disk images**: load `.st`, `.stx`, and `.zip` via the UI (plus drag and drop for `.st`/`.zip`).
+- **Capture tools**: screenshots, recording, and snapshots for quick testing/sharing.
+- **Cross-platform UI**: Avalonia desktop shell with menus, MRU lists, and shortcuts.
 
-## Input shortcuts
-- `Ctrl+J` / `⌘+J` toggles joystick input mode (off by default, not persisted).
-- With joystick input enabled:
-  - Arrow keys map to joystick directions.
-  - `Z` maps to joystick fire.
-  - `A` maps to joystick auto-fire.
+## Background
+After building a [ZX Spectrum emulator](https://github.com/deanthecoder/ZXSpeculator), a [Game Boy emulator](https://github.com/deanthecoder/G33kBoy), and a [Sega Master System emulator](https://github.com/deanthecoder/MasterG33k), I wanted to tackle the Atari ST.
+G33kST is my way of learning its hardware properly, starting from a pragmatic and reusable Motorola 68000 core.
 
 ## Test data
 The single-step 68000 test data comes from the excellent `m68000` repo by SingleStepTests, used under its license:
