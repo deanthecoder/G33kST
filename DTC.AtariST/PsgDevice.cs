@@ -109,6 +109,12 @@ public sealed class PsgDevice : IMemDevice, IAudioSource
     public event Action<byte> PortAChanged;
 
     /// <summary>
+    /// Optional transform applied when reading PSG port A (register 14).
+    /// Used to overlay dynamic host-input lines (for example joystick port 1).
+    /// </summary>
+    public Func<byte, byte> PortAReadTransform { get; set; }
+
+    /// <summary>
     /// Resets PSG registers and synthesis state.
     /// </summary>
     public void Reset()
@@ -138,7 +144,12 @@ public sealed class PsgDevice : IMemDevice, IAudioSource
         // Many real programs use MOVEP forms that target odd/shadow addresses.
         var offset = (int)((address - BaseAddress) & 0x03);
         if (offset is 0 or 2)
-            return m_registers[m_selectedRegister];
+        {
+            var value = m_registers[m_selectedRegister];
+            if (m_selectedRegister == PortARegister && PortAReadTransform != null)
+                value = PortAReadTransform(value);
+            return value;
+        }
         return 0xFF;
     }
 

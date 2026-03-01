@@ -76,6 +76,11 @@ public sealed class AciaIkbdDevice : IMemDevice
     private const byte JoystickBitLeft = 0x04;
     private const byte JoystickBitRight = 0x08;
     private const byte JoystickBitFire = 0x80;
+    private const byte CursorUpScanCode = 0x48;
+    private const byte CursorLeftScanCode = 0x4B;
+    private const byte CursorRightScanCode = 0x4D;
+    private const byte CursorDownScanCode = 0x50;
+    private const byte Joystick0FireScanCode = 0x74;
     private const byte IkbdResetCommand = 0x80;
     private const byte IkbdResetParameter = 0x01;
     private const byte IkbdResetCompleteCode = 0xF1;
@@ -400,11 +405,18 @@ public sealed class AciaIkbdDevice : IMemDevice
 
         lock (m_stateSync)
         {
+            DropStaleTransientInputBacklogForJoystickNoLock();
+            var previousStateByte = m_lastJoystickStateBytes[joystickIndex];
             m_lastJoystickStateBytes[joystickIndex] = stateByte;
             if (m_outputPaused)
                 return;
             if (m_joystickDisabled)
                 return;
+            if (IsJoystickCursorKeycodeModeNoLock())
+            {
+                QueueJoystickCursorKeycodesNoLock(joystickIndex, previousStateByte, stateByte);
+                return;
+            }
 
             if (m_joystickMonitoringModeEnabled)
             {
@@ -809,7 +821,11 @@ public sealed class AciaIkbdDevice : IMemDevice
         {
             WarnUnsupportedFeatureOnceNoLock(
                 UnsupportedFeatureWarningFlag.JoystickCursorKeycodes,
-                "IKBD joystick cursor-keycode mode (0x19) received, but keycode output mode is not implemented.");
+                "IKBD joystick cursor-keycode mode (0x19) enabled. Keycode repeat timing parameters are currently not applied.");
+            m_joystickEventModeEnabled = true;
+            m_joystickMonitoringModeEnabled = true;
+            m_joystickDisabled = false;
+            QueueJoystickCursorKeycodesNoLock(0, 0, m_lastJoystickStateBytes[0]);
             return;
         }
 
@@ -917,8 +933,12 @@ public sealed class AciaIkbdDevice : IMemDevice
         if (command is IkbdReportJoystickModeEventCommand or IkbdReportJoystickModeInterrogateCommand or IkbdReportJoystickModeKeycodeCommand)
         {
             LogIkbdCommandOnceNoLock(command, parameters, "IKBD joystick mode report request handled.");
-            var mode = m_joystickEventModeEnabled ? (byte)0x14 : (byte)0x15;
-            if (m_joystickMonitoringModeEnabled)
+            var mode = IsJoystickCursorKeycodeModeNoLock()
+                ? (byte)0x19
+                : m_joystickEventModeEnabled
+                    ? (byte)0x14
+                    : (byte)0x15;
+            if (m_joystickMonitoringModeEnabled && !IsJoystickCursorKeycodeModeNoLock())
                 mode = 0x17;
             QueueStatusResponseNoLock(mode, 0, 0, 0, 0, 0, 0);
             return;
@@ -1026,6 +1046,19 @@ public sealed class AciaIkbdDevice : IMemDevice
         DropQueuedBytesByKindNoLock(ReceiveByteKind.JoystickMonitoring);
     }
 
+    private void DropStaleTransientInputBacklogForJoystickNoLock()
+    {
+        if (m_keyboardReceiveQueue.Count == 0)
+            return;
+
+        if (!HasOnlyDroppableBacklogBeforeJoystickNoLock())
+            return;
+
+        DropQueuedBytesByKindNoLock(ReceiveByteKind.MousePacket);
+        DropQueuedBytesByKindNoLock(ReceiveByteKind.JoystickEvent);
+        DropQueuedBytesByKindNoLock(ReceiveByteKind.JoystickMonitoring);
+    }
+
     private bool HasOnlyDroppableBacklogBeforeKeyboardNoLock()
     {
         foreach (var kind in m_keyboardReceiveKinds)
@@ -1033,6 +1066,21 @@ public sealed class AciaIkbdDevice : IMemDevice
             if (kind is ReceiveByteKind.MousePacket or
                 ReceiveByteKind.JoystickEvent or
                 ReceiveByteKind.JoystickInterrogateResponse or
+                ReceiveByteKind.JoystickMonitoring)
+                continue;
+
+            return false;
+        }
+
+        return m_keyboardReceiveKinds.Count > 0;
+    }
+
+    private bool HasOnlyDroppableBacklogBeforeJoystickNoLock()
+    {
+        foreach (var kind in m_keyboardReceiveKinds)
+        {
+            if (kind is ReceiveByteKind.MousePacket or
+                ReceiveByteKind.JoystickEvent or
                 ReceiveByteKind.JoystickMonitoring)
                 continue;
 
@@ -1189,6 +1237,31 @@ public sealed class AciaIkbdDevice : IMemDevice
         var directionBits = (byte)(((m_lastJoystickStateBytes[0] & 0x0F) << 4) | (m_lastJoystickStateBytes[1] & 0x0F));
         EnqueueKeyboardByteNoLock(fireBits, ReceiveByteKind.JoystickMonitoring);
         EnqueueKeyboardByteNoLock(directionBits, ReceiveByteKind.JoystickMonitoring);
+    }
+
+    private bool IsJoystickCursorKeycodeModeNoLock() =>
+        m_joystickEventModeEnabled && m_joystickMonitoringModeEnabled && !m_joystickDisabled;
+
+    private void QueueJoystickCursorKeycodesNoLock(byte joystickIndex, byte previousStateByte, byte currentStateByte)
+    {
+        if (joystickIndex != 0)
+            return;
+
+        QueueJoystickKeycodeTransitionNoLock(previousStateByte, currentStateByte, JoystickBitUp, CursorUpScanCode);
+        QueueJoystickKeycodeTransitionNoLock(previousStateByte, currentStateByte, JoystickBitDown, CursorDownScanCode);
+        QueueJoystickKeycodeTransitionNoLock(previousStateByte, currentStateByte, JoystickBitLeft, CursorLeftScanCode);
+        QueueJoystickKeycodeTransitionNoLock(previousStateByte, currentStateByte, JoystickBitRight, CursorRightScanCode);
+        QueueJoystickKeycodeTransitionNoLock(previousStateByte, currentStateByte, JoystickBitFire, Joystick0FireScanCode);
+    }
+
+    private void QueueJoystickKeycodeTransitionNoLock(byte previousStateByte, byte currentStateByte, byte stateMask, byte scanCode)
+    {
+        var wasPressed = (previousStateByte & stateMask) != 0;
+        var isPressed = (currentStateByte & stateMask) != 0;
+        if (wasPressed == isPressed)
+            return;
+
+        EnqueueKeyboardByteNoLock(isPressed ? scanCode : (byte)(scanCode | 0x80));
     }
 
     private void WarnUnsupportedFeatureOnceNoLock(UnsupportedFeatureWarningFlag flag, string message)

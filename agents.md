@@ -34,6 +34,25 @@ Initial target: **Atari 520 STFM**
 - Regression note: enabling port-0 mirroring by default caused real-software breakage (Wizball + EmuTOS panic on fire-button press, e.g. panic PC around `0x00FC29C2`).
 - If changing joystick routing or IKBD packet behavior, validate with focused joystick tests and at least one real-software smoke test.
 
+## Recent Compatibility Notes (Do Not Regress)
+- Input stability snapshot (Golden Axe / Wizball / Ikari Warriors):
+  - Keep host joystick routed to ST port 1 by default; do not force port-0 mirroring globally.
+  - Keep IKBD command handling broad enough for real-title control paths (including joystick monitoring/report/status commands).
+  - Keep IKBD pause/resume semantics: after `0x13` (pause), any valid IKBD command should resume output.
+  - Keep `0x12` (disable mouse reporting) dropping already-queued mouse bytes to avoid stale mouse packets polluting joystick paths.
+  - Keep MFP level-6 IRQ acknowledge using live MFP pending-bit selection at ack time; if no source is pending, fall back to autovector (not spurious vector 24).
+- Xenon 2 + similar titles depend on ST-accurate Shifter behaviour: ignore STE low-byte screen base (`$FF820D`) on STFM, latch screen base at frame start, and expose dynamic video counter reads at `$FF8205/$FF8207`.
+- YM2149 PSG register access must mirror across `$FF8800-$FF88FF` and decode by low address bits (including odd/shadow addresses used by some MOVEP-style code).
+- WD1772/FDC emulation should track physical head position separately from track register; STEP direction/update semantics and READ ADDRESS track byte should reflect physical head track.
+- Keep ACIA keyboard empty-data reads returning the last latched byte (not forced zero), to avoid EmuTOS/input regressions.
+- IKBD input pacing regression note: deferred IRQ reassert logic must not be applied to mouse-packet bytes, or TOS mouse movement becomes bursty/jumpy after boot. Keep joystick-related deferred reassert behavior without reintroducing mouse lag.
+- Keep one-time IKBD warning logs for partially implemented mouse/joystick modes (e.g. threshold, Y-origin, keycode/monitoring variants) so title-specific control-path issues are diagnosable from runtime logs.
+- App/UI "Hard Reset" is expected to be a true cold reset: clear volatile RAM state (including backing address-space memory), then reset devices/CPU.
+- Keep warm reset (`Reset`) semantics distinct from hard/cold reset (`HardReset`) to avoid reintroducing post-game state leakage into TOS boots.
+- Keep STFM blitter window behaviour conservative: treating it as open bus caused EmuTOS UI regression (missing mouse cursor/menu rendering); current expectation is bus-error semantics.
+- In machine reset sequencing, apply boot video mode/register resets before `Shifter.Reset()` so first frame after reset is rendered from clean register state.
+- Runtime trace noise should stay minimal in shipping builds (e.g., UI `LogToTrace` remains debug-only).
+
 ## 68000 CPU Guidance
 ### Scope
 - Implement the 68000 **architecturally correctly** (instructions, addressing modes, exceptions, privilege) but allow pragmatic simplifications where they do not break real software.

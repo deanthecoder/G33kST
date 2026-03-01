@@ -199,6 +199,43 @@ public sealed class AciaIkbdDeviceTests
     }
 
     [Test]
+    public void QueueJoystickStateShouldDropStaleTransientBacklogAndKeepLatestJoystickEvent()
+    {
+        var device = new AciaIkbdDevice();
+
+        device.QueueRelativeMousePacket(3, -1, isLeftButtonPressed: false, isRightButtonPressed: false);
+        device.QueueJoystickState(1, new JoystickState(
+            IsUpPressed: false,
+            IsDownPressed: false,
+            IsLeftPressed: false,
+            IsRightPressed: true,
+            IsFirePressed: false));
+        device.QueueJoystickState(1, new JoystickState(
+            IsUpPressed: false,
+            IsDownPressed: false,
+            IsLeftPressed: false,
+            IsRightPressed: false,
+            IsFirePressed: true));
+
+        var queuedBeforeRead = device.PendingReceiveQueueCount;
+        var mouseBytesBeforeRead = device.PendingMousePacketByteCount;
+        var joystickBytesBeforeRead = device.PendingJoystickEventByteCount;
+        var header = device.Read8(KeyboardDataAddress);
+        var state = device.Read8(KeyboardDataAddress);
+        var statusAfterRead = device.Read8(KeyboardStatusAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(queuedBeforeRead, Is.EqualTo(2), "Expected stale transient IKBD packets to be replaced by the latest joystick event.");
+            Assert.That(mouseBytesBeforeRead, Is.Zero);
+            Assert.That(joystickBytesBeforeRead, Is.EqualTo(2));
+            Assert.That(header, Is.EqualTo(0xFF));
+            Assert.That(state, Is.EqualTo(0x80));
+            Assert.That(statusAfterRead & 0x01, Is.Zero);
+        });
+    }
+
+    [Test]
     public void QueueRelativeMousePacketShouldExposeHeaderAndSignedDeltas()
     {
         var device = new AciaIkbdDevice();
@@ -747,6 +784,58 @@ public sealed class AciaIkbdDeviceTests
             Assert.That(fireBits, Is.EqualTo(0x01));
             Assert.That(directionBits, Is.EqualTo(0x08));
         });
+    }
+
+    [Test]
+    public void JoystickCursorKeycodeModeShouldEmitMakeAndBreakCodesForJoystick0()
+    {
+        var device = new AciaIkbdDevice();
+
+        device.Write8(KeyboardDataAddress, 0x19);
+        device.Write8(KeyboardDataAddress, 0x00);
+        device.Write8(KeyboardDataAddress, 0x00);
+        device.Write8(KeyboardDataAddress, 0x00);
+        device.Write8(KeyboardDataAddress, 0x00);
+        device.Write8(KeyboardDataAddress, 0x00);
+        device.Write8(KeyboardDataAddress, 0x00);
+
+        device.QueueJoystickState(0, new JoystickState(
+            IsUpPressed: false,
+            IsDownPressed: false,
+            IsLeftPressed: false,
+            IsRightPressed: false,
+            IsFirePressed: true));
+        device.QueueJoystickState(0, JoystickState.Neutral);
+
+        var fireMake = device.Read8(KeyboardDataAddress);
+        var fireBreak = device.Read8(KeyboardDataAddress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(fireMake, Is.EqualTo(0x74));
+            Assert.That(fireBreak, Is.EqualTo(0xF4));
+        });
+    }
+
+    [Test]
+    public void JoystickCursorKeycodeModeShouldReportModeByte0x19()
+    {
+        var device = new AciaIkbdDevice();
+
+        device.Write8(KeyboardDataAddress, 0x19);
+        device.Write8(KeyboardDataAddress, 0x01);
+        device.Write8(KeyboardDataAddress, 0x01);
+        device.Write8(KeyboardDataAddress, 0x01);
+        device.Write8(KeyboardDataAddress, 0x01);
+        device.Write8(KeyboardDataAddress, 0x01);
+        device.Write8(KeyboardDataAddress, 0x01);
+        device.Write8(KeyboardDataAddress, 0x99);
+
+        var statusReport = new byte[8];
+        for (var i = 0; i < statusReport.Length; i++)
+            statusReport[i] = device.Read8(KeyboardDataAddress);
+
+        Assert.That(statusReport, Is.EqualTo(new byte[] { 0xF6, 0x19, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }));
     }
 
     [Test]

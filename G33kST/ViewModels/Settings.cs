@@ -29,6 +29,7 @@ public sealed class Settings : UserSettingsBase
         IsCpuHistoryTracked = false;
         IsCpuExceptionCaptureEnabled = false;
         IsPalVideoRegion = false;
+        IsJoystickInputEnabled = true;
     }
 
     public bool IsSoundEnabled
@@ -99,6 +100,15 @@ public sealed class Settings : UserSettingsBase
     /// False = NTSC (60 Hz), true = PAL (50 Hz).
     /// </summary>
     public bool IsPalVideoRegion
+    {
+        get => Get<bool>();
+        set => Set(value);
+    }
+
+    /// <summary>
+    /// Persists whether host joystick keys are routed to ST joystick input.
+    /// </summary>
+    public bool IsJoystickInputEnabled
     {
         get => Get<bool>();
         set => Set(value);

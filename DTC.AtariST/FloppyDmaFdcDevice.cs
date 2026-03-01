@@ -555,7 +555,9 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
                     CompleteCommand(0, hasDmaError: false, "Restore.", GetCommandDelayTicks(opcode, isMultiSectorRead: false));
                 }
                 else
+                {
                     CompleteCommand(FdcRecordNotFoundMask, hasDmaError: true, "Restore failed: no selected drive.", GetCommandDelayTicks(opcode, isMultiSectorRead: false));
+                }
                 return;
 
             case 0x10: // Seek.
@@ -567,7 +569,9 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
                     CompleteCommand(0, hasDmaError: false, "Seek.", GetCommandDelayTicks(opcode, isMultiSectorRead: false));
                 }
                 else
+                {
                     CompleteCommand(FdcRecordNotFoundMask, hasDmaError: true, "Seek failed: no selected drive.", GetCommandDelayTicks(opcode, isMultiSectorRead: false));
+                }
                 return;
 
             case 0x20: // Step.

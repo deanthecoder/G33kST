@@ -224,7 +224,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         m_machine.ClearKeyboardInputQueue();
 
     /// <summary>
-    /// Forwards host joystick state to IKBD joystick port 0.
+    /// Forwards host joystick state to IKBD joystick port 1.
     /// </summary>
     public void UpdateJoystickState(JoystickState state) =>
         m_machine.UpdateJoystickState(state);
@@ -471,6 +471,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public void ToggleJoystickInput()
     {
         IsJoystickInputEnabled = !IsJoystickInputEnabled;
+        Settings.IsJoystickInputEnabled = IsJoystickInputEnabled;
         if (!IsJoystickInputEnabled)
             UpdateJoystickState(JoystickState.Neutral);
         OnPropertyChanged(nameof(IsJoystickInputEnabled));
@@ -1024,6 +1025,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         m_audioDevice.SetEnabled(Settings.IsSoundEnabled);
         m_screen.FrameBuffer.IsCrt = Settings.IsCrtEmulationEnabled;
         m_screen.FrameBuffer.IsRetroScanlineEffectEnabled = Settings.IsRetroScanlineEffectEnabled;
+        IsJoystickInputEnabled = Settings.IsJoystickInputEnabled;
+        if (!IsJoystickInputEnabled)
+            UpdateJoystickState(JoystickState.Neutral);
     }
 
     private string GetCaptureTitle()

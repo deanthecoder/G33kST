@@ -700,6 +700,28 @@ public sealed class AtariSTTests : TestsBase
     }
 
     [Test]
+    public void UpdateJoystickStateShouldExposeJoystick1BitsViaPsgPortARead()
+    {
+        var atariST = new AtariST();
+        atariST.Reset();
+        var bus = atariST.Cpu.Bus;
+        const uint psgRegisterSelectAddress = 0x00FF8800;
+        const byte psgPortARegister = 0x0E;
+
+        atariST.UpdateJoystickState(new JoystickState(
+            IsUpPressed: true,
+            IsDownPressed: false,
+            IsLeftPressed: false,
+            IsRightPressed: true,
+            IsFirePressed: true));
+
+        bus.Write8(psgRegisterSelectAddress, psgPortARegister);
+        var psgPortA = bus.Read8(psgRegisterSelectAddress);
+
+        Assert.That(psgPortA & 0x8F, Is.EqualTo(0x89));
+    }
+
+    [Test]
     public void UpdateJoystickStateShouldNotQueueDuplicatePacketsForUnchangedState()
     {
         var atariST = new AtariST();

@@ -59,6 +59,12 @@ public sealed class AtariST : IMachine, IMachineSnapshotter, IHardResettableMach
     private const double ReducedIkbdMousePacketHz = 100.0;
     private const double MouseInputSampleHz = 100.0;
     private const double FloppyTransferSpeedMultiplier = 1.5;
+    private const byte PsgJoystickUpBit = 0x01;
+    private const byte PsgJoystickDownBit = 0x02;
+    private const byte PsgJoystickLeftBit = 0x04;
+    private const byte PsgJoystickRightBit = 0x08;
+    private const byte PsgJoystickFireBit = 0x80;
+    private const byte PsgPortAPreservedMask = 0x70;
     private readonly Shifter m_video;
     private readonly AciaIkbdDevice m_aciaIkbd;
     private readonly ShifterRegistersDevice m_shifterRegisters;
@@ -185,6 +191,7 @@ public sealed class AtariST : IMachine, IMachineSnapshotter, IHardResettableMach
         bus.Attach(m_shifterRegisters);
         m_psg = new PsgDevice(audioSampleSink, (int)m_cpuClockHz, Descriptor.AudioSampleRateHz);
         m_psg.PortAChanged += OnPsgPortAChanged;
+        m_psg.PortAReadTransform = ReadPsgPortA;
         bus.Attach(m_psg);
         var floppyTimingCpuHz = options1.AccelerateFloppyAccess ? 0 : m_cpuClockHz;
         m_floppyController = new FloppyDmaFdcDevice(
@@ -1110,6 +1117,25 @@ public sealed class AtariST : IMachine, IMachineSnapshotter, IHardResettableMach
 
     private void OnPsgPortAChanged(byte value) =>
         m_floppyController.ApplyPortA(value);
+
+    private byte ReadPsgPortA(byte latchedValue)
+    {
+        lock (m_mouseStateSync)
+        {
+            var value = (byte)(latchedValue & PsgPortAPreservedMask);
+            if (m_joystickState.IsUpPressed)
+                value |= PsgJoystickUpBit;
+            if (m_joystickState.IsDownPressed)
+                value |= PsgJoystickDownBit;
+            if (m_joystickState.IsLeftPressed)
+                value |= PsgJoystickLeftBit;
+            if (m_joystickState.IsRightPressed)
+                value |= PsgJoystickRightBit;
+            if (m_joystickState.IsFirePressed)
+                value |= PsgJoystickFireBit;
+            return value;
+        }
+    }
 
     /// <summary>
     /// Handles MFP interrupt requests.
