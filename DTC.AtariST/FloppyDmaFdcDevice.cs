@@ -740,7 +740,7 @@ public sealed class FloppyDmaFdcDevice : IMemDevice
     private double GetReadSectorDelayMilliseconds(int sectorCount)
     {
         var sectors = Math.Max(1, sectorCount);
-        var sectorsPerSecond = (FloppyRotationRpm / 60.0) * DefaultSectorsPerTrackTiming;
+        const double sectorsPerSecond = (FloppyRotationRpm / 60.0) * DefaultSectorsPerTrackTiming;
         var millisecondsPerSectorSlot = 1000.0 / sectorsPerSecond;
         return (sectors * millisecondsPerSectorSlot) / m_transferSpeedMultiplier;
     }

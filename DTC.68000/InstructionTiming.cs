@@ -196,7 +196,7 @@ public static class InstructionTiming
     /// </summary>
     public static uint GetUnaryTestCycles(OperandSize size, EffectiveAddress source)
     {
-        var baseCycles = 4u;
+        const uint baseCycles = 4u;
         return baseCycles + GetDataEffectiveAddressCycles(size, source);
     }
 

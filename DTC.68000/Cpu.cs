@@ -379,7 +379,7 @@ public sealed class Cpu : CpuBase
         {
             opcode = FetchPcWord();
             var instruction = InstructionDecoder.Decode(opcode) ?? throw new NotImplementedException($"Opcode 0x{opcode:X4} is not implemented.");
-            string instructionText = null;
+            const string instructionText = null;
 #if DEBUG
             if (HasInstructionTextDebugger)
                 instructionText = InstructionTraceTextFormatter.Format(opcode, instruction, this, opcodeAddress);

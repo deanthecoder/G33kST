@@ -117,5 +117,4 @@ public static class BitwiseLogicalInstructionHelpers
                 throw new ArgumentOutOfRangeException(nameof(size), size, null);
         }
     }
-
 }

@@ -1354,7 +1354,7 @@ public sealed class AtariSTTests : TestsBase
         bus.Write16BigEndian(paletteBaseRegister + 2, 0x0700); // index 1 = red
         bus.Write16BigEndian(paletteBaseRegister + 4, 0x0070); // index 2 = green
 
-        var line1A = screenBaseA + lowResBytesPerLine;
+        const uint line1A = screenBaseA + lowResBytesPerLine;
         bus.Write16BigEndian(line1A, 0x8000); // plane 0 => pixel index 1 (red)
         bus.Write16BigEndian(line1A + 2, 0x0000);
         bus.Write16BigEndian(line1A + 4, 0x0000);
